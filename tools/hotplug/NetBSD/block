@@ -19,8 +19,14 @@ error() {
 
 xpath=$1
 xstatus=$2
-xtype=$(xenstore-read "$xpath/type")
 xparams=$(xenstore-read "$xpath/params")
+if [ -b $xparams ]; then
+	xtype="phy"
+elif [ -f $xparams ]; then
+	xtype="file"
+else
+	error "invalid file type"
+fi
 
 case $xstatus in
 6)
