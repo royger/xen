@@ -102,6 +102,14 @@ static void datacopier_readable(libxl__egc *egc, libxl__ev_fd *ev,
     libxl__datacopier_state *dc = CONTAINER_OF(ev, *dc, toread);
     STATE_AO_GC(dc->ao);
 
+    if (revents & POLLHUP) {
+        LOG(DEBUG, "received POLLHUP on %s during copy of %s, "
+                   "killing the bootloader process",
+                   dc->readwhat, dc->copywhat);
+        datacopier_callback(egc, dc, -2, 0);
+        return;
+    }
+
     if (revents & ~POLLIN) {
         LOG(ERROR, "unexpected poll event 0x%x (should be POLLIN)"
             " on %s during copy of %s", revents, dc->readwhat, dc->copywhat);
@@ -162,6 +170,14 @@ static void datacopier_writable(libxl__egc *egc, libxl__ev_fd *ev,
                                 int fd, short events, short revents) {
     libxl__datacopier_state *dc = CONTAINER_OF(ev, *dc, towrite);
     STATE_AO_GC(dc->ao);
+
+    if (revents & POLLHUP) {
+        LOG(DEBUG, "received POLLHUP on %s during copy of %s, "
+                   "killing the bootloader process",
+                   dc->writewhat, dc->copywhat);
+        datacopier_callback(egc, dc, -2, 0);
+        return;
+    }
 
     if (revents & ~POLLOUT) {
         LOG(ERROR, "unexpected poll event 0x%x (should be POLLOUT)"

@@ -2073,6 +2073,7 @@ typedef struct libxl__datacopier_buf libxl__datacopier_buf;
  *     errnoval==0 means we got eof and all data was written
  *     errnoval!=0 means we had a read error, logged
  * onwrite==-1 means some other internal failure, errnoval not valid, logged
+ * onwrite==-2 means we got a POLLHUP, errnoval not valid, logged
  * in all cases copier is killed before calling this callback */
 typedef void libxl__datacopier_callback(libxl__egc *egc,
      libxl__datacopier_state *dc, int onwrite, int errnoval);

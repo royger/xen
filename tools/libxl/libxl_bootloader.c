@@ -285,8 +285,8 @@ static void bootloader_abort(libxl__egc *egc,
     libxl__datacopier_kill(&bl->display);
     if (libxl__ev_child_inuse(&bl->child)) {
         r = kill(bl->child.pid, SIGTERM);
-        if (r) LOGE(WARN, "after failure, failed to kill bootloader [%lu]",
-                    (unsigned long)bl->child.pid);
+        if (r) LOGE(WARN, "%sfailed to kill bootloader [%lu]",
+                    rc ? "after failure, " : "", (unsigned long)bl->child.pid);
     }
     bl->rc = rc;
 }
@@ -567,7 +567,10 @@ static void bootloader_copyfail(libxl__egc *egc, const char *which,
     STATE_AO_GC(bl->ao);
     if (!onwrite && !errnoval)
         LOG(ERROR, "unexpected eof copying %s", which);
-    bootloader_abort(egc, bl, ERROR_FAIL);
+    if (onwrite == -2)
+        bootloader_abort(egc, bl, 0);
+    else
+        bootloader_abort(egc, bl, ERROR_FAIL);
 }
 static void bootloader_keystrokes_copyfail(libxl__egc *egc,
        libxl__datacopier_state *dc, int onwrite, int errnoval)
