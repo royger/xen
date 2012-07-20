@@ -2923,12 +2923,13 @@ static int libxl__device_from_vfb(libxl__gc *gc, uint32_t domid,
     return 0;
 }
 
-int libxl_device_vfb_add(libxl_ctx *ctx, uint32_t domid, libxl_device_vfb *vfb)
+void libxl__device_vfb_add(libxl__egc *egc, uint32_t domid,
+                           libxl_device_vfb *vfb, libxl__ao_device *aodev)
 {
-    GC_INIT(ctx);
+    STATE_AO_GC(aodev->ao);
     flexarray_t *front;
     flexarray_t *back;
-    libxl__device device;
+    libxl__device *device;
     int rc;
 
     rc = libxl__device_vfb_setdefault(gc, vfb);
@@ -2945,7 +2946,8 @@ int libxl_device_vfb_add(libxl_ctx *ctx, uint32_t domid, libxl_device_vfb *vfb)
         goto out_free;
     }
 
-    rc = libxl__device_from_vfb(gc, domid, vfb, &device);
+    GCNEW(device);
+    rc = libxl__device_from_vfb(gc, domid, vfb, device);
     if (rc != 0) goto out_free;
 
     flexarray_append_pair(back, "frontend-id", libxl__sprintf(gc, "%d", domid));
@@ -2975,16 +2977,22 @@ int libxl_device_vfb_add(libxl_ctx *ctx, uint32_t domid, libxl_device_vfb *vfb)
                           libxl__sprintf(gc, "%d", vfb->backend_domid));
     flexarray_append_pair(front, "state", libxl__sprintf(gc, "%d", 1));
 
-    libxl__device_generic_add(gc, XBT_NULL, &device,
+    libxl__device_generic_add(gc, XBT_NULL, device,
                              libxl__xs_kvs_of_flexarray(gc, back, back->count),
                              libxl__xs_kvs_of_flexarray(gc, front, front->count));
+
+    aodev->dev = device;
+    aodev->action = DEVICE_CONNECT;
+    libxl__wait_device_connection(egc, aodev);
+
     rc = 0;
 out_free:
     flexarray_free(front);
     flexarray_free(back);
 out:
-    GC_FREE;
-    return rc;
+    aodev->rc = rc;
+    if (rc) aodev->callback(egc, aodev);
+    return;
 }
 
 /******************************************************************************/
@@ -3055,6 +3063,7 @@ DEFINE_DEVICE_REMOVE(vfb, destroy, 1)
  * libxl_device_disk_add
  * libxl_device_nic_add
  * libxl_device_vkb_add
+ * libxl_device_vfb_add
  */
 
 #define DEFINE_DEVICE_ADD(type)                                         \
@@ -3083,6 +3092,9 @@ DEFINE_DEVICE_ADD(nic)
 
 /* vkb */
 DEFINE_DEVICE_ADD(vkb)
+
+/* vfb */
+DEFINE_DEVICE_ADD(vfb)
 
 #undef DEFINE_DEVICE_ADD
 
