@@ -2154,19 +2154,19 @@ static char * libxl__alloc_vdev(libxl__gc *gc, const char *blkdev_start,
     return NULL;
 }
 
-char * libxl__device_disk_local_attach(libxl__gc *gc,
-        const libxl_device_disk *in_disk,
-        libxl_device_disk *disk,
-        const char *blkdev_start)
+void libxl__device_disk_local_initiate_attach(libxl__egc *egc,
+                                     libxl__disk_local_state *dls)
 {
-    libxl_ctx *ctx = gc->owner;
+    STATE_AO_GC(dls->ao);
+    libxl_ctx *ctx = CTX;
     char *dev = NULL, *be_path = NULL;
-    char *ret = NULL;
     int rc;
     libxl__device device;
+    const libxl_device_disk *in_disk = dls->in_disk;
+    libxl_device_disk *disk = &dls->disk;
+    const char *blkdev_start = dls->blkdev_start;
 
-    if (in_disk->pdev_path == NULL)
-        return NULL;
+    assert(in_disk->pdev_path);
 
     memcpy(disk, in_disk, sizeof(libxl_device_disk));
     disk->pdev_path = libxl__strdup(gc, in_disk->pdev_path);
@@ -2202,6 +2202,7 @@ char * libxl__device_disk_local_attach(libxl__gc *gc,
             default:
                 LIBXL__LOG(ctx, LIBXL__LOG_ERROR,
                            "unrecognized disk format: %d", disk->format);
+                rc = ERROR_FAIL;
                 break;
             }
             break;
@@ -2210,6 +2211,7 @@ char * libxl__device_disk_local_attach(libxl__gc *gc,
                 if (device_disk_add(gc, LIBXL_TOOLSTACK_DOMID, disk,
                                     (void *) libxl__alloc_vdev, blkdev_start)) {
                     LOG(ERROR, "libxl_device_disk_add failed");
+                    rc = ERROR_FAIL;
                     goto out;
                 }
                 dev = GCSPRINTF("/dev/%s", disk->vdev);
@@ -2221,6 +2223,7 @@ char * libxl__device_disk_local_attach(libxl__gc *gc,
         default:
             LIBXL__LOG(ctx, LIBXL__LOG_ERROR, "unrecognized disk backend "
                 "type: %d", disk->backend);
+            rc = ERROR_FAIL;
             break;
     }
 
@@ -2234,39 +2237,102 @@ char * libxl__device_disk_local_attach(libxl__gc *gc,
             goto out;
     }
     if (dev != NULL)
-        ret = strdup(dev);
-    return ret;
+        dls->diskpath = strdup(dev);
+
+    dls->callback(egc, dls, 0);
+    return;
 
  out:
-    libxl__device_disk_local_detach(gc, disk);
-    return NULL;
+    assert(rc);
+    dls->rc = rc;
+    libxl__device_disk_local_initiate_detach(egc, dls);
+    return;
 }
 
-int libxl__device_disk_local_detach(libxl__gc *gc, libxl_device_disk *disk)
+/* Callbacks for local detach */
+
+static void local_device_detach_cb(libxl__egc *egc, libxl__ao_device *aodev);
+
+void libxl__device_disk_local_initiate_detach(libxl__egc *egc,
+                                     libxl__disk_local_state *dls)
 {
+    STATE_AO_GC(dls->ao);
     int rc = 0;
+    libxl_device_disk *disk = &dls->disk;
+    libxl__device *device;
+    libxl__ao_device *aodev = &dls->aodev;
+
+    if (!dls->diskpath) goto out;
 
     switch (disk->backend) {
         case LIBXL_DISK_BACKEND_QDISK:
             if (disk->vdev != NULL) {
-                libxl_device_disk_remove(gc->owner, LIBXL_TOOLSTACK_DOMID,
-                        disk, 0);
-                /* fixme-ao */
-                rc = libxl_device_disk_destroy(gc->owner,
-                        LIBXL_TOOLSTACK_DOMID, disk, 0);
+                GCNEW(device);
+                rc = libxl__device_from_disk(gc, LIBXL_TOOLSTACK_DOMID,
+                                             disk, device);
+                if (rc != 0) goto out;
+
+                libxl__prepare_ao_device(ao, aodev);
+                aodev->action = DEVICE_DISCONNECT;
+                aodev->dev = device;
+                aodev->callback = local_device_detach_cb;
+                aodev->force = 0;
+                libxl__initiate_device_remove(egc, aodev);
+                return;
             }
-            break;
+            /* disk->vdev == NULL; fall through */
         default:
             /*
              * Nothing to do for PHYSTYPE_PHY.
              * For other device types assume that the blktap2 process is
              * needed by the soon to be started domain and do nothing.
              */
-            break;
+            goto out;
     }
 
+out:
+    if (dls->diskpath) {
+        free(dls->diskpath);
+        dls->diskpath = 0;
+    }
+    /*
+     * If there was an error in dls->rc, it means we have been called from
+     * a failed execution of libxl__device_disk_local_initiate_attach,
+     * so return the original error.
+     */
+    rc = dls->rc ? dls->rc : rc;
+    dls->callback(egc, dls, rc);
+    return;
+}
 
-    return rc;
+static void local_device_detach_cb(libxl__egc *egc, libxl__ao_device *aodev)
+{
+    STATE_AO_GC(aodev->ao);
+    libxl__disk_local_state *dls = CONTAINER_OF(aodev, *dls, aodev);
+    int rc;
+
+    if (dls->diskpath) {
+        free(dls->diskpath);
+        dls->diskpath = 0;
+    }
+
+    if (aodev->rc) {
+        LOGE(ERROR, "unable to %s %s with id %u",
+                    aodev->action == DEVICE_CONNECT ? "add" : "remove",
+                    libxl__device_kind_to_string(aodev->dev->kind),
+                    aodev->dev->devid);
+        goto out;
+    }
+
+out:
+    /*
+     * If there was an error in dls->rc, it means we have been called from
+     * a failed execution of libxl__device_disk_local_initiate_attach,
+     * so return the original error.
+     */
+    rc = dls->rc ? dls->rc : aodev->rc;
+    dls->callback(egc, dls, rc);
+    return;
 }
 
 /******************************************************************************/
