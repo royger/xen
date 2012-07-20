@@ -482,6 +482,7 @@ void libxl__ao_devices_callback(libxl__egc *egc, libxl__ao_device *aodev)
  * The following functions are defined:
  * libxl__add_disks
  * libxl__add_nics
+ * libxl__add_vkbs
  */
 
 #define DEFINE_DEVICES_ADD(type)                                               \
@@ -501,6 +502,7 @@ void libxl__ao_devices_callback(libxl__egc *egc, libxl__ao_device *aodev)
 
 DEFINE_DEVICES_ADD(disk)
 DEFINE_DEVICES_ADD(nic)
+DEFINE_DEVICES_ADD(vkb)
 
 #undef DEFINE_DEVICES_ADD
 

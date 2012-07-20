@@ -904,10 +904,18 @@ static void domcreate_rebuild_done(libxl__egc *egc,
 
     store_libxl_entry(gc, domid, &d_config->b_info);
 
-    dcs->aodevs.size = d_config->num_disks;
+    if (d_config->c_info.type == LIBXL_DOMAIN_TYPE_HVM && !d_config->num_vkbs) {
+        d_config->vkbs = libxl__zalloc(NOGC, sizeof(*d_config->vkbs));
+        libxl_device_vkb_init(&d_config->vkbs[0]);
+        d_config->num_vkbs = 1;
+    }
+
+    dcs->aodevs.size = d_config->num_disks + d_config->num_vkbs;
     dcs->aodevs.callback = domcreate_launch_dm;
     libxl__prepare_ao_devices(ao, &dcs->aodevs);
     libxl__add_disks(egc, ao, domid, 0, d_config, &dcs->aodevs);
+    libxl__add_vkbs(egc, ao, domid, d_config->num_disks, d_config,
+                    &dcs->aodevs);
 
     return;
 
@@ -930,7 +938,7 @@ static void domcreate_launch_dm(libxl__egc *egc, libxl__ao_devices *aodevs,
     libxl_ctx *const ctx = CTX;
 
     if (ret) {
-        LOG(ERROR, "unable to add disk devices");
+        LOG(ERROR, "unable to add misc devices");
         goto error_out;
     }
     for (i = 0; i < d_config->num_nics; i++) {
@@ -944,17 +952,12 @@ static void domcreate_launch_dm(libxl__egc *egc, libxl__ao_devices *aodevs,
     case LIBXL_DOMAIN_TYPE_HVM:
     {
         libxl__device_console console;
-        libxl_device_vkb vkb;
 
         ret = init_console_info(&console, 0);
         if ( ret )
             goto error_out;
         libxl__device_console_add(gc, domid, &console, state);
         libxl__device_console_dispose(&console);
-
-        libxl_device_vkb_init(&vkb);
-        libxl_device_vkb_add(ctx, domid, &vkb);
-        libxl_device_vkb_dispose(&vkb);
 
         dcs->dmss.dm.guest_domid = domid;
         if (libxl_defbool_val(d_config->b_info.device_model_stubdomain))
@@ -970,7 +973,6 @@ static void domcreate_launch_dm(libxl__egc *egc, libxl__ao_devices *aodevs,
 
         for (i = 0; i < d_config->num_vfbs; i++) {
             libxl_device_vfb_add(ctx, domid, &d_config->vfbs[i]);
-            libxl_device_vkb_add(ctx, domid, &d_config->vkbs[i]);
         }
 
         ret = init_console_info(&console, 0);
