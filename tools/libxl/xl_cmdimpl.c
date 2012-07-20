@@ -5244,7 +5244,7 @@ int main_networkattach(int argc, char **argv)
         return 0;
     }
 
-    if (libxl_device_nic_add(ctx, domid, &nic)) {
+    if (libxl_device_nic_add(ctx, domid, &nic, 0)) {
         fprintf(stderr, "libxl_device_nic_add failed.\n");
         return 1;
     }
