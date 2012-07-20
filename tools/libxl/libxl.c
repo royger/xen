@@ -2406,7 +2406,7 @@ int libxl__device_nic_setdefault(libxl__gc *gc, libxl_device_nic *nic)
                                   libxl__xen_script_dir_path()) < 0 )
         return ERROR_FAIL;
     if (!nic->nictype)
-        nic->nictype = LIBXL_NIC_TYPE_IOEMU;
+        nic->nictype = LIBXL_NIC_TYPE_VIF_IOEMU;
     return 0;
 }
 
@@ -2702,7 +2702,7 @@ const char *libxl__device_nic_devname(libxl__gc *gc,
     switch (type) {
     case LIBXL_NIC_TYPE_VIF:
         return GCSPRINTF("vif%u.%d", domid, devid);
-    case LIBXL_NIC_TYPE_IOEMU:
+    case LIBXL_NIC_TYPE_VIF_IOEMU:
         return GCSPRINTF("vif%u.%d" TAP_DEVICE_SUFFIX, domid, devid);
     default:
         abort();
