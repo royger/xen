@@ -862,10 +862,12 @@ retry_transaction:
         if (errno == EAGAIN)
             goto retry_transaction;
 
-    sdss->aodevs.size = dm_config->num_disks;
+    sdss->aodevs.size = dm_config->num_disks + dm_config->num_vkbs;
     sdss->aodevs.callback = spawn_stub_launch_dm;
     libxl__prepare_ao_devices(ao, &sdss->aodevs);
     libxl__add_disks(egc, ao, dm_domid, 0, dm_config, &sdss->aodevs);
+    libxl__add_vkbs(egc, ao, dm_domid, dm_config->num_disks, dm_config,
+                    &sdss->aodevs);
 
     free(args);
     return;
@@ -895,7 +897,7 @@ static void spawn_stub_launch_dm(libxl__egc *egc,
     uint32_t dm_domid = sdss->pvqemu.guest_domid;
 
     if (ret) {
-        LOG(ERROR, "error connecting disk devices");
+        LOG(ERROR, "error connecting misc devices");
         goto out;
      }
 
@@ -907,9 +909,6 @@ static void spawn_stub_launch_dm(libxl__egc *egc,
         libxl__device_nic_setdefault(gc, &dm_config->nics[i], dm_domid);
     }
     ret = libxl_device_vfb_add(ctx, dm_domid, &dm_config->vfbs[0]);
-    if (ret)
-        goto out;
-    ret = libxl_device_vkb_add(ctx, dm_domid, &dm_config->vkbs[0]);
     if (ret)
         goto out;
 

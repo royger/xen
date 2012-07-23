@@ -1909,6 +1909,11 @@ _hidden void libxl__device_nic_add(libxl__egc *egc, uint32_t domid,
                                    libxl_device_nic *nic,
                                    libxl__ao_device *aodev);
 
+/* AO operation to connect a vkb device */
+_hidden void libxl__device_vkb_add(libxl__egc *egc, uint32_t domid,
+                                   libxl_device_vkb *vkb,
+                                   libxl__ao_device *aodev);
+
 /* Waits for the passed device to reach state XenbusStateInitWait.
  * This is not really useful by itself, but is important when executing
  * hotplug scripts, since we need to be sure the device is in the correct
@@ -2326,6 +2331,10 @@ _hidden void libxl__add_disks(libxl__egc *egc, libxl__ao *ao, uint32_t domid,
                               libxl__ao_devices *aodevs);
 
 _hidden void libxl__add_nics(libxl__egc *egc, libxl__ao *ao, uint32_t domid,
+                             int start, libxl_domain_config *d_config,
+                             libxl__ao_devices *aodevs);
+
+_hidden void libxl__add_vkbs(libxl__egc *egc, libxl__ao *ao, uint32_t domid,
                              int start, libxl_domain_config *d_config,
                              libxl__ao_devices *aodevs);
 

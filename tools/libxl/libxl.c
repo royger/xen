@@ -2837,12 +2837,13 @@ static int libxl__device_from_vkb(libxl__gc *gc, uint32_t domid,
     return 0;
 }
 
-int libxl_device_vkb_add(libxl_ctx *ctx, uint32_t domid, libxl_device_vkb *vkb)
+void libxl__device_vkb_add(libxl__egc *egc, uint32_t domid,
+                           libxl_device_vkb *vkb, libxl__ao_device *aodev)
 {
-    GC_INIT(ctx);
+    STATE_AO_GC(aodev->ao);
     flexarray_t *front;
     flexarray_t *back;
-    libxl__device device;
+    libxl__device *device;
     int rc;
 
     rc = libxl__device_vkb_setdefault(gc, vkb);
@@ -2859,7 +2860,8 @@ int libxl_device_vkb_add(libxl_ctx *ctx, uint32_t domid, libxl_device_vkb *vkb)
         goto out_free;
     }
 
-    rc = libxl__device_from_vkb(gc, domid, vkb, &device);
+    GCNEW(device);
+    rc = libxl__device_from_vkb(gc, domid, vkb, device);
     if (rc != 0) goto out_free;
 
     flexarray_append(back, "frontend-id");
@@ -2876,16 +2878,22 @@ int libxl_device_vkb_add(libxl_ctx *ctx, uint32_t domid, libxl_device_vkb *vkb)
     flexarray_append(front, "state");
     flexarray_append(front, libxl__sprintf(gc, "%d", 1));
 
-    libxl__device_generic_add(gc, XBT_NULL, &device,
+    libxl__device_generic_add(gc, XBT_NULL, device,
                              libxl__xs_kvs_of_flexarray(gc, back, back->count),
                              libxl__xs_kvs_of_flexarray(gc, front, front->count));
+
+    aodev->dev = device;
+    aodev->action = DEVICE_CONNECT;
+    libxl__wait_device_connection(egc, aodev);
+
     rc = 0;
 out_free:
     flexarray_free(back);
     flexarray_free(front);
 out:
-    GC_FREE;
-    return rc;
+    aodev->rc = rc;
+    if (rc) aodev->callback(egc, aodev);
+    return;
 }
 
 /******************************************************************************/
@@ -3052,6 +3060,7 @@ DEFINE_DEVICE_REMOVE(vfb, destroy, 1)
 /* The following functions are defined:
  * libxl_device_disk_add
  * libxl_device_nic_add
+ * libxl_device_vkb_add
  */
 
 #define DEFINE_DEVICE_ADD(type)                                         \
@@ -3077,6 +3086,9 @@ DEFINE_DEVICE_ADD(disk)
 
 /* nic */
 DEFINE_DEVICE_ADD(nic)
+
+/* vkb */
+DEFINE_DEVICE_ADD(vkb)
 
 #undef DEFINE_DEVICE_ADD
 
