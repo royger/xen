@@ -102,10 +102,10 @@ static char ** libxl__build_device_model_args_old(libxl__gc *gc,
 {
     const libxl_domain_create_info *c_info = &guest_config->c_info;
     const libxl_domain_build_info *b_info = &guest_config->b_info;
-    const libxl_device_nic *vifs = guest_config->vifs;
+    const libxl_device_nic *nics = guest_config->nics;
     const libxl_vnc_info *vnc = libxl__dm_vnc(guest_config);
     const libxl_sdl_info *sdl = dm_sdl(guest_config);
-    const int num_vifs = guest_config->num_vifs;
+    const int num_nics = guest_config->num_nics;
     const char *keymap = dm_keymap(guest_config);
     int i;
     flexarray_t *dm_args;
@@ -159,7 +159,7 @@ static char ** libxl__build_device_model_args_old(libxl__gc *gc,
         flexarray_vappend(dm_args, "-k", keymap, NULL);
     }
     if (b_info->type == LIBXL_DOMAIN_TYPE_HVM) {
-        int ioemu_vifs = 0;
+        int ioemu_nics = 0;
         int nr_set_cpus = 0;
         char *s;
 
@@ -214,31 +214,31 @@ static char ** libxl__build_device_model_args_old(libxl__gc *gc,
                               libxl__sprintf(gc, "%s", s), NULL);
         free(s);
 
-        for (i = 0; i < num_vifs; i++) {
-            if (vifs[i].nictype == LIBXL_NIC_TYPE_IOEMU) {
+        for (i = 0; i < num_nics; i++) {
+            if (nics[i].nictype == LIBXL_NIC_TYPE_IOEMU) {
                 char *smac = libxl__sprintf(gc,
-                                   LIBXL_MAC_FMT, LIBXL_MAC_BYTES(vifs[i].mac));
+                                   LIBXL_MAC_FMT, LIBXL_MAC_BYTES(nics[i].mac));
                 const char *ifname = libxl__device_nic_devname(gc,
-                                                domid, vifs[i].devid,
+                                                domid, nics[i].devid,
                                                 LIBXL_NIC_TYPE_IOEMU);
                 flexarray_vappend(dm_args,
                                   "-net",
                                   GCSPRINTF(
                                       "nic,vlan=%d,macaddr=%s,model=%s",
-                                      vifs[i].devid, smac, vifs[i].model),
+                                      nics[i].devid, smac, nics[i].model),
                                   "-net",
                                   GCSPRINTF(
                                       "tap,vlan=%d,ifname=%s,bridge=%s,"
                                       "script=%s,downscript=%s",
-                                      vifs[i].devid, ifname, vifs[i].bridge,
+                                      nics[i].devid, ifname, nics[i].bridge,
                                       libxl_tapif_script(gc),
                                       libxl_tapif_script(gc)),
                                   NULL);
-                ioemu_vifs++;
+                ioemu_nics++;
             }
         }
         /* If we have no emulated nics, tell qemu not to create any */
-        if ( ioemu_vifs == 0 ) {
+        if ( ioemu_nics == 0 ) {
             flexarray_vappend(dm_args, "-net", "none", NULL);
         }
         if (libxl_defbool_val(b_info->u.hvm.gfx_passthru)) {
@@ -330,9 +330,9 @@ static char ** libxl__build_device_model_args_new(libxl__gc *gc,
     const libxl_domain_create_info *c_info = &guest_config->c_info;
     const libxl_domain_build_info *b_info = &guest_config->b_info;
     const libxl_device_disk *disks = guest_config->disks;
-    const libxl_device_nic *vifs = guest_config->vifs;
+    const libxl_device_nic *nics = guest_config->nics;
     const int num_disks = guest_config->num_disks;
-    const int num_vifs = guest_config->num_vifs;
+    const int num_nics = guest_config->num_nics;
     const libxl_vnc_info *vnc = libxl__dm_vnc(guest_config);
     const libxl_sdl_info *sdl = dm_sdl(guest_config);
     const char *keymap = dm_keymap(guest_config);
@@ -409,7 +409,7 @@ static char ** libxl__build_device_model_args_new(libxl__gc *gc,
     }
 
     if (b_info->type == LIBXL_DOMAIN_TYPE_HVM) {
-        int ioemu_vifs = 0;
+        int ioemu_nics = 0;
 
         if (b_info->u.hvm.serial) {
             flexarray_vappend(dm_args, "-serial", b_info->u.hvm.serial, NULL);
@@ -468,30 +468,30 @@ static char ** libxl__build_device_model_args_new(libxl__gc *gc,
                 flexarray_append(dm_args, libxl__sprintf(gc, "%d",
                                                          b_info->max_vcpus));
         }
-        for (i = 0; i < num_vifs; i++) {
-            if (vifs[i].nictype == LIBXL_NIC_TYPE_IOEMU) {
+        for (i = 0; i < num_nics; i++) {
+            if (nics[i].nictype == LIBXL_NIC_TYPE_IOEMU) {
                 char *smac = libxl__sprintf(gc,
-                                LIBXL_MAC_FMT, LIBXL_MAC_BYTES(vifs[i].mac));
+                                LIBXL_MAC_FMT, LIBXL_MAC_BYTES(nics[i].mac));
                 const char *ifname = libxl__device_nic_devname(gc,
-                                                guest_domid, vifs[i].devid,
+                                                guest_domid, nics[i].devid,
                                                 LIBXL_NIC_TYPE_IOEMU);
                 flexarray_append(dm_args, "-device");
                 flexarray_append(dm_args,
                    libxl__sprintf(gc, "%s,id=nic%d,netdev=net%d,mac=%s",
-                                                vifs[i].model, vifs[i].devid,
-                                                vifs[i].devid, smac));
+                                                nics[i].model, nics[i].devid,
+                                                nics[i].devid, smac));
                 flexarray_append(dm_args, "-netdev");
                 flexarray_append(dm_args, GCSPRINTF(
                                           "type=tap,id=net%d,ifname=%s,"
                                           "script=%s,downscript=%s",
-                                          vifs[i].devid, ifname,
+                                          nics[i].devid, ifname,
                                           libxl_tapif_script(gc),
                                           libxl_tapif_script(gc)));
-                ioemu_vifs++;
+                ioemu_nics++;
             }
         }
         /* If we have no emulated nics, tell qemu not to create any */
-        if ( ioemu_vifs == 0 ) {
+        if ( ioemu_nics == 0 ) {
             flexarray_append(dm_args, "-net");
             flexarray_append(dm_args, "none");
         }
@@ -758,8 +758,8 @@ void libxl__spawn_stub_dm(libxl__egc *egc, libxl__stub_dm_spawn_state *sdss)
     dm_config->disks = guest_config->disks;
     dm_config->num_disks = guest_config->num_disks;
 
-    dm_config->vifs = guest_config->vifs;
-    dm_config->num_vifs = guest_config->num_vifs;
+    dm_config->nics = guest_config->nics;
+    dm_config->num_nics = guest_config->num_nics;
 
     ret = libxl__domain_create_info_setdefault(gc, &dm_config->c_info);
     if (ret) goto out;
@@ -832,8 +832,8 @@ retry_transaction:
         if (ret)
             goto out_free;
     }
-    for (i = 0; i < dm_config->num_vifs; i++) {
-        ret = libxl_device_nic_add(ctx, dm_domid, &dm_config->vifs[i]);
+    for (i = 0; i < dm_config->num_nics; i++) {
+        ret = libxl_device_nic_add(ctx, dm_domid, &dm_config->nics[i]);
         if (ret)
             goto out_free;
     }
