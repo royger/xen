@@ -640,6 +640,27 @@ static int libxl__vfb_and_vkb_from_hvm_guest_config(libxl__gc *gc,
     return 0;
 }
 
+static int libxl__nics_from_hvm_guest_config(libxl__gc *gc,
+                                        const libxl_domain_config *guest_config,
+                                        libxl_device_nic *nic)
+{
+    const libxl_domain_build_info *b_info = &guest_config->b_info;
+    int i;
+
+    if (b_info->type != LIBXL_DOMAIN_TYPE_HVM)
+        return ERROR_INVAL;
+
+    for (i = 0; i < guest_config->num_nics; i++) {
+        libxl_device_nic_init(&nic[i]);
+        memcpy(&nic[i], &guest_config->nics[i], sizeof(nic[i]));
+        nic[i].nictype = LIBXL_NIC_TYPE_VIF;
+        nic[i].backend_domid = 0;
+        nic[i].devid = 0;
+    }
+
+    return 0;
+}
+
 static int libxl__write_stub_dmargs(libxl__gc *gc,
                                     int dm_domid, int guest_domid,
                                     char **args)
@@ -764,7 +785,10 @@ void libxl__spawn_stub_dm(libxl__egc *egc, libxl__stub_dm_spawn_state *sdss)
     dm_config->disks = guest_config->disks;
     dm_config->num_disks = guest_config->num_disks;
 
-    dm_config->nics = guest_config->nics;
+    GCNEW_ARRAY(dm_config->nics,
+                guest_config->num_nics * sizeof(*dm_config->nics));
+    ret = libxl__nics_from_hvm_guest_config(gc, guest_config, dm_config->nics);
+    if (ret) goto out;
     dm_config->num_nics = guest_config->num_nics;
 
     dm_config->c_info.run_hotplug_scripts =
