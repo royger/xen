@@ -913,12 +913,15 @@ static void domcreate_rebuild_done(libxl__egc *egc,
         d_config->num_vkbs = 1;
     }
 
-    dcs->aodevs.size = d_config->num_disks + d_config->num_vkbs;
+    dcs->aodevs.size = d_config->num_disks + d_config->num_vkbs +
+                       d_config->num_vfbs;
     dcs->aodevs.callback = domcreate_launch_dm;
     libxl__prepare_ao_devices(ao, &dcs->aodevs);
     libxl__add_disks(egc, ao, domid, 0, d_config, &dcs->aodevs);
     libxl__add_vkbs(egc, ao, domid, d_config->num_disks, d_config,
                     &dcs->aodevs);
+    libxl__add_vfbs(egc, ao, domid, d_config->num_disks + d_config->num_vkbs,
+                    d_config, &dcs->aodevs);
 
     return;
 
@@ -938,7 +941,6 @@ static void domcreate_launch_dm(libxl__egc *egc, libxl__ao_devices *aodevs,
     const uint32_t domid = dcs->guest_domid;
     libxl_domain_config *const d_config = dcs->guest_config;
     libxl__domain_build_state *const state = &dcs->build_state;
-    libxl_ctx *const ctx = CTX;
 
     if (ret) {
         LOG(ERROR, "unable to add misc devices");
@@ -973,10 +975,6 @@ static void domcreate_launch_dm(libxl__egc *egc, libxl__ao_devices *aodevs,
     {
         int need_qemu = 0;
         libxl__device_console console;
-
-        for (i = 0; i < d_config->num_vfbs; i++) {
-            libxl_device_vfb_add(ctx, domid, &d_config->vfbs[i]);
-        }
 
         ret = init_console_info(&console, 0);
         if ( ret )
