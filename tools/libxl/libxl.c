@@ -2379,7 +2379,8 @@ out:
 
 /******************************************************************************/
 
-int libxl__device_nic_setdefault(libxl__gc *gc, libxl_device_nic *nic)
+int libxl__device_nic_setdefault(libxl__gc *gc, libxl_device_nic *nic,
+                                 uint32_t domid)
 {
     if (!nic->mtu)
         nic->mtu = 1492;
@@ -2409,8 +2410,21 @@ int libxl__device_nic_setdefault(libxl__gc *gc, libxl_device_nic *nic)
     if ( !nic->script && asprintf(&nic->script, "%s/vif-bridge",
                                   libxl__xen_script_dir_path()) < 0 )
         return ERROR_FAIL;
-    if (!nic->nictype)
-        nic->nictype = LIBXL_NIC_TYPE_VIF_IOEMU;
+
+    switch (libxl__domain_type(gc, domid)) {
+    case LIBXL_DOMAIN_TYPE_HVM:
+        if (!nic->nictype)
+            nic->nictype = LIBXL_NIC_TYPE_VIF_IOEMU;
+        break;
+    case LIBXL_DOMAIN_TYPE_PV:
+        if (nic->nictype == LIBXL_NIC_TYPE_VIF_IOEMU)
+            return ERROR_INVAL;
+        nic->nictype = LIBXL_NIC_TYPE_VIF;
+        break;
+    default:
+        abort();
+    }
+
     return 0;
 }
 
@@ -2438,7 +2452,7 @@ void libxl__device_nic_add(libxl__egc *egc, uint32_t domid,
     char *dompath, **l;
     unsigned int nb, rc;
 
-    rc = libxl__device_nic_setdefault(gc, nic);
+    rc = libxl__device_nic_setdefault(gc, nic, domid);
     if (rc) goto out;
 
     front = flexarray_make(16, 1);
