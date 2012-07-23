@@ -592,8 +592,10 @@ void libxl__initiate_device_remove(libxl__egc *egc,
         LOG(ERROR, "unable to get info for domain %d", domid);
         goto out;
     }
-    if (QEMU_BACKEND(aodev->dev) &&
-        (info.paused || info.dying || info.shutdown)) {
+    if ((QEMU_BACKEND(aodev->dev) &&
+        (info.paused || info.dying || info.shutdown)) ||
+        (libxl_is_stubdom(CTX, aodev->dev->domid, NULL) &&
+        (aodev->dev->backend_kind == LIBXL__DEVICE_KIND_CONSOLE))) {
         /*
          * TODO: 4.2 Bodge due to QEMU, see comment on top of
          * libxl__initiate_device_remove in libxl_internal.h
