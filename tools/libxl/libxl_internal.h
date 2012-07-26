@@ -1808,6 +1808,8 @@ _hidden void libxl__prepare_ao_device(libxl__ao *ao, libxl__ao_device *aodev);
 /* Prepare a bunch of devices for addition/removal. Every ao_device in
  * ao_devices is set to 'active', and the ao_device 'base' field is set to
  * the one pointed by aodevs.
+ * Once this function is called, the aodevs->size value cannot be changed,
+ * and no further aodevs can be added to the array.
  */
 _hidden void libxl__prepare_ao_devices(libxl__ao *ao,
                                        libxl__ao_devices *aodevs);
@@ -1849,9 +1851,15 @@ struct libxl__ao_device {
  */
 typedef void libxl__devices_callback(libxl__egc*, libxl__ao_devices*, int rc);
 struct libxl__ao_devices {
-    libxl__ao_device *array;
+    libxl__ao_device **array;
     int size;
     libxl__devices_callback *callback;
+    /*
+     * if in_addition == 1 means we are currently adding devices
+     * to the array, if in_addition == 0, means we have added all
+     * the devices.
+     */
+    int in_addition;
 };
 
 /*

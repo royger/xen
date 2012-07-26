@@ -58,50 +58,6 @@ int libxl__parse_backend_path(libxl__gc *gc,
     return libxl__device_kind_from_string(strkind, &dev->backend_kind);
 }
 
-static int libxl__num_devices(libxl__gc *gc, uint32_t domid)
-{
-    char *path;
-    unsigned int num_kinds, num_devs;
-    char **kinds = NULL, **devs = NULL;
-    int i, j, rc = 0;
-    libxl__device dev;
-    libxl__device_kind kind;
-    int numdevs = 0;
-
-    path = GCSPRINTF("/local/domain/%d/device", domid);
-    kinds = libxl__xs_directory(gc, XBT_NULL, path, &num_kinds);
-    if (!kinds) {
-        if (errno != ENOENT) {
-            LOGE(ERROR, "unable to get xenstore device listing %s", path);
-            rc = ERROR_FAIL;
-            goto out;
-        }
-        num_kinds = 0;
-    }
-    for (i = 0; i < num_kinds; i++) {
-        if (libxl__device_kind_from_string(kinds[i], &kind))
-            continue;
-        if (kind == LIBXL__DEVICE_KIND_CONSOLE)
-            continue;
-
-        path = GCSPRINTF("/local/domain/%d/device/%s", domid, kinds[i]);
-        devs = libxl__xs_directory(gc, XBT_NULL, path, &num_devs);
-        if (!devs)
-            continue;
-        for (j = 0; j < num_devs; j++) {
-            path = GCSPRINTF("/local/domain/%d/device/%s/%s/backend",
-                             domid, kinds[i], devs[j]);
-            path = libxl__xs_read(gc, XBT_NULL, path);
-            if (path && libxl__parse_backend_path(gc, path, &dev) == 0) {
-                numdevs++;
-            }
-        }
-    }
-out:
-    if (rc) return rc;
-    return numdevs;
-}
-
 int libxl__nic_type(libxl__gc *gc, libxl__device *dev, libxl_nic_type *nictype)
 {
     char *snictype, *be_path;
@@ -451,9 +407,15 @@ void libxl__prepare_ao_devices(libxl__ao *ao, libxl__ao_devices *aodevs)
 
     GCNEW_ARRAY(aodevs->array, aodevs->size);
     for (int i = 0; i < aodevs->size; i++) {
-        aodevs->array[i].aodevs = aodevs;
-        libxl__prepare_ao_device(ao, &aodevs->array[i]);
+        GCNEW(aodevs->array[i]);
+        aodevs->array[i]->aodevs = aodevs;
+        libxl__prepare_ao_device(ao, aodevs->array[i]);
     }
+    /*
+     * Since we have already added all the aodevs, and marked them
+     * as active, we can mark the addition operation as finished.
+     */
+    aodevs->in_addition = 0;
 }
 
 void libxl__ao_devices_callback(libxl__egc *egc, libxl__ao_device *aodev)
@@ -463,12 +425,15 @@ void libxl__ao_devices_callback(libxl__egc *egc, libxl__ao_device *aodev)
     int i, error = 0;
 
     aodev->active = 0;
+    if (aodevs->in_addition)
+        return;
+
     for (i = 0; i < aodevs->size; i++) {
-        if (aodevs->array[i].active)
+        if (aodevs->array[i]->active)
             return;
 
-        if (aodevs->array[i].rc)
-            error = aodevs->array[i].rc;
+        if (aodevs->array[i]->rc)
+            error = aodevs->array[i]->rc;
     }
 
     aodevs->callback(egc, aodevs, error);
@@ -495,9 +460,9 @@ void libxl__ao_devices_callback(libxl__egc *egc, libxl__ao_device *aodev)
         int i;                                                                 \
         int end = start + d_config->num_##type##s;                             \
         for (i = start; i < end; i++) {                                        \
-            aodevs->array[i].callback = libxl__ao_devices_callback;            \
+            aodevs->array[i]->callback = libxl__ao_devices_callback;           \
             libxl__device_##type##_add(egc, domid, &d_config->type##s[i-start],\
-                                       &aodevs->array[i]);                     \
+                                       aodevs->array[i]);                      \
         }                                                                      \
     }
 
@@ -545,20 +510,20 @@ void libxl__devices_destroy(libxl__egc *egc, libxl__devices_remove_state *drs)
     char *path;
     unsigned int num_kinds, num_dev_xsentries;
     char **kinds = NULL, **devs = NULL;
-    int i, j, numdev = 0, rc = 0;
+    int i, j, rc = 0;
     libxl__device *dev;
     libxl__ao_devices *aodevs = &drs->aodevs;
     libxl__ao_device *aodev;
     libxl__device_kind kind;
 
-    aodevs->size = libxl__num_devices(gc, drs->domid);
-    if (aodevs->size < 0) {
-        LOG(ERROR, "unable to get number of devices for domain %u", drs->domid);
-        rc = aodevs->size;
-        goto out;
-    }
-
-    libxl__prepare_ao_devices(drs->ao, aodevs);
+    /*
+     * Initialize values of the aodevs structure manually,
+     * since we don't know the number of devices we are going
+     * to unplug yet.
+     */
+    aodevs->in_addition = 1;
+    aodevs->size = 0;
+    aodevs->array = NULL;
     aodevs->callback = devices_remove_callback;
 
     path = libxl__sprintf(gc, "/local/domain/%d/device", domid);
@@ -588,21 +553,28 @@ void libxl__devices_destroy(libxl__egc *egc, libxl__devices_remove_state *drs)
                 dev->domid = domid;
                 dev->kind = kind;
                 dev->devid = atoi(devs[j]);
-                if (dev->backend_kind == LIBXL__DEVICE_KIND_CONSOLE) {
+                switch (dev->backend_kind) {
+                case LIBXL__DEVICE_KIND_CONSOLE:
                     /* Currently console devices can be destroyed
                      * synchronously by just removing xenstore entries,
                      * this is what libxl__device_destroy does.
                      */
                     libxl__device_destroy(gc, dev);
-                    continue;
+                    break;
+                default:
+                    GCREALLOC_ARRAY(aodevs->array, aodevs->size + 1);
+                    GCNEW(aodev);
+                    aodevs->array[aodevs->size] = aodev;
+                    libxl__prepare_ao_device(ao, aodev);
+                    aodev->aodevs = aodevs;
+                    aodev->action = DEVICE_DISCONNECT;
+                    aodev->dev = dev;
+                    aodev->callback = libxl__ao_devices_callback;
+                    aodev->force = drs->force;
+                    libxl__initiate_device_remove(egc, aodev);
+                    aodevs->size++;
+                    break;
                 }
-                aodev = &aodevs->array[numdev];
-                aodev->action = DEVICE_DISCONNECT;
-                aodev->dev = dev;
-                aodev->callback = libxl__ao_devices_callback;
-                aodev->force = drs->force;
-                libxl__initiate_device_remove(egc, aodev);
-                numdev++;
             }
         }
     }
@@ -624,7 +596,18 @@ void libxl__devices_destroy(libxl__egc *egc, libxl__devices_remove_state *drs)
     }
 
 out:
-    if (!numdev) drs->callback(egc, drs, rc);
+    if (!aodevs->size) drs->callback(egc, drs, rc);
+    else {
+        /*
+         * Create a dummy aodev to check if all the other aodevs are finished,
+         * and call the callback.
+         */
+        GCNEW(aodev);
+        libxl__prepare_ao_device(ao, aodev);
+        aodev->aodevs = aodevs;
+        aodevs->in_addition = 0;
+        libxl__ao_devices_callback(egc, aodev);
+    }
     return;
 }
 
