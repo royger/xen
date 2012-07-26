@@ -856,11 +856,16 @@ retry_transaction:
         if (errno == EAGAIN)
             goto retry_transaction;
 
-    sdss->aodevs.size = dm_config->num_disks;
-    sdss->aodevs.callback = spawn_stub_launch_dm;
-    libxl__prepare_ao_devices(ao, &sdss->aodevs);
-    libxl__add_disks(egc, ao, dm_domid, 0, dm_config, &sdss->aodevs);
+    if (dm_config->num_disks > 0) {
+        sdss->aodevs.size = dm_config->num_disks;
+        sdss->aodevs.callback = spawn_stub_launch_dm;
+        libxl__prepare_ao_devices(ao, &sdss->aodevs);
+        libxl__add_disks(egc, ao, dm_domid, 0, dm_config, &sdss->aodevs);
+        free(args);
+        return;
+    }
 
+    spawn_stub_launch_dm(egc, &sdss->aodevs, 0);
     free(args);
     return;
 

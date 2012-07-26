@@ -907,11 +907,15 @@ static void domcreate_rebuild_done(libxl__egc *egc,
 
     store_libxl_entry(gc, domid, &d_config->b_info);
 
-    dcs->aodevs.size = d_config->num_disks;
-    dcs->aodevs.callback = domcreate_launch_dm;
-    libxl__prepare_ao_devices(ao, &dcs->aodevs);
-    libxl__add_disks(egc, ao, domid, 0, d_config, &dcs->aodevs);
+    if (d_config->num_disks > 0) {
+        dcs->aodevs.size = d_config->num_disks;
+        dcs->aodevs.callback = domcreate_launch_dm;
+        libxl__prepare_ao_devices(ao, &dcs->aodevs);
+        libxl__add_disks(egc, ao, domid, 0, d_config, &dcs->aodevs);
+        return;
+    }
 
+    domcreate_launch_dm(egc, &dcs->aodevs, 0);
     return;
 
  error_out:
