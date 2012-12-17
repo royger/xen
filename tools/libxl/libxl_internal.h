@@ -1847,11 +1847,20 @@ typedef void libxl__device_callback(libxl__egc*, libxl__ao_device*);
  * Once _prepare has been called on a libxl__ao_device, it is safe to just
  * discard this struct, there's no need to call any destroy function.
  * _prepare can also be called multiple times with the same libxl__ao_device.
+ *
+ * If hotplug.version field is 2, the new hotplug script calling convention
+ * will be used to call the hotplug script. This new convention provides
+ * new actions to hotplug scripts, "prepare", "unprepare", "localattach",
+ * "localdetach" and "version". This new actions have been added to offload
+ * work done by hotplug scripts during the blackout phase of migration.
+ * "prepare" is called before the remote domain is paused, so as much
+ * operations as possible should be done in this phase.
  */
 _hidden void libxl__prepare_ao_device(libxl__ao *ao, libxl__ao_device *aodev);
 
 struct libxl__hotplug {
     int num_exec;
+    int version;
 };
 
 struct libxl__ao_device {
@@ -1861,6 +1870,8 @@ struct libxl__ao_device {
     libxl__device *dev;
     int force;
     libxl__device_callback *callback;
+    /* used by the VERISON and LOCALATTACH actions, set by caller */
+    libxl_device_disk *disk;
     /* return value, zeroed by user on entry, is valid on callback */
     int rc;
     /* private for multidev */
@@ -2042,6 +2053,17 @@ _hidden void libxl__wait_device_connection(libxl__egc*,
  */
 _hidden void libxl__initiate_device_remove(libxl__egc *egc,
                                            libxl__ao_device *aodev);
+
+/*
+ * libxl__device_xs_hotplug_path returns the xenstore hotplug
+ * path that is used to share information with the hotplug
+ * script.
+ *
+ * This path is only used by new hotplug scripts, that are
+ * specified using "method" instead of "script" in the disk
+ * parameters.
+ */
+_hidden char *libxl__device_xs_hotplug_path(libxl__gc *gc, libxl__device *dev);
 
 /*
  * libxl__get_hotplug_script_info returns the args and env that should
