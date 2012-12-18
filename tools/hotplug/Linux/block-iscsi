@@ -1,0 +1,278 @@
+#!/bin/sh -e
+#
+# Open-iSCSI Xen block device hotplug script
+#
+# Author Roger Pau Monné <roger.pau@citrix.com>
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU Lesser General Public License as published
+# by the Free Software Foundation; version 2.1 only. with the special
+# exception on linking described in file LICENSE.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Lesser General Public License for more details.
+
+remove_label()
+{
+    echo $1 | sed "s/^\("$2"\)//"
+}
+
+check_tools()
+{
+    if ! type iscsiadm > /dev/null 2>&1; then
+        echo "Unable to find iscsiadm tool"
+        return 1
+    fi
+    if [ "$multipath" = "y" ] && ! type multipath > /dev/null 2>&1; then
+        echo "Unable to find multipath"
+        return 1
+    fi
+}
+
+# Sets the following global variables based on the params field passed in as
+# a parameter: iqn, portal, auth_method, user, multipath, password
+parse_target()
+{
+    # set multipath default value
+    multipath="n"
+    for param in $(echo "$1" | tr "," "\n")
+    do
+        if [ -n "$password" ]; then
+            password="$password,$param"
+            continue
+        fi
+        case $param in
+        iqn=*)
+            iqn=$(remove_label $param "iqn=")
+            ;;
+        portal=*)
+            portal=$(remove_label $param "portal=")
+            ;;
+        auth_method=*)
+            auth_method=$(remove_label $param "auth_method=")
+            ;;
+        user=*)
+            user=$(remove_label $param "user=")
+            ;;
+        multipath=*)
+            multipath=$(remove_label $param "multipath=")
+            ;;
+        password=*)
+            password=$(remove_label $param "password=")
+            ;;
+        esac
+    done
+    if [ -z "$iqn" ] || [ -z "$portal" ]; then
+        echo "iqn= and portal= are required parameters"
+        return 1
+    fi
+    if [ "$multipath" != "y" ] && [ "$multipath" != "n" ]; then
+        echo "multipath valid values are y and n, $multipath not a valid value"
+        return 1
+    fi
+    return 0
+}
+
+# Outputs the block device major:minor
+device_major_minor()
+{
+    stat -L -c %t:%T "$1"
+}
+
+# Sets $dev to point to the device associated with the value in iqn
+find_device()
+{
+    while [ ! -e /dev/disk/by-path/*"$iqn"-lun-0 ]; do
+        sleep 0.1
+    done
+    set +e
+    sddev=$(readlink -f /dev/disk/by-path/*"$iqn"-lun-0)
+    set -e
+    if [ ! -b "$sddev" ]; then
+        echo "Unable to find attached device path"
+        return 1
+    fi
+    if [ "$multipath" = "y" ]; then
+        mdev=$(multipath -ll "$sddev" | head -1 | awk '{ print $1}')
+        if [ ! -b /dev/mapper/"$mdev" ]; then
+            echo "Unable to find attached device multipath"
+            return 1
+        fi
+        dev="/dev/mapper/$mdev"
+    else
+        dev="$sddev"
+    fi
+    return 0
+}
+
+# Attaches the target $iqn in $portal and sets $dev to point to the
+# multipath device
+attach()
+{
+    set +e
+    iscsiadm -m node --targetname "$iqn" -p "$portal" --login > /dev/null 2>&1
+    rc=$?
+    set -e
+    if [ $rc -ne 0 ]; then
+        echo "Unable to connect to target"
+        return 1
+    fi
+    find_device
+    if [ $? -ne 0 ]; then
+        echo "Unable to find iSCSI device"
+        return 1
+    fi
+    return 0
+}
+
+# Discovers targets in $portal and checks that $iqn is one of those targets
+# Also sets the auth parameters to attach the device
+prepare()
+{
+    # Check if target is already opened
+    set +e
+    iscsiadm -m session 2>&1 | grep -q "$iqn"
+    rc=$?
+    set -e
+    if [ $rc -eq 0 ]; then
+        echo "Device already opened"
+        return 1
+    fi
+    # Discover portal targets
+    set +e
+    iscsiadm -m discovery -t st -p $portal 2>&1 | grep -q "$iqn"
+    rc=$?
+    set -e
+    if [ $rc -ne 0 ]; then
+        echo "No matching target iqn found"
+        return 1
+    fi
+    # Set auth method if necessary
+    if [ -n "$auth_method" ] || [ -n "$user" ] || [ -n "$password" ]; then
+        set +e
+        iscsiadm -m node --targetname "$iqn" -p "$portal" --op=update --name \
+            node.session.auth.authmethod --value="$auth_method" \
+            > /dev/null 2>&1 && \
+        iscsiadm -m node --targetname "$iqn" -p "$portal" --op=update --name \
+            node.session.auth.username --value="$user" \
+            > /dev/null 2>&1 && \
+        iscsiadm -m node --targetname "$iqn" -p "$portal" --op=update --name \
+            node.session.auth.password --value="$password" \
+            > /dev/null 2>&1
+        rc=$?
+        set -e
+        if [ $rc -ne 0 ]; then
+            echo "Unable to set authentication parameters"
+            return 1
+        fi
+    fi
+    return 0
+}
+
+# Attaches the device and writes xenstore backend entries to connect
+# the device
+add()
+{
+    localattach
+    if [ $? -ne 0 ]; then
+        echo "Failed to attach device"
+        return 1
+    fi
+    mm=$(device_major_minor "$dev")
+    xenstore-write "$BACKEND_PATH/physical-device" "$mm"
+    xenstore-write "$BACKEND_PATH/params" "$dev"
+    return 0
+}
+
+# Disconnects the device
+remove()
+{
+    find_device
+    if [ $? -ne 0 ]; then
+        echo "Unable to find device"
+        return 1
+    fi
+    set +e
+    iscsiadm -m node --targetname "$iqn" -p "$portal" --logout > /dev/null 2>&1
+    rc=$?
+    set -e
+    if [ $rc -ne 0 ]; then
+        echo "Unable to disconnect target"
+        return 1
+    fi
+    return 0
+}
+
+# Removes the auth params set by prepare
+unprepare()
+{
+    if [ -n "$auth_method" ] || [ -n "$user" ] || [ -n "$password" ]; then
+        set +e
+        iscsiadm -m node --targetname "$iqn" -p "$portal" --op=delete --name \
+            node.session.auth.authmethod > /dev/null 2>&1
+        iscsiadm -m node --targetname "$iqn" -p "$portal" --op=delete --name \
+            node.session.auth.username > /dev/null 2>&1
+        iscsiadm -m node --targetname "$iqn" -p "$portal" --op=delete --name \
+            node.session.auth.password > /dev/null 2>&1
+        set -e
+    fi
+}
+
+# Attaches the device to the current domain, and writes the resulting
+# block device to xenstore
+localattach()
+{
+    attach
+    if [ $? -ne 0 ]; then
+        echo "Failed to attach device"
+        return 1
+    fi
+    xenstore-write "$HOTPLUG_PATH/pdev" "$dev"
+    return 0
+}
+
+command=$1
+set +e
+target=$(xenstore-read $HOTPLUG_PATH/params)
+set -e
+if [ -z "$target" ]; then
+    echo "No information about the target"
+    exit 1
+fi
+
+check_tools || exit 1
+
+parse_target "$target"
+
+case $command in
+prepare)
+    prepare
+    exit $?
+    ;;
+add)
+    add
+    exit $?
+    ;;
+remove)
+    remove
+    exit $?
+    ;;
+unprepare)
+    unprepare
+    exit $?
+    ;;
+localattach)
+    localattach
+    exit $?
+    ;;
+localdetach)
+    remove
+    exit $?
+    ;;
+version)
+    xenstore-write "$HOTPLUG_PATH/version" "2"
+    exit $?
+    ;;
+esac
