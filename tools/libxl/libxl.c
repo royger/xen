@@ -2306,6 +2306,39 @@ void libxl__device_disk_add(libxl__egc *egc, uint32_t domid,
     device_disk_add(egc, domid, disk, aodev, NULL, NULL);
 }
 
+/* Callbacks for device_disk_add */
+
+static void device_disk_add_prepared(libxl__egc *, libxl__ao_device *);
+
+int libxl_device_disk_add(libxl_ctx *ctx, uint32_t domid,
+                          libxl_device_disk *disk,
+                          const libxl_asyncop_how *ao_how)
+{
+    AO_CREATE(ctx, domid, ao_how);
+    libxl__ao_device *aodev;
+
+    GCNEW(aodev);
+    libxl__prepare_ao_device(ao, aodev);
+    aodev->callback = device_disk_add_prepared;
+    aodev->disk = disk;
+    libxl__device_disk_prepare(egc, domid, disk, aodev);
+
+    return AO_INPROGRESS;
+}
+
+static void device_disk_add_prepared(libxl__egc *egc, libxl__ao_device *aodev)
+{
+    if (aodev->rc) {
+        device_addrm_aocomplete(egc, aodev);
+        return;
+    }
+
+    aodev->hotplug.num_exec = 0;
+    aodev->callback = device_addrm_aocomplete;
+    libxl__device_disk_add(egc, aodev->dev->domid, aodev->disk, aodev);
+    return;
+}
+
 static int libxl__device_disk_from_xs_be(libxl__gc *gc,
                                          const char *be_path,
                                          libxl_device_disk *disk)
@@ -3553,7 +3586,6 @@ DEFINE_DEVICE_REMOVE(vtpm, destroy, 1)
 
 /* Macro for defining device addition functions in a compact way */
 /* The following functions are defined:
- * libxl_device_disk_add
  * libxl_device_nic_add
  * libxl_device_vtpm_add
  */
@@ -3575,9 +3607,6 @@ DEFINE_DEVICE_REMOVE(vtpm, destroy, 1)
     }
 
 /* Define alladd functions and undef the macro */
-
-/* disk */
-DEFINE_DEVICE_ADD(disk)
 
 /* nic */
 DEFINE_DEVICE_ADD(nic)
