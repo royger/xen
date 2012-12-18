@@ -1688,7 +1688,7 @@ int libxl_vncviewer_exec(libxl_ctx *ctx, uint32_t domid, int autopass)
 /******************************************************************************/
 
 /* generic callback for devices that only need to set ao_complete */
-static void device_addrm_aocomplete(libxl__egc *egc, libxl__ao_device *aodev)
+static void device_aocomplete(libxl__egc *egc, libxl__ao_device *aodev)
 {
     STATE_AO_GC(aodev->ao);
 
@@ -3539,7 +3539,7 @@ out:
         libxl__prepare_ao_device(ao, aodev);                            \
         aodev->action = LIBXL__DEVICE_ACTION_REMOVE;                    \
         aodev->dev = device;                                            \
-        aodev->callback = device_addrm_aocomplete;                      \
+        aodev->callback = device_aocomplete;                            \
         aodev->force = f;                                               \
         libxl__initiate_device_remove(egc, aodev);                      \
                                                                         \
@@ -3580,10 +3580,12 @@ DEFINE_DEVICE_REMOVE(vtpm, destroy, 1)
  * libxl_device_disk_add
  * libxl_device_nic_add
  * libxl_device_vtpm_add
+ * libxl_device_disk_prepare
+ * libxl_device_disk_unprepare
  */
 
-#define DEFINE_DEVICE_ADD(type)                                         \
-    int libxl_device_##type##_add(libxl_ctx *ctx,                       \
+#define DEFINE_DEVICE_FUNC(type, op)                                    \
+    int libxl_device_##type##_##op(libxl_ctx *ctx,                      \
         uint32_t domid, libxl_device_##type *type,                      \
         const libxl_asyncop_how *ao_how)                                \
     {                                                                   \
@@ -3592,8 +3594,8 @@ DEFINE_DEVICE_REMOVE(vtpm, destroy, 1)
                                                                         \
         GCNEW(aodev);                                                   \
         libxl__prepare_ao_device(ao, aodev);                            \
-        aodev->callback = device_addrm_aocomplete;                      \
-        libxl__device_##type##_add(egc, domid, type, aodev);            \
+        aodev->callback = device_aocomplete;                            \
+        libxl__device_##type##_##op(egc, domid, type, aodev);           \
                                                                         \
         return AO_INPROGRESS;                                           \
     }
@@ -3601,13 +3603,15 @@ DEFINE_DEVICE_REMOVE(vtpm, destroy, 1)
 /* Define alladd functions and undef the macro */
 
 /* disk */
-DEFINE_DEVICE_ADD(disk)
+DEFINE_DEVICE_FUNC(disk, add)
+DEFINE_DEVICE_FUNC(disk, prepare)
+DEFINE_DEVICE_FUNC(disk, unprepare)
 
 /* nic */
-DEFINE_DEVICE_ADD(nic)
+DEFINE_DEVICE_FUNC(nic, add)
 
 /* vtpm */
-DEFINE_DEVICE_ADD(vtpm)
+DEFINE_DEVICE_FUNC(vtpm, add)
 
 #undef DEFINE_DEVICE_ADD
 

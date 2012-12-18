@@ -687,6 +687,10 @@ void libxl_vtpminfo_list_free(libxl_vtpminfo *, int nr_vtpms);
  */
 
 /* Disks */
+int libxl_device_disk_prepare(libxl_ctx *ctx, uint32_t domid,
+                              libxl_device_disk *disk,
+                              const libxl_asyncop_how *ao_how)
+                              LIBXL_EXTERNAL_CALLERS_ONLY;
 int libxl_device_disk_add(libxl_ctx *ctx, uint32_t domid,
                           libxl_device_disk *disk,
                           const libxl_asyncop_how *ao_how)
@@ -699,6 +703,10 @@ int libxl_device_disk_destroy(libxl_ctx *ctx, uint32_t domid,
                               libxl_device_disk *disk,
                               const libxl_asyncop_how *ao_how)
                               LIBXL_EXTERNAL_CALLERS_ONLY;
+int libxl_device_disk_unprepare(libxl_ctx *ctx, uint32_t domid,
+                                libxl_device_disk *disk,
+                                const libxl_asyncop_how *ao_how)
+                                LIBXL_EXTERNAL_CALLERS_ONLY;
 
 libxl_device_disk *libxl_device_disk_list(libxl_ctx *ctx, uint32_t domid, int *num);
 int libxl_device_disk_getinfo(libxl_ctx *ctx, uint32_t domid,
