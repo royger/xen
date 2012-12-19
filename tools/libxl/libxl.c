@@ -3535,7 +3535,7 @@ out:
  * libxl_device_vfb_remove
  * libxl_device_vfb_destroy
  */
-#define DEFINE_DEVICE_REMOVE(type, removedestroy, f)                    \
+#define DEFINE_GENERIC_REMOVE(type, removedestroy, f, extra)            \
     int libxl_device_##type##_##removedestroy(libxl_ctx *ctx,           \
         uint32_t domid, libxl_device_##type *type,                      \
         const libxl_asyncop_how *ao_how)                                \
@@ -3555,6 +3555,7 @@ out:
         aodev->dev = device;                                            \
         aodev->callback = device_addrm_aocomplete;                      \
         aodev->force = f;                                               \
+        extra;                                                          \
         libxl__initiate_device_remove(egc, aodev);                      \
                                                                         \
     out:                                                                \
@@ -3562,11 +3563,21 @@ out:
         return AO_INPROGRESS;                                           \
     }
 
+/* Specific for disk devices, that have to set aodev->hotplug_version */
+#define DEFINE_DISK_REMOVE(type, removedestroy, f)                      \
+    DEFINE_GENERIC_REMOVE(type, removedestroy, f, {                     \
+        aodev->hotplug.version = type->hotplug_version;                 \
+        LOG(DEBUG, "hotplug version: %d", aodev->hotplug.version);      \
+    })
+
+#define DEFINE_DEVICE_REMOVE(type, removedestroy, f)                    \
+    DEFINE_GENERIC_REMOVE(type, removedestroy, f, )
+
 /* Define all remove/destroy functions and undef the macro */
 
 /* disk */
-DEFINE_DEVICE_REMOVE(disk, remove, 0)
-DEFINE_DEVICE_REMOVE(disk, destroy, 1)
+DEFINE_DISK_REMOVE(disk, remove, 0)
+DEFINE_DISK_REMOVE(disk, destroy, 1)
 
 /* nic */
 DEFINE_DEVICE_REMOVE(nic, remove, 0)
@@ -3585,7 +3596,9 @@ DEFINE_DEVICE_REMOVE(vfb, destroy, 1)
 DEFINE_DEVICE_REMOVE(vtpm, remove, 0)
 DEFINE_DEVICE_REMOVE(vtpm, destroy, 1)
 
+#undef DEFINE_DISK_REMOVE
 #undef DEFINE_DEVICE_REMOVE
+#undef DEFINE_GENERIC_REMOVE
 
 /******************************************************************************/
 
