@@ -381,6 +381,7 @@ void libxl__bootloader_run(libxl__egc *egc, libxl__bootloader_state *bl)
     bl->dls.ao = ao;
     bl->dls.in_disk = bl->disk;
     bl->dls.blkdev_start = info->blkdev_start;
+    bl->dls.domid = domid;
     bl->dls.callback = bootloader_disk_attached_cb;
     libxl__device_disk_local_initiate_attach(egc, &bl->dls);
     return;

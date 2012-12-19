@@ -2709,6 +2709,7 @@ void libxl__device_disk_local_initiate_attach(libxl__egc *egc,
     const libxl_device_disk *in_disk = dls->in_disk;
     libxl_device_disk *disk = &dls->disk;
     const char *blkdev_start = dls->blkdev_start;
+    uint32_t domid = dls->domid;
 
     assert(in_disk->pdev_path);
 
@@ -2725,6 +2726,23 @@ void libxl__device_disk_local_initiate_attach(libxl__egc *egc,
         case LIBXL_DISK_BACKEND_PHY:
             LIBXL__LOG(ctx, LIBXL__LOG_DEBUG, "locally attaching PHY disk %s",
                        disk->pdev_path);
+            if (disk->hotplug_version == 2) {
+                disk->vdev = libxl__strdup(gc, in_disk->vdev);
+                libxl__prepare_ao_device(ao, &dls->aodev);
+                GCNEW(dls->aodev.dev);
+                rc = libxl__device_from_disk(gc, domid, disk,
+                                             dls->aodev.dev);
+                if (rc != 0) {
+                    LOG(ERROR, "Invalid or unsupported virtual disk "
+                               "identifier %s", disk->vdev);
+                    goto out;
+                }
+                dls->aodev.action = LIBXL__DEVICE_ACTION_LOCALATTACH;
+                dls->aodev.hotplug.version = disk->hotplug_version;
+                dls->aodev.callback = local_device_attach_cb;
+                libxl__device_hotplug(egc, &dls->aodev);
+                return;
+            }
             dev = disk->pdev_path;
             break;
         case LIBXL_DISK_BACKEND_TAP:
@@ -2787,7 +2805,8 @@ static void local_device_attach_cb(libxl__egc *egc, libxl__ao_device *aodev)
 {
     STATE_AO_GC(aodev->ao);
     libxl__disk_local_state *dls = CONTAINER_OF(aodev, *dls, aodev);
-    char *dev = NULL, *be_path = NULL;
+    char *dev = NULL, *be_path = NULL, *hotplug_path;
+    const char *pdev = NULL;
     int rc;
     libxl__device device;
     libxl_device_disk *disk = &dls->disk;
@@ -2800,20 +2819,45 @@ static void local_device_attach_cb(libxl__egc *egc, libxl__ao_device *aodev)
                     aodev->dev->devid);
         goto out;
     }
+    switch (disk->backend) {
+    case LIBXL_DISK_BACKEND_PHY:
+        /* Fetch hotplug output to obtain the block device */
+        rc = libxl__device_from_disk(gc, dls->domid, disk, &device);
+        if (rc)
+            goto out;
+        hotplug_path = libxl__device_xs_hotplug_path(gc, &device);
+        rc = libxl__xs_read_checked(gc, XBT_NULL,
+                                    GCSPRINTF("%s/pdev", hotplug_path),
+                                    &pdev);
+        if (rc)
+            goto out;
+        if (!pdev) {
+            rc = ERROR_FAIL;
+            goto out;
+        }
+        LOG(DEBUG, "attached local block device %s", pdev);
+        dls->diskpath = libxl__strdup(gc, pdev);
+        break;
+    case LIBXL_DISK_BACKEND_QDISK:
+        dev = GCSPRINTF("/dev/%s", disk->vdev);
+        LOG(DEBUG, "locally attaching qdisk %s", dev);
 
-    dev = GCSPRINTF("/dev/%s", disk->vdev);
-    LOG(DEBUG, "locally attaching qdisk %s", dev);
+        rc = libxl__device_from_disk(gc, LIBXL_TOOLSTACK_DOMID, disk, &device);
+        if (rc < 0)
+            goto out;
+        be_path = libxl__device_backend_path(gc, &device);
+        rc = libxl__wait_for_backend(gc, be_path, "4");
+        if (rc < 0)
+            goto out;
 
-    rc = libxl__device_from_disk(gc, LIBXL_TOOLSTACK_DOMID, disk, &device);
-    if (rc < 0)
+        if (dev != NULL)
+            dls->diskpath = libxl__strdup(gc, dev);
+        break;
+    default:
+        LOG(ERROR, "invalid disk backend for local attach callback");
+        rc = ERROR_FAIL;
         goto out;
-    be_path = libxl__device_backend_path(gc, &device);
-    rc = libxl__wait_for_backend(gc, be_path, "4");
-    if (rc < 0)
-        goto out;
-
-    if (dev != NULL)
-        dls->diskpath = libxl__strdup(gc, dev);
+    }
 
     dls->callback(egc, dls, 0);
     return;
@@ -2837,11 +2881,29 @@ void libxl__device_disk_local_initiate_detach(libxl__egc *egc,
     libxl_device_disk *disk = &dls->disk;
     libxl__device *device;
     libxl__ao_device *aodev = &dls->aodev;
+    uint32_t domid = dls->domid;
     libxl__prepare_ao_device(ao, aodev);
 
     if (!dls->diskpath) goto out;
 
     switch (disk->backend) {
+        case LIBXL_DISK_BACKEND_PHY:
+            if (disk->hotplug_version == 2) {
+                GCNEW(aodev->dev);
+                rc = libxl__device_from_disk(gc, domid, disk,
+                                             aodev->dev);
+                if (rc != 0) {
+                    LOG(ERROR, "Invalid or unsupported virtual disk "
+                               "identifier %s", disk->vdev);
+                    goto out;
+                }
+                aodev->action = LIBXL__DEVICE_ACTION_LOCALDETACH;
+                aodev->hotplug.version = disk->hotplug_version;
+                aodev->callback = local_device_detach_cb;
+                libxl__device_hotplug(egc, aodev);
+                return;
+            }
+            break;
         case LIBXL_DISK_BACKEND_QDISK:
             if (disk->vdev != NULL) {
                 GCNEW(device);
