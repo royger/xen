@@ -3557,11 +3557,41 @@ out:
         return AO_INPROGRESS;                                           \
     }
 
+/* Specific for disk devices, that have to set aodev->hotplug_version */
+#define DEFINE_DISK_REMOVE(type, removedestroy, f)                      \
+    int libxl_device_##type##_##removedestroy(libxl_ctx *ctx,           \
+        uint32_t domid, libxl_device_##type *type,                      \
+        const libxl_asyncop_how *ao_how)                                \
+    {                                                                   \
+        AO_CREATE(ctx, domid, ao_how);                                  \
+        libxl__device *device;                                          \
+        libxl__ao_device *aodev;                                        \
+        int rc;                                                         \
+                                                                        \
+        GCNEW(device);                                                  \
+        rc = libxl__device_from_##type(gc, domid, type, device);        \
+        if (rc != 0) goto out;                                          \
+                                                                        \
+        GCNEW(aodev);                                                   \
+        libxl__prepare_ao_device(ao, aodev);                            \
+        aodev->action = LIBXL__DEVICE_ACTION_REMOVE;                    \
+        aodev->dev = device;                                            \
+        aodev->callback = device_addrm_aocomplete;                      \
+        aodev->force = f;                                               \
+        aodev->hotplug.version = type->hotplug_version;                 \
+        LOG(DEBUG, "hotplug version: %d", aodev->hotplug.version);      \
+        libxl__initiate_device_remove(egc, aodev);                      \
+                                                                        \
+    out:                                                                \
+        if (rc) return AO_ABORT(rc);                                    \
+        return AO_INPROGRESS;                                           \
+    }
+
 /* Define all remove/destroy functions and undef the macro */
 
 /* disk */
-DEFINE_DEVICE_REMOVE(disk, remove, 0)
-DEFINE_DEVICE_REMOVE(disk, destroy, 1)
+DEFINE_DISK_REMOVE(disk, remove, 0)
+DEFINE_DISK_REMOVE(disk, destroy, 1)
 
 /* nic */
 DEFINE_DEVICE_REMOVE(nic, remove, 0)
@@ -3580,6 +3610,7 @@ DEFINE_DEVICE_REMOVE(vfb, destroy, 1)
 DEFINE_DEVICE_REMOVE(vtpm, remove, 0)
 DEFINE_DEVICE_REMOVE(vtpm, destroy, 1)
 
+#undef DEFINE_DISK_REMOVE
 #undef DEFINE_DEVICE_REMOVE
 
 /******************************************************************************/
