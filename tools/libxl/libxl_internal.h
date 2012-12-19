@@ -2152,6 +2152,7 @@ struct libxl__disk_local_state {
     libxl_device_disk disk;
     const char *blkdev_start;
     libxl__disk_local_state_callback *callback;
+    uint32_t domid;
     /* filled by libxl__device_disk_local_initiate_attach */
     char *diskpath;
     /* private for implementation of local detach */
