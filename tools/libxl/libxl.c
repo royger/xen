@@ -1695,12 +1695,12 @@ static void device_addrm_aocomplete(libxl__egc *egc, libxl__ao_device *aodev)
     if (aodev->rc) {
         if (aodev->dev) {
             LOG(ERROR, "unable to %s %s with id %u",
-                        aodev->action == DEVICE_CONNECT ? "add" : "remove",
+                        libxl__device_action_to_string(aodev->action),
                         libxl__device_kind_to_string(aodev->dev->kind),
                         aodev->dev->devid);
         } else {
             LOG(ERROR, "unable to %s device",
-                       aodev->action == DEVICE_CONNECT ? "add" : "remove");
+                       libxl__device_action_to_string(aodev->action));
         }
         goto out;
     }
@@ -1806,7 +1806,7 @@ void libxl__device_vtpm_add(libxl__egc *egc, uint32_t domid,
                              libxl__xs_kvs_of_flexarray(gc, front, front->count));
 
     aodev->dev = device;
-    aodev->action = DEVICE_CONNECT;
+    aodev->action = LIBXL__DEVICE_ACTION_ADD;
     libxl__wait_device_connection(egc, aodev);
 
     rc = 0;
@@ -2163,7 +2163,7 @@ static void device_disk_add(libxl__egc *egc, uint32_t domid,
     }
 
     aodev->dev = device;
-    aodev->action = DEVICE_CONNECT;
+    aodev->action = LIBXL__DEVICE_ACTION_ADD;
     libxl__wait_device_connection(egc, aodev);
 
     rc = 0;
@@ -2628,7 +2628,7 @@ static void local_device_attach_cb(libxl__egc *egc, libxl__ao_device *aodev)
     rc = aodev->rc;
     if (rc) {
         LOGE(ERROR, "unable to %s %s with id %u",
-                    aodev->action == DEVICE_CONNECT ? "add" : "remove",
+                    libxl__device_action_to_string(aodev->action),
                     libxl__device_kind_to_string(aodev->dev->kind),
                     aodev->dev->devid);
         goto out;
@@ -2682,7 +2682,7 @@ void libxl__device_disk_local_initiate_detach(libxl__egc *egc,
                                              disk, device);
                 if (rc != 0) goto out;
 
-                aodev->action = DEVICE_DISCONNECT;
+                aodev->action = LIBXL__DEVICE_ACTION_REMOVE;
                 aodev->dev = device;
                 aodev->callback = local_device_detach_cb;
                 aodev->force = 0;
@@ -2713,7 +2713,7 @@ static void local_device_detach_cb(libxl__egc *egc, libxl__ao_device *aodev)
 
     if (aodev->rc) {
         LOGE(ERROR, "unable to %s %s with id %u",
-                    aodev->action == DEVICE_CONNECT ? "add" : "remove",
+                    libxl__device_action_to_string(aodev->action),
                     libxl__device_kind_to_string(aodev->dev->kind),
                     aodev->dev->devid);
         goto out;
@@ -2892,7 +2892,7 @@ void libxl__device_nic_add(libxl__egc *egc, uint32_t domid,
                              libxl__xs_kvs_of_flexarray(gc, front, front->count));
 
     aodev->dev = device;
-    aodev->action = DEVICE_CONNECT;
+    aodev->action = LIBXL__DEVICE_ACTION_ADD;
     libxl__wait_device_connection(egc, aodev);
 
     rc = 0;
@@ -3370,7 +3370,7 @@ out:
                                                                         \
         GCNEW(aodev);                                                   \
         libxl__prepare_ao_device(ao, aodev);                            \
-        aodev->action = DEVICE_DISCONNECT;                              \
+        aodev->action = LIBXL__DEVICE_ACTION_REMOVE;                    \
         aodev->dev = device;                                            \
         aodev->callback = device_addrm_aocomplete;                      \
         aodev->force = f;                                               \
