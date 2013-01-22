@@ -227,7 +227,7 @@ error:
 int libxl__get_hotplug_script_info(libxl__gc *gc, libxl__device *dev,
                                    char ***args, char ***env,
                                    libxl__device_action action,
-                                   int num_exec)
+                                   libxl__hotplug *hotplug)
 {
     char *disable_udev = libxl__xs_read(gc, XBT_NULL, DISABLE_UDEV_PATH);
     int rc;
@@ -240,7 +240,7 @@ int libxl__get_hotplug_script_info(libxl__gc *gc, libxl__device *dev,
 
     switch (dev->backend_kind) {
     case LIBXL__DEVICE_KIND_VBD:
-        if (num_exec != 0) {
+        if (hotplug->num_exec != 0) {
             rc = 0;
             goto out;
         }
@@ -251,12 +251,12 @@ int libxl__get_hotplug_script_info(libxl__gc *gc, libxl__device *dev,
          * If domain has a stubdom we don't have to execute hotplug scripts
          * for emulated interfaces
          */
-        if ((num_exec > 1) ||
-            (libxl_get_stubdom_id(CTX, dev->domid) && num_exec)) {
+        if ((hotplug->num_exec > 1) ||
+            (libxl_get_stubdom_id(CTX, dev->domid) && hotplug->num_exec)) {
             rc = 0;
             goto out;
         }
-        rc = libxl__hotplug_nic(gc, dev, args, env, action, num_exec);
+        rc = libxl__hotplug_nic(gc, dev, args, env, action, hotplug->num_exec);
         break;
     default:
         /* No need to execute any hotplug scripts */

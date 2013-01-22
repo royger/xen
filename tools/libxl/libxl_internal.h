@@ -1831,6 +1831,7 @@ _hidden const char *libxl__run_dir_path(void);
 
 typedef struct libxl__ao_device libxl__ao_device;
 typedef struct libxl__multidev libxl__multidev;
+typedef struct libxl__hotplug libxl__hotplug;
 typedef void libxl__device_callback(libxl__egc*, libxl__ao_device*);
 
 /* This functions sets the necessary libxl__ao_device struct values to use
@@ -1848,6 +1849,10 @@ typedef void libxl__device_callback(libxl__egc*, libxl__ao_device*);
  * _prepare can also be called multiple times with the same libxl__ao_device.
  */
 _hidden void libxl__prepare_ao_device(libxl__ao *ao, libxl__ao_device *aodev);
+
+struct libxl__hotplug {
+    int num_exec;
+};
 
 struct libxl__ao_device {
     /* filled in by user */
@@ -1867,7 +1872,7 @@ struct libxl__ao_device {
     libxl__ev_time timeout;
     /* device hotplug execution */
     const char *what;
-    int num_exec;
+    libxl__hotplug hotplug;
     libxl__ev_child child;
 };
 
@@ -2048,18 +2053,18 @@ _hidden void libxl__initiate_device_remove(libxl__egc *egc,
  * 0: No need to execute hotplug script
  * 1: Execute hotplug script
  *
- * The last parameter, "num_exec" refeers to the number of times hotplug
- * scripts have been called for this device.
+ * The last parameter, libxl__hotplug contains information related to hotplug
+ * execution.
  *
  * The main body of libxl will, for each device, keep calling
  * libxl__get_hotplug_script_info, with incrementing values of
- * num_exec, and executing the resulting script accordingly,
+ * hotplug->num_exec, and executing the resulting script accordingly,
  * until libxl__get_hotplug_script_info returns<=0.
  */
 _hidden int libxl__get_hotplug_script_info(libxl__gc *gc, libxl__device *dev,
                                            char ***args, char ***env,
                                            libxl__device_action action,
-                                           int num_exec);
+                                           libxl__hotplug *hotplug);
 
 /*----- local disk attach: attach a disk locally to run the bootloader -----*/
 
