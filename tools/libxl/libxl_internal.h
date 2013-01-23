@@ -2012,6 +2012,12 @@ struct libxl__multidev {
 _hidden void libxl__device_disk_add(libxl__egc *egc, uint32_t domid,
                                     libxl_device_disk *disk,
                                     libxl__ao_device *aodev);
+_hidden void libxl__device_disk_prepare(libxl__egc *egc, uint32_t domid,
+                                        libxl_device_disk *disk,
+                                        libxl__ao_device *aodev);
+_hidden void libxl__device_disk_unprepare(libxl__egc *egc, uint32_t domid,
+                                          libxl_device_disk *disk,
+                                          libxl__ao_device *aodev);
 
 /* AO operation to connect a nic device */
 _hidden void libxl__device_nic_add(libxl__egc *egc, uint32_t domid,
@@ -2087,6 +2093,28 @@ _hidden int libxl__get_hotplug_script_info(libxl__gc *gc, libxl__device *dev,
                                            char ***args, char ***env,
                                            libxl__device_action action,
                                            libxl__hotplug *hotplug);
+
+/*
+ * libxl__device_hotplug runs the hotplug script associated
+ * with the device passed in aodev->dev.
+ *
+ * The libxl__ao_device passed to this function should be
+ * prepared using libxl__prepare_ao_device prior to calling
+ * this function.
+ *
+ * Once finished, aodev->callback will be executed.
+ */
+_hidden void libxl__device_hotplug(libxl__egc *egc,
+                                   libxl__ao_device *aodev);
+
+/* Internal structure to hold device_disk_prepare specific information */
+typedef struct libxl__disk_prepare libxl__disk_prepare;
+struct libxl__disk_prepare {
+    libxl__ao_device version_aodev;
+    libxl__ao_device *aodev;
+    libxl_device_disk *disk;
+    libxl__device_callback *callback;
+};
 
 /*----- local disk attach: attach a disk locally to run the bootloader -----*/
 
@@ -2460,6 +2488,21 @@ _hidden void libxl__devices_destroy(libxl__egc *egc,
 _hidden void libxl__add_disks(libxl__egc *egc, libxl__ao *ao, uint32_t domid,
                               libxl_domain_config *d_config,
                               libxl__multidev *multidev);
+
+_hidden void libxl__prepare_disks(libxl__egc *egc, libxl__ao *ao,
+                                  uint32_t domid,
+                                  libxl_domain_config *d_config,
+                                  libxl__multidev *multidev);
+
+_hidden void libxl__prepare_undisks(libxl__egc *egc, libxl__ao *ao,
+                                    uint32_t domid,
+                                    libxl_domain_config *d_config,
+                                    libxl__multidev *multidev);
+
+_hidden void libxl__unprepare_disks(libxl__egc *egc, libxl__ao *ao,
+                                    uint32_t domid,
+                                    libxl_domain_config *d_config,
+                                    libxl__multidev *multidev);
 
 _hidden void libxl__add_nics(libxl__egc *egc, libxl__ao *ao, uint32_t domid,
                              libxl_domain_config *d_config,

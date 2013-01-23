@@ -2011,6 +2011,146 @@ int libxl__device_from_disk(libxl__gc *gc, uint32_t domid,
     return 0;
 }
 
+/* Callbacks for libxl__device_disk_prepare */
+
+static void device_disk_prepare_cb(libxl__egc *, libxl__ao_device *);
+
+void libxl__device_disk_prepare(libxl__egc *egc, uint32_t domid,
+                                libxl_device_disk *disk,
+                                libxl__ao_device *prepare_aodev)
+{
+    STATE_AO_GC(prepare_aodev->ao);
+    char *hotplug_path;
+    char *script_path;
+    int rc;
+    xs_transaction_t t = XBT_NULL;
+    libxl__disk_prepare *dp;
+    libxl__ao_device *aodev;
+
+    if (!disk->script) {
+        /* If script is not set assume v1 */
+        disk->hotplug_version = 1;
+        prepare_aodev->callback(egc, prepare_aodev);
+        return;
+    }
+
+    GCNEW(dp);
+    dp->disk = disk;
+    /* Save original aodev, since we will call it once hotplug
+     * script detection has finished
+     */
+    dp->aodev = prepare_aodev;
+    aodev = &dp->version_aodev;
+    libxl__prepare_ao_device(ao, aodev);
+
+    GCNEW(aodev->dev);
+    rc = libxl__device_from_disk(gc, domid, disk, aodev->dev);
+    if (rc != 0) {
+        LOG(ERROR, "Invalid or unsupported virtual disk identifier %s",
+                   disk->vdev);
+        goto error;
+    }
+
+    script_path = libxl__abs_path(gc, disk->script,
+                                  libxl__xen_script_dir_path());
+
+    hotplug_path = libxl__device_xs_hotplug_path(gc, aodev->dev);
+    for (;;) {
+        rc = libxl__xs_transaction_start(gc, &t);
+        if (rc) goto error;
+
+        rc = libxl__xs_write_checked(gc, t,
+                                 GCSPRINTF("%s/params", hotplug_path),
+                                 disk->pdev_path);
+        if (rc)
+            goto error;
+
+        rc = libxl__xs_write_checked(gc, t,
+                                 GCSPRINTF("%s/script", hotplug_path),
+                                 script_path);
+        if (rc)
+            goto error;
+
+        rc = libxl__xs_transaction_commit(gc, &t);
+        if (!rc) break;
+        if (rc < 0) goto error;
+    }
+
+    aodev->callback = device_disk_prepare_cb;
+    aodev->action = LIBXL__DEVICE_ACTION_VERSION;
+    aodev->disk = disk;
+    aodev->hotplug.version = 2;
+    libxl__device_hotplug(egc, aodev);
+    return;
+
+error:
+    assert(rc);
+    libxl__xs_transaction_abort(gc, &t);
+    aodev->rc = rc;
+    aodev->callback(egc, aodev);
+    return;
+}
+
+static void device_disk_prepare_cb(libxl__egc *egc,
+                                   libxl__ao_device *version_aodev)
+{
+    STATE_AO_GC(version_aodev->ao);
+    libxl__disk_prepare *dp = CONTAINER_OF(version_aodev, *dp, version_aodev);
+    libxl__ao_device *aodev = dp->aodev;
+
+    if (dp->disk->hotplug_version == 1) {
+        aodev->callback(egc, aodev);
+        return;
+    }
+
+    aodev->action = LIBXL__DEVICE_ACTION_PREPARE;
+    aodev->hotplug.version = dp->disk->hotplug_version;
+    aodev->dev = version_aodev->dev;
+    libxl__device_hotplug(egc, aodev);
+    return;
+}
+
+void libxl__device_disk_unprepare(libxl__egc *egc, uint32_t domid,
+                                  libxl_device_disk *disk,
+                                  libxl__ao_device *aodev)
+{
+    STATE_AO_GC(aodev->ao);
+    char *hotplug_path;
+    int rc;
+
+    if (disk->hotplug_version == 1) {
+        aodev->callback(egc, aodev);
+        return;
+    }
+
+    GCNEW(aodev->dev);
+    rc = libxl__device_from_disk(gc, domid, disk, aodev->dev);
+    if (rc != 0) {
+        LOG(ERROR, "Invalid or unsupported virtual disk identifier %s",
+                   disk->vdev);
+        goto error;
+    }
+
+    hotplug_path = libxl__device_xs_hotplug_path(gc, aodev->dev);
+    if (!libxl__xs_read(gc, XBT_NULL, hotplug_path)) {
+        LOG(DEBUG, "unable to unprepare device because %s doesn't exist",
+                   hotplug_path);
+        aodev->callback(egc, aodev);
+        return;
+    }
+
+    aodev->action = LIBXL__DEVICE_ACTION_UNPREPARE;
+    aodev->hotplug.version = disk->hotplug_version;
+    libxl__device_hotplug(egc, aodev);
+    return;
+
+error:
+    assert(rc);
+    aodev->rc = rc;
+    aodev->callback(egc, aodev);
+    return;
+}
+
 /* Specific function called directly only by local disk attach,
  * all other users should instead use the regular
  * libxl__device_disk_add wrapper
@@ -2070,8 +2210,15 @@ static void device_disk_add(libxl__egc *egc, uint32_t domid,
                 dev = disk->pdev_path;
 
         do_backend_phy:
-                flexarray_append(back, "params");
-                flexarray_append(back, dev);
+                if (disk->hotplug_version == 1) {
+                    /*
+                     * If the new hotplug version is used params is
+                     * stored under a private path, since it can contain
+                     * data that the guest should not see.
+                     */
+                    flexarray_append(back, "params");
+                    flexarray_append(back, dev);
+                }
 
                 script = libxl__abs_path(gc, disk->script?: "block",
                                          libxl__xen_script_dir_path());
@@ -2164,6 +2311,8 @@ static void device_disk_add(libxl__egc *egc, uint32_t domid,
 
     aodev->dev = device;
     aodev->action = LIBXL__DEVICE_ACTION_ADD;
+    aodev->hotplug.version = disk->hotplug_version;
+    aodev->disk = disk;
     libxl__wait_device_connection(egc, aodev);
 
     rc = 0;
@@ -2257,6 +2406,7 @@ int libxl_vdev_to_device_disk(libxl_ctx *ctx, uint32_t domid,
     GC_INIT(ctx);
     char *dompath, *path;
     int devid = libxl__device_disk_dev_number(vdev, NULL, NULL);
+    libxl__device dev;
     int rc = ERROR_FAIL;
 
     if (devid < 0)
@@ -2275,6 +2425,23 @@ int libxl_vdev_to_device_disk(libxl_ctx *ctx, uint32_t domid,
         goto out;
 
     rc = libxl__device_disk_from_xs_be(gc, path, disk);
+    if (rc) {
+        LOG(ERROR, "unable to parse disk device from path %s", path);
+        goto out;
+    }
+
+    /* Check if the device is using the new hotplug interface */
+    rc = libxl__device_from_disk(gc, domid, disk, &dev);
+    if (rc) {
+        LOG(ERROR, "invalid or unsupported virtual disk identifier %s",
+                    disk->vdev);
+        goto out;
+    }
+    disk->hotplug_version = 1;
+    path = libxl__device_xs_hotplug_path(gc, &dev);
+    if (libxl__xs_read(gc, XBT_NULL, path))
+        disk->hotplug_version = 2;
+
 out:
     GC_FREE;
     return rc;

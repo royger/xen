@@ -498,18 +498,21 @@ void libxl__multidev_prepared(libxl__egc *egc,
 
 /******************************************************************************/
 
-/* Macro for defining the functions that will add a bunch of disks when
+/* Macro for defining the functions that will operate a bunch of devices when
  * inside an async op with multidev.
  * This macro is added to prevent repetition of code.
  *
  * The following functions are defined:
+ * libxl__prepare_disks
+ * libxl__unprepare_disks
  * libxl__add_disks
  * libxl__add_nics
  * libxl__add_vtpms
  */
 
-#define DEFINE_DEVICES_ADD(type)                                        \
-    void libxl__add_##type##s(libxl__egc *egc, libxl__ao *ao, uint32_t domid, \
+#define DEFINE_DEVICES_FUNC(type, op)                                   \
+    void libxl__##op##_##type##s(libxl__egc *egc, libxl__ao *ao,        \
+                              uint32_t domid,                           \
                               libxl_domain_config *d_config,            \
                               libxl__multidev *multidev)                \
     {                                                                   \
@@ -517,16 +520,19 @@ void libxl__multidev_prepared(libxl__egc *egc,
         int i;                                                          \
         for (i = 0; i < d_config->num_##type##s; i++) {                 \
             libxl__ao_device *aodev = libxl__multidev_prepare(multidev);  \
-            libxl__device_##type##_add(egc, domid, &d_config->type##s[i], \
+            libxl__device_##type##_##op(egc, domid, &d_config->type##s[i], \
                                        aodev);                          \
         }                                                               \
     }
 
-DEFINE_DEVICES_ADD(disk)
-DEFINE_DEVICES_ADD(nic)
-DEFINE_DEVICES_ADD(vtpm)
+DEFINE_DEVICES_FUNC(disk, add)
+DEFINE_DEVICES_FUNC(nic, add)
+DEFINE_DEVICES_FUNC(vtpm, add)
 
-#undef DEFINE_DEVICES_ADD
+DEFINE_DEVICES_FUNC(disk, prepare)
+DEFINE_DEVICES_FUNC(disk, unprepare)
+
+#undef DEFINE_DEVICES_FUNC
 
 /******************************************************************************/
 
@@ -534,6 +540,7 @@ int libxl__device_destroy(libxl__gc *gc, libxl__device *dev)
 {
     const char *be_path = libxl__device_backend_path(gc, dev);
     const char *fe_path = libxl__device_frontend_path(gc, dev);
+    const char *hotplug_path = libxl__device_xs_hotplug_path(gc, dev);
     const char *tapdisk_path = GCSPRINTF("%s/%s", be_path, "tapdisk-params");
     const char *tapdisk_params;
     xs_transaction_t t = 0;
@@ -549,6 +556,7 @@ int libxl__device_destroy(libxl__gc *gc, libxl__device *dev)
 
         libxl__xs_path_cleanup(gc, t, fe_path);
         libxl__xs_path_cleanup(gc, t, be_path);
+        libxl__xs_path_cleanup(gc, t, hotplug_path);
 
         rc = libxl__xs_transaction_commit(gc, &t);
         if (!rc) break;
@@ -621,6 +629,14 @@ void libxl__devices_destroy(libxl__egc *egc, libxl__devices_remove_state *drs)
                     continue;
                 }
                 aodev = libxl__multidev_prepare(multidev);
+                /*
+                 * Check if the device has hotplug entries in xenstore,
+                 * which would mean it's using the new hotplug calling
+                 * convention.
+                 */
+                path = libxl__device_xs_hotplug_path(gc, dev);
+                if (libxl__xs_read(gc, XBT_NULL, path))
+                    aodev->hotplug.version = 2;
                 aodev->action = LIBXL__DEVICE_ACTION_REMOVE;
                 aodev->dev = dev;
                 aodev->force = drs->force;
@@ -673,8 +689,6 @@ static void device_backend_callback(libxl__egc *egc, libxl__ev_devstate *ds,
 static void device_backend_cleanup(libxl__gc *gc,
                                    libxl__ao_device *aodev);
 
-static void device_hotplug(libxl__egc *egc, libxl__ao_device *aodev);
-
 static void device_hotplug_timeout_cb(libxl__egc *egc, libxl__ev_time *ev,
                                       const struct timeval *requested_abs);
 
@@ -709,7 +723,7 @@ void libxl__wait_device_connection(libxl__egc *egc, libxl__ao_device *aodev)
          * If Qemu is running, it will set the state of the device to
          * 4 directly, without waiting in state 2 for any hotplug execution.
          */
-        device_hotplug(egc, aodev);
+        libxl__device_hotplug(egc, aodev);
         return;
     }
 
@@ -841,7 +855,7 @@ static void device_qemu_timeout(libxl__egc *egc, libxl__ev_time *ev,
     rc = libxl__xs_write_checked(gc, XBT_NULL, state_path, "6");
     if (rc) goto out;
 
-    device_hotplug(egc, aodev);
+    libxl__device_hotplug(egc, aodev);
     return;
 
 out:
@@ -871,7 +885,7 @@ static void device_backend_callback(libxl__egc *egc, libxl__ev_devstate *ds,
         goto out;
     }
 
-    device_hotplug(egc, aodev);
+    libxl__device_hotplug(egc, aodev);
     return;
 
 out:
@@ -886,7 +900,7 @@ static void device_backend_cleanup(libxl__gc *gc, libxl__ao_device *aodev)
     libxl__ev_devstate_cancel(gc, &aodev->backend_ds);
 }
 
-static void device_hotplug(libxl__egc *egc, libxl__ao_device *aodev)
+void libxl__device_hotplug(libxl__egc *egc, libxl__ao_device *aodev)
 {
     STATE_AO_GC(aodev->ao);
     char *be_path = libxl__device_backend_path(gc, aodev->dev);
@@ -994,10 +1008,13 @@ static void device_hotplug_child_death_cb(libxl__egc *egc,
         if (hotplug_error)
             LOG(ERROR, "script: %s", hotplug_error);
         aodev->rc = ERROR_FAIL;
-        if (aodev->action == LIBXL__DEVICE_ACTION_ADD)
+        if (aodev->action == LIBXL__DEVICE_ACTION_ADD ||
+            aodev->action == LIBXL__DEVICE_ACTION_PREPARE ||
+            aodev->action == LIBXL__DEVICE_ACTION_LOCALATTACH)
             /*
-             * Only fail on device connection, on disconnection
-             * ignore error, and continue with the remove process
+             * Only fail on device connection, prepare or localattach,
+             * on other cases ignore error, and continue with the remove
+             * process.
              */
              goto error;
     }
@@ -1007,7 +1024,7 @@ static void device_hotplug_child_death_cb(libxl__egc *egc,
      * device_hotplug_done breaking the loop.
      */
     aodev->hotplug.num_exec++;
-    device_hotplug(egc, aodev);
+    libxl__device_hotplug(egc, aodev);
 
     return;
 
@@ -1019,17 +1036,87 @@ error:
 static void device_hotplug_done(libxl__egc *egc, libxl__ao_device *aodev)
 {
     STATE_AO_GC(aodev->ao);
+    char *hotplug_path;
+    const char *pdev, *hotplug_version;
     int rc;
 
     device_hotplug_clean(gc, aodev);
 
-    /* Clean xenstore if it's a disconnection */
-    if (aodev->action == LIBXL__DEVICE_ACTION_REMOVE) {
+    switch (aodev->action) {
+    case LIBXL__DEVICE_ACTION_REMOVE:
+        switch (aodev->hotplug.version) {
+        case 1:
+            /* Clean xenstore if it's a disconnection */
+            rc = libxl__device_destroy(gc, aodev->dev);
+            if (!aodev->rc)
+                aodev->rc = rc;
+            break;
+        case 2:
+            /*
+             * Chain unprepare hotplug execution
+             * after disconnection of device.
+             */
+            aodev->hotplug.num_exec = 0;
+            aodev->action = LIBXL__DEVICE_ACTION_UNPREPARE;
+            libxl__device_hotplug(egc, aodev);
+            return;
+        default:
+            LOG(ERROR, "unknown hotplug script version (%d)",
+                       aodev->hotplug.version);
+            if (!aodev->rc)
+                aodev->rc = ERROR_FAIL;
+            break;
+        }
+        break;
+    case LIBXL__DEVICE_ACTION_UNPREPARE:
+        /* Clean hotplug xenstore path */
         rc = libxl__device_destroy(gc, aodev->dev);
         if (!aodev->rc)
             aodev->rc = rc;
+        break;
+    case LIBXL__DEVICE_ACTION_ADD:
+        if (aodev->hotplug.version == 1)
+            goto out;
+        /*
+         * Update pdev_path in libxl_device_disk to point to the block
+         * device
+         */
+        hotplug_path = libxl__device_xs_hotplug_path(gc, aodev->dev);
+        rc = libxl__xs_read_checked(gc, XBT_NULL,
+                                    GCSPRINTF("%s/pdev", hotplug_path),
+                                    &pdev);
+        if (rc || !pdev) {
+            LOG(ERROR, "unable to get physical disk from %s",
+                       GCSPRINTF("%s/pdev", hotplug_path));
+            aodev->rc = rc ? rc : ERROR_FAIL;
+            goto out;
+        }
+
+        free(aodev->disk->pdev_path);
+        aodev->disk->pdev_path = libxl__strdup(NOGC, pdev);
+        break;
+    case LIBXL__DEVICE_ACTION_VERSION:
+        /* Fetch hotplug version output */
+        hotplug_path = libxl__device_xs_hotplug_path(gc, aodev->dev);
+        rc = libxl__xs_read_checked(gc, XBT_NULL,
+                                    GCSPRINTF("%s/version", hotplug_path),
+                                    &hotplug_version);
+        if (rc) {
+            LOG(ERROR, "unable to get hotplug_version from %s",
+                       GCSPRINTF("%s/version", hotplug_path));
+            aodev->rc = rc;
+            goto out;
+        }
+        if (!hotplug_version)
+            aodev->disk->hotplug_version = 1;
+        else
+            aodev->disk->hotplug_version = atoi(hotplug_version);
+        break;
+    default:
+        break;
     }
 
+out:
     aodev->callback(egc, aodev);
     return;
 }
