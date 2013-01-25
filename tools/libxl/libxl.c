@@ -2826,7 +2826,7 @@ void libxl__device_nic_add(libxl__egc *egc, uint32_t domid,
     if (rc) goto out;
 
     front = flexarray_make(gc, 16, 1);
-    back = flexarray_make(gc, 16, 1);
+    back = flexarray_make(gc, 18, 1);
 
     if (nic->devid == -1) {
         if ((nic->devid = libxl__device_nextid(gc, domid, "vif") < 0)) {
@@ -2861,6 +2861,10 @@ void libxl__device_nic_add(libxl__egc *egc, uint32_t domid,
     if (nic->ip) {
         flexarray_append(back, "ip");
         flexarray_append(back, libxl__strdup(gc, nic->ip));
+    }
+    if (nic->gatewaydev) {
+        flexarray_append(back, "gatewaydev");
+        flexarray_append(back, libxl__strdup(gc, nic->gatewaydev));
     }
 
     if (nic->rate_interval_usecs > 0) {
