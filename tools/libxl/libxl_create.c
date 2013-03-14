@@ -595,6 +595,10 @@ static int store_libxl_entry(libxl__gc *gc, uint32_t domid,
  */
 
 /* Event callbacks, in this order: */
+
+static void domcreate_launch_bootloader(libxl__egc *egc,
+                                        libxl__multidev *multidev,
+                                        int ret);
 static void domcreate_devmodel_started(libxl__egc *egc,
                                        libxl__dm_spawn_state *dmss,
                                        int rc);
@@ -641,7 +645,6 @@ static void initiate_domain_create(libxl__egc *egc,
 
     /* convenience aliases */
     libxl_domain_config *const d_config = dcs->guest_config;
-    const int restore_fd = dcs->restore_fd;
     memset(&dcs->build_state, 0, sizeof(dcs->build_state));
 
     domid = 0;
@@ -672,6 +675,33 @@ static void initiate_domain_create(libxl__egc *egc,
     for (i = 0; i < d_config->num_disks; i++) {
         ret = libxl__device_disk_setdefault(gc, &d_config->disks[i]);
         if (ret) goto error_out;
+    }
+
+    libxl__multidev_begin(ao, &dcs->multidev);
+    dcs->multidev.callback = domcreate_launch_bootloader;
+    libxl__prepare_disks(egc, ao, domid, d_config, &dcs->multidev);
+    libxl__multidev_prepared(egc, &dcs->multidev, 0);
+    return;
+
+error_out:
+    assert(ret);
+    domcreate_complete(egc, dcs, ret);
+}
+
+static void domcreate_launch_bootloader(libxl__egc *egc,
+                                        libxl__multidev *multidev,
+                                        int ret)
+{
+    libxl__domain_create_state *dcs = CONTAINER_OF(multidev, *dcs, multidev);
+    STATE_AO_GC(dcs->ao);
+
+    /* convenience aliases */
+    const int restore_fd = dcs->restore_fd;
+    libxl_domain_config *const d_config = dcs->guest_config;
+
+    if (ret) {
+        LOG(ERROR, "unable to prepare devices");
+        goto error_out;
     }
 
     dcs->bl.ao = ao;
