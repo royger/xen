@@ -409,7 +409,7 @@ void libxl__prepare_ao_device(libxl__ao *ao, libxl__ao_device *aodev)
     aodev->ao = ao;
     aodev->rc = 0;
     aodev->dev = NULL;
-    aodev->num_exec = 0;
+    aodev->hotplug.num_exec = 0;
     /* Initialize timer for QEMU Bodge and hotplug execution */
     libxl__ev_time_init(&aodev->timeout);
     aodev->active = 1;
@@ -892,7 +892,7 @@ static void device_hotplug(libxl__egc *egc, libxl__ao_device *aodev)
      * and return the necessary args/env vars for execution */
     hotplug = libxl__get_hotplug_script_info(gc, aodev->dev, &args, &env,
                                              aodev->action,
-                                             aodev->num_exec);
+                                             &aodev->hotplug);
     switch (hotplug) {
     case 0:
         /* no hotplug script to execute */
@@ -994,7 +994,7 @@ static void device_hotplug_child_death_cb(libxl__egc *egc,
      * If no more executions are needed, device_hotplug will call
      * device_hotplug_done breaking the loop.
      */
-    aodev->num_exec++;
+    aodev->hotplug.num_exec++;
     device_hotplug(egc, aodev);
 
     return;

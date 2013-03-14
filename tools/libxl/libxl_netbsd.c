@@ -62,13 +62,13 @@ out:
 int libxl__get_hotplug_script_info(libxl__gc *gc, libxl__device *dev,
                                    char ***args, char ***env,
                                    libxl__device_action action,
-                                   int num_exec)
+                                   libxl__hotplug *hotplug)
 {
     char *disable_udev = libxl__xs_read(gc, XBT_NULL, DISABLE_UDEV_PATH);
     int rc;
 
     /* Check if we have to run hotplug scripts */
-    if (!disable_udev || num_exec > 0) {
+    if (!disable_udev || hotplug->num_exec > 0) {
         rc = 0;
         goto out;
     }
