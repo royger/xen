@@ -1,0 +1,184 @@
+                     -----------------------
+                     LIBXL HOTPLUG INTERFACE
+                     -----------------------
+
+This document specifies the new libxl hotplug interface. This new
+interface has been designed to operate better with complex hotplug
+scripts, that need to perform several operations and can take a
+considerable time to execute.
+
+Hotplug scripts are expected to take a parameter, passed by the caller
+and provide a block device as output, that will be attached to the guest.
+
+
+
+=====================
+ENVIRONMENT VARIABLES
+=====================
+
+
+The following environment variables will be set before calling
+the hotplug script.
+
+The hotplug script will have write permissions on this xenstore paths.
+
+
+HOTPLUG_PATH
+------------
+
+Points to the xenstore directory that holds information relative
+to this hotplug script. At present only one parameter is passed by
+the toolstack, the "params" xenstore entry which contains the "target"
+line specified in the diskspec xl disk configuration (pdev_path in
+libxl_device_disk struct).
+
+This xenstore directory will be used to communicate between the
+hotplug script and the toolstack, and it can also be used by the
+hotplug script to store temporary information. This directory is created
+before calling the "prepare" operation, and the toolstack guarantees
+that it will not be removed before the "unprepare" operation has been
+finished. After that, the toolstack will take the appropriate actions
+to remove it. The toolstack guarantees that HOTPLUG_PATH will always
+point to a valid xenstore path for all operations.
+
+The path of this directory follows the syntax:
+
+/local/domain/<local_domid>/libxl/hotplug/vbd/<guest_domid>/<device_id>
+
+(Note that there is no end slash appended to HOTPLUG_PATH)
+
+The hotplug script should take special care not to store arbitrary
+values in the following entries:
+
+HOTPLUG_PATH/version
+HOTPLUG_PATH/pdev
+
+This are used for communication between the hotplug script and the
+toolstack, and should only be written to when the parameter passed
+to the hotplug script requires it.
+
+Also, the toolstack reserves the right to use any of the following entries,
+that should not be used to store arbitrary data from the hotplug script:
+
+HOTPLUG_PATH/libxl_*
+
+
+BACKEND_PATH
+------------
+
+Points to the xenstore backend path of the corresponding block device.
+Since hotplug scripts are always executed in the Domain that acts as
+backend for a device, it will always have the following syntax:
+
+/local/domain/<local_domain>/backend/vbd/<guest_domid>/<device_id>
+
+(Note that there is no end slash appended to BACKEND_PATH)
+
+This environment variable is not set for all operations, since some
+hotplug operations are executed before the backend xenstore is set up.
+
+
+
+=======================
+COMMAND LINE PARAMETERS
+=======================
+
+
+Script will be called with only one parameter, that is either prepare,
+add, remove, unprepare, localattach or localdetach.
+
+VERSION
+-------
+
+Operation used to request the version this hotplug script supports. Failure
+to perform this operation will result in hotplug script detected as version 1.
+
+BACKEND_PATH: not valid
+
+Expected output:
+HOTPLGU_PATH/version = version supported by the hotplug script
+
+
+PREPARE
+-------
+
+This is the first operation that the hotplug script will be requested to
+execute. This operation is executed before the disk is connected, to
+give the hotplug script the chance to offload some work from the "add"
+operation, that is performed later.
+
+BACKEND_PATH: not valid
+
+Expected output:
+None
+
+
+ADD
+---
+
+This operation should connect the device to the domain. Will only be called
+after the "prepare" operation has finished successfully.
+
+BACKEND_PATH: valid
+
+Expected output:
+BACKEND_PATH/physical-device = block device major:minor
+BACKEND_PATH/params = block device path
+HOTPLUG_PATH/pdev = block device path
+
+
+REMOVE
+------
+
+
+Disconnects a block device from a domain. Will only be called
+after the "prepare" operation has finished successfully. Implementations
+should take into account that the "remove" operation will also be called if
+the "add" operation has failed.
+
+BACKEND_PATH: valid
+
+Expected output:
+None
+
+
+LOCALATTACH
+-----------
+
+
+Creates a block device in the current domain that points to the guest
+disk device. Will only be called after the "prepare" operation has
+finished successfully.
+
+BACKEND_PATH: not valid
+
+Expected output:
+HOTPLUG_PATH/pdev = block device path
+
+
+LOCALDETACH
+-----------
+
+
+Disconnects a device (previously connected with the localattach
+operation) from the current domain. Will only be called after
+the "prepare" operation has finished successfully. Implementations
+should take into account that the "localdetach" operation will
+also be called if the "localattach" operation has failed.
+
+BACKEND_PATH: not valid
+
+Expected output:
+None
+
+
+UNPREPARE
+---------
+
+
+Performs the necessary actions to unprepare the device.
+
+BACKEND_PATH: not valid
+
+Expected output:
+None

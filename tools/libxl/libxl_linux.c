@@ -198,32 +198,63 @@ out:
 
 static int libxl__hotplug_disk(libxl__gc *gc, libxl__device *dev,
                                char ***args, char ***env,
-                               libxl__device_action action)
+                               libxl__device_action action,
+                               int hotplug_version)
 {
     char *be_path = libxl__device_backend_path(gc, dev);
+    char *hotplug_path = libxl__device_xs_hotplug_path(gc, dev);
     char *script;
     int nr = 0, rc = 0;
+    const int env_arraysize = 5;
+    const int arg_arraysize = 3;
 
-    script = libxl__xs_read(gc, XBT_NULL,
-                            GCSPRINTF("%s/%s", be_path, "script"));
-    if (!script) {
-        LOGEV(ERROR, errno, "unable to read script from %s", be_path);
+    switch (hotplug_version) {
+    case 1:
+        script = libxl__xs_read(gc, XBT_NULL, GCSPRINTF("%s/script", be_path));
+        if (!script) {
+            LOGEV(ERROR, errno, "unable to read script from %s", be_path);
+            rc = ERROR_FAIL;
+            goto error;
+        }
+        *env = get_hotplug_env(gc, script, dev);
+        if (!*env) {
+            rc = ERROR_FAIL;
+            goto error;
+        }
+        break;
+    case 2:
+        /* The new hotplug calling convention only uses two ENV variables:
+         * BACKEND_PATH: path to xenstore backend of the related device.
+         * HOTPLUG_PATH: path to the xenstore directory that can be used to
+         * pass extra parameters to the script.
+         */
+        script = libxl__xs_read(gc, XBT_NULL,
+                                GCSPRINTF("%s/script", hotplug_path));
+        if (!script) {
+            LOGEV(ERROR, errno, "unable to read script from %s", hotplug_path);
+            rc = ERROR_FAIL;
+            goto error;
+        }
+        GCNEW_ARRAY(*env, env_arraysize);
+        (*env)[nr++] = "BACKEND_PATH";
+        (*env)[nr++] = be_path;
+        (*env)[nr++] = "HOTPLUG_PATH";
+        (*env)[nr++] = hotplug_path;
+        (*env)[nr++] = NULL;
+        assert(nr == env_arraysize);
+        nr = 0;
+        break;
+    default:
+        LOG(ERROR, "unknown hotplug script version %d", hotplug_version);
         rc = ERROR_FAIL;
         goto error;
     }
 
-    *env = get_hotplug_env(gc, script, dev);
-    if (!*env) {
-        rc = ERROR_FAIL;
-        goto error;
-    }
-
-    const int arraysize = 3;
-    GCNEW_ARRAY(*args, arraysize);
+    GCNEW_ARRAY(*args, arg_arraysize);
     (*args)[nr++] = script;
     (*args)[nr++] = (char *) libxl__device_action_to_string(action);
     (*args)[nr++] = NULL;
-    assert(nr == arraysize);
+    assert(nr == arg_arraysize);
 
     rc = 1;
 
@@ -251,7 +282,7 @@ int libxl__get_hotplug_script_info(libxl__gc *gc, libxl__device *dev,
             rc = 0;
             goto out;
         }
-        rc = libxl__hotplug_disk(gc, dev, args, env, action);
+        rc = libxl__hotplug_disk(gc, dev, args, env, action, hotplug->version);
         break;
     case LIBXL__DEVICE_KIND_VIF:
         /*
