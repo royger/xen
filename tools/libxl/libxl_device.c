@@ -83,6 +83,14 @@ out:
     return rc;
 }
 
+char *libxl__device_xs_hotplug_path(libxl__gc *gc, libxl__device *dev)
+{
+    return GCSPRINTF("/local/domain/%u/libxl/hotplug/%u/%s/%u",
+                     dev->backend_domid, dev->domid,
+                     libxl__device_kind_to_string(dev->backend_kind),
+                     dev->devid);
+}
+
 int libxl__device_generic_add(libxl__gc *gc, xs_transaction_t t,
         libxl__device *device, char **bents, char **fents)
 {
@@ -410,6 +418,7 @@ void libxl__prepare_ao_device(libxl__ao *ao, libxl__ao_device *aodev)
     aodev->rc = 0;
     aodev->dev = NULL;
     aodev->hotplug.num_exec = 0;
+    aodev->hotplug.version = 1;
     /* Initialize timer for QEMU Bodge and hotplug execution */
     libxl__ev_time_init(&aodev->timeout);
     aodev->active = 1;
@@ -974,7 +983,12 @@ static void device_hotplug_child_death_cb(libxl__egc *egc,
 
     device_hotplug_clean(gc, aodev);
 
-    if (status) {
+    if (status && aodev->action != LIBXL__DEVICE_ACTION_VERSION) {
+        /* If a hotplug script returns an error when called
+         * with the "version" argument it means it is using the old
+         * hotplug calling convention, and we don't have to print
+         * an error message.
+         */
         libxl_report_child_exitstatus(CTX, LIBXL__LOG_ERROR,
                                       aodev->what, pid, status);
         hotplug_error = libxl__xs_read(gc, XBT_NULL,

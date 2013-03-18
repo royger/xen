@@ -37,4 +37,9 @@ libxl__device_console = Struct("device_console", [
 libxl__device_action = Enumeration("device_action", [
     (1, "ADD"),
     (2, "REMOVE"),
+    (3, "PREPARE"),
+    (4, "UNPREPARE"),
+    (5, "LOCALATTACH"),
+    (6, "LOCALDETACH"),
+    (7, "VERSION"),
     ])
