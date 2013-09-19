@@ -2526,6 +2526,23 @@ _hidden void libxl__spawn_stub_dm(libxl__egc *egc, libxl__stub_dm_spawn_state*);
 
 _hidden char *libxl__stub_dm_name(libxl__gc *gc, const char * guest_name);
 
+/* Qdisk backend launch helpers */
+
+typedef struct libxl__spawn_qdisk_state libxl__spawn_qdisk_state;
+
+typedef void libxl__qdisk_spawn_cb(libxl__egc *egc, libxl__spawn_qdisk_state*,
+                                   int rc /* if !0, error was logged */);
+
+struct libxl__spawn_qdisk_state {
+    uint32_t guest_domid;
+    libxl__spawn_state spawn;
+    libxl__qdisk_spawn_cb *callback;
+};
+
+_hidden void libxl__spawn_qdisk_backend(libxl__egc *egc,
+                                        libxl__spawn_qdisk_state *sqs);
+_hidden int libxl__destroy_qdisk_backend(libxl__gc *gc, uint32_t domid);
+
 /*----- Domain creation -----*/
 
 typedef struct libxl__domain_create_state libxl__domain_create_state;

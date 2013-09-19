@@ -1320,18 +1320,123 @@ static void device_model_spawn_outcome(libxl__egc *egc,
     dmss->callback(egc, dmss, rc);
 }
 
-int libxl__destroy_device_model(libxl__gc *gc, uint32_t domid)
-{
-    char *pid;
-    int ret;
+/* callbacks passed in libxl__spawn_spawn for Qdisk attach */
+static void qdisk_confirm(libxl__egc *egc, libxl__spawn_state *spawn,
+                          const char *xsdata);
+static void qdisk_startup_failed(libxl__egc *egc,
+                                 libxl__spawn_state *spawn);
+static void qdisk_detached(libxl__egc *egc,
+                           libxl__spawn_state *spawn);
 
-    pid = libxl__xs_read(gc, XBT_NULL, libxl__sprintf(gc, "/local/domain/%d/image/device-model-pid", domid));
-    if (!pid || !atoi(pid)) {
-        LOG(ERROR, "could not find device-model's pid for dom %u", domid);
-        ret = ERROR_FAIL;
+void libxl__spawn_qdisk_backend(libxl__egc *egc, libxl__spawn_qdisk_state *sqs)
+{
+    STATE_AO_GC(sqs->spawn.ao);
+    flexarray_t *dm_args;
+    char **args;
+    char *logfile = NULL;
+    const char *dm;
+    int logfile_w, null, rc;
+    uint32_t domid = sqs->guest_domid;
+
+    /* Always use qemu-xen as device model */
+    dm = qemu_xen_path(gc);
+
+    dm_args = flexarray_make(gc, 15, 1);
+    flexarray_vappend(dm_args, dm, "-xen-domid",
+                      GCSPRINTF("%d", domid), NULL);
+    flexarray_append(dm_args, "-xen-attach");
+    flexarray_vappend(dm_args, "-name",
+                      GCSPRINTF("domain-%u", domid), NULL);
+    flexarray_append(dm_args, "-nographic");
+    flexarray_vappend(dm_args, "-M", "xenpv", NULL);
+    flexarray_vappend(dm_args, "-monitor", "/dev/null", NULL);
+    flexarray_vappend(dm_args, "-serial", "/dev/null", NULL);
+    flexarray_vappend(dm_args, "-parallel", "/dev/null", NULL);
+    flexarray_append(dm_args, NULL);
+    args = (char **) flexarray_contents(dm_args);
+
+    libxl_create_logfile(CTX, GCSPRINTF("qdisk-%u", domid), &logfile);
+    logfile_w = open(logfile, O_WRONLY|O_CREAT|O_APPEND, 0644);
+    if (logfile_w < 0) {
+        free(logfile);
+        rc = logfile_w;
+        goto error;
+    }
+    free(logfile);
+    null = open("/dev/null", O_RDONLY);
+
+    sqs->spawn.what = GCSPRINTF("domain %u Qdisk backend", domid);
+    sqs->spawn.xspath = GCSPRINTF("device-model/%u/state", domid);
+    sqs->spawn.timeout_ms = LIBXL_DEVICE_MODEL_START_TIMEOUT * 1000;
+    /*
+     * We cannot save Qemu pid anywhere in the xenstore guest dir,
+     * because we will call this from unprivileged driver domains,
+     * so save it in the current domain libxl private dir.
+     */
+    sqs->spawn.pidpath = GCSPRINTF("libxl/%u/qdisk-backend-pid", domid);
+    sqs->spawn.midproc_cb = libxl__spawn_record_pid;
+    sqs->spawn.confirm_cb = qdisk_confirm;
+    sqs->spawn.failure_cb = qdisk_startup_failed;
+    sqs->spawn.detached_cb = qdisk_detached;
+    rc = libxl__spawn_spawn(egc, &sqs->spawn);
+    if (rc < 0)
+        goto error;
+    if (!rc) { /* inner child */
+        setsid();
+        libxl__exec(gc, null, logfile_w, logfile_w, dm, args, NULL);
+    }
+
+    return;
+
+error:
+    assert(rc);
+    sqs->callback(egc, sqs, rc);
+    return;
+}
+
+static void qdisk_confirm(libxl__egc *egc, libxl__spawn_state *spawn,
+                          const char *xsdata)
+{
+    STATE_AO_GC(spawn->ao);
+
+    if (!xsdata)
+        return;
+
+    if (strcmp(xsdata, "running"))
+        return;
+
+    libxl__spawn_initiate_detach(gc, spawn);
+}
+
+static void qdisk_startup_failed(libxl__egc *egc,
+                                 libxl__spawn_state *spawn)
+{
+    libxl__spawn_qdisk_state *sqs = CONTAINER_OF(spawn, *sqs, spawn);
+    sqs->callback(egc, sqs, ERROR_FAIL);
+}
+
+static void qdisk_detached(libxl__egc *egc,
+                           libxl__spawn_state *spawn)
+{
+    libxl__spawn_qdisk_state *sqs = CONTAINER_OF(spawn, *sqs, spawn);
+    sqs->callback(egc, sqs, 0);
+}
+
+/* Generic function to signal a Qemu instance to exit */
+static int kill_device_model(libxl__gc *gc, const char *xs_path_pid)
+{
+    const char *xs_pid;
+    int ret, pid;
+
+    ret = libxl__xs_read_checked(gc, XBT_NULL, xs_path_pid, &xs_pid);
+    if (ret || !xs_pid) {
+        LOG(ERROR, "unable to find device model pid in %s", xs_path_pid);
+        ret = ret ? : ERROR_FAIL;
         goto out;
     }
-    ret = kill(atoi(pid), SIGHUP);
+    pid = atoi(xs_pid);
+
+    ret = kill(pid, SIGHUP);
     if (ret < 0 && errno == ESRCH) {
         LOG(ERROR, "Device Model already exited");
         ret = 0;
@@ -1339,13 +1444,39 @@ int libxl__destroy_device_model(libxl__gc *gc, uint32_t domid)
         LOG(DEBUG, "Device Model signaled");
         ret = 0;
     } else {
-        LOGE(ERROR, "failed to kill Device Model [%d]", atoi(pid));
+        LOGE(ERROR, "failed to kill Device Model [%d]", pid);
         ret = ERROR_FAIL;
         goto out;
     }
 
 out:
     return ret;
+}
+
+/* Helper to destroy a Qdisk backend */
+int libxl__destroy_qdisk_backend(libxl__gc *gc, uint32_t domid)
+{
+    char *pid_path;
+    int rc;
+
+    pid_path = GCSPRINTF("libxl/%u/qdisk-backend-pid", domid);
+
+    rc = kill_device_model(gc, pid_path);
+    if (rc)
+        goto out;
+
+    libxl__xs_rm_checked(gc, XBT_NULL, pid_path);
+    libxl__xs_rm_checked(gc, XBT_NULL,
+                         GCSPRINTF("device-model/%u", domid));
+
+out:
+    return rc;
+}
+
+int libxl__destroy_device_model(libxl__gc *gc, uint32_t domid)
+{
+    return kill_device_model(gc,
+                GCSPRINTF("/local/domain/%d/image/device-model-pid", domid));
 }
 
 int libxl__need_xenpv_qemu(libxl__gc *gc,
