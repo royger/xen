@@ -338,6 +338,8 @@ int libxl__build_pv(libxl__gc *gc, uint32_t domid,
         return ERROR_FAIL;
     }
 
+    dom->pvh_enabled = state->pvh_enabled;
+
     LOG(DEBUG, "pv kernel mapped %d path %s\n", state->pv_kernel.mapped, state->pv_kernel.path);
     if (state->pv_kernel.mapped) {
         ret = xc_dom_kernel_mem(dom,

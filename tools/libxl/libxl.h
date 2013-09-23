@@ -355,6 +355,12 @@
  */
 #define LIBXL_HAVE_SPICE_VDAGENT 1
 
+/*
+ * LIBXL_HAVE_CREATEINFO_PVH
+ * If this is defined, then libxl supports creation of a PVH guest.
+ */
+#define LIBXL_HAVE_CREATEINFO_PVH 1
+
 /* Functions annotated with LIBXL_EXTERNAL_CALLERS_ONLY may not be
  * called from within libxl itself. Callers outside libxl, who
  * do not #include libxl_internal.h, are fine. */
