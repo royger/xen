@@ -461,6 +461,11 @@ static void instruction_done(
     struct cpu_user_regs *regs, unsigned long eip, unsigned int bpmatch)
 {
     regs->eip = eip;
+
+    /* PVH fixme: Make debug traps work */
+    if ( is_pvh_vcpu(current) )
+        return;
+
     regs->eflags &= ~X86_EFLAGS_RF;
     if ( bpmatch || (regs->eflags & X86_EFLAGS_TF) )
     {
@@ -476,6 +481,10 @@ static unsigned int check_guest_io_breakpoint(struct vcpu *v,
 {
     unsigned int width, i, match = 0;
     unsigned long start;
+
+    /* PVH fixme: support io breakpoint. */
+    if ( is_pvh_vcpu(v) )
+        return 0;
 
     if ( !(v->arch.debugreg[5]) ||
          !(v->arch.pv_vcpu.ctrlreg[4] & X86_CR4_DE) )
