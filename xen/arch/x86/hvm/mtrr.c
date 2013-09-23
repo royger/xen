@@ -578,6 +578,7 @@ int32_t hvm_set_mem_pinned_cacheattr(
 {
     struct hvm_mem_pinned_cacheattr_range *range;
 
+    /* Side note: A PVH guest writes to MSR_IA32_CR_PAT natively. */
     if ( !((type == PAT_TYPE_UNCACHABLE) ||
            (type == PAT_TYPE_WRCOMB) ||
            (type == PAT_TYPE_WRTHROUGH) ||
