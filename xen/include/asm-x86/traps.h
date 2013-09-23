@@ -49,4 +49,7 @@ extern int guest_has_trap_callback(struct domain *d, uint16_t vcpuid,
 extern int send_guest_trap(struct domain *d, uint16_t vcpuid,
 				unsigned int trap_nr);
 
+int emulate_privileged_op(struct cpu_user_regs *regs);
+int emulate_forced_invalid_op(struct cpu_user_regs *regs);
+
 #endif /* ASM_TRAP_H */

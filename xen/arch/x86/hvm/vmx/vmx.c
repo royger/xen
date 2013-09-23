@@ -56,6 +56,7 @@
 #include <asm/apic.h>
 #include <asm/hvm/nestedhvm.h>
 #include <asm/event.h>
+#include <asm/traps.h>
 
 enum handler_return { HNDL_done, HNDL_unhandled, HNDL_exception_raised };
 
@@ -2645,8 +2646,16 @@ void vmx_vmexit_handler(struct cpu_user_regs *regs)
             /* Already handled above. */
             break;
         case TRAP_invalid_op:
-            HVMTRACE_1D(TRAP, vector);
-            vmx_vmexit_ud_intercept(regs);
+            if ( is_pvh_vcpu(v) )
+            {
+                if ( !emulate_forced_invalid_op(regs) )
+                    hvm_inject_hw_exception(TRAP_invalid_op, HVM_DELIVER_NO_ERROR_CODE);
+            }
+            else
+            {
+                HVMTRACE_1D(TRAP, vector);
+                vmx_vmexit_ud_intercept(regs);
+            }
             break;
         default:
             HVMTRACE_1D(TRAP, vector);
@@ -2695,8 +2704,8 @@ void vmx_vmexit_handler(struct cpu_user_regs *regs)
         break;
     }
     case EXIT_REASON_CPUID:
+        is_pvh_vcpu(v) ? pv_cpuid(regs) : vmx_do_cpuid(regs);
         update_guest_eip(); /* Safe: CPUID */
-        vmx_do_cpuid(regs);
         break;
     case EXIT_REASON_HLT:
         update_guest_eip(); /* Safe: HLT */
@@ -2844,21 +2853,29 @@ void vmx_vmexit_handler(struct cpu_user_regs *regs)
     }
 
     case EXIT_REASON_IO_INSTRUCTION:
-        exit_qualification = __vmread(EXIT_QUALIFICATION);
-        if ( exit_qualification & 0x10 )
+        if ( is_pvh_vcpu(v) )
         {
-            /* INS, OUTS */
-            if ( !handle_mmio() )
-                hvm_inject_hw_exception(TRAP_gp_fault, 0);
+            if ( !emulate_privileged_op(regs) )
+                hvm_inject_hw_exception(TRAP_gp_fault, regs->error_code);
         }
         else
         {
-            /* IN, OUT */
-            uint16_t port = (exit_qualification >> 16) & 0xFFFF;
-            int bytes = (exit_qualification & 0x07) + 1;
-            int dir = (exit_qualification & 0x08) ? IOREQ_READ : IOREQ_WRITE;
-            if ( handle_pio(port, bytes, dir) )
-                update_guest_eip(); /* Safe: IN, OUT */
+            exit_qualification = __vmread(EXIT_QUALIFICATION);
+            if ( exit_qualification & 0x10 )
+            {
+                /* INS, OUTS */
+                if ( !handle_mmio() )
+                    hvm_inject_hw_exception(TRAP_gp_fault, 0);
+            }
+            else
+            {
+                /* IN, OUT */
+                uint16_t port = (exit_qualification >> 16) & 0xFFFF;
+                int bytes = (exit_qualification & 0x07) + 1;
+                int dir = (exit_qualification & 0x08) ? IOREQ_READ : IOREQ_WRITE;
+                if ( handle_pio(port, bytes, dir) )
+                    update_guest_eip(); /* Safe: IN, OUT */
+            }
         }
         break;
 

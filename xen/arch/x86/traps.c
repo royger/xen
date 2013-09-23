@@ -738,7 +738,7 @@ int cpuid_hypervisor_leaves( uint32_t idx, uint32_t sub_idx,
     return 1;
 }
 
-static void pv_cpuid(struct cpu_user_regs *regs)
+void pv_cpuid(struct cpu_user_regs *regs)
 {
     uint32_t a, b, c, d;
 
@@ -915,7 +915,7 @@ static int emulate_invalid_rdtscp(struct cpu_user_regs *regs)
     return EXCRET_fault_fixed;
 }
 
-static int emulate_forced_invalid_op(struct cpu_user_regs *regs)
+int emulate_forced_invalid_op(struct cpu_user_regs *regs)
 {
     char sig[5], instr[2];
     unsigned long eip, rc;
@@ -923,7 +923,7 @@ static int emulate_forced_invalid_op(struct cpu_user_regs *regs)
     eip = regs->eip;
 
     /* Check for forced emulation signature: ud2 ; .ascii "xen". */
-    if ( (rc = copy_from_user(sig, (char *)eip, sizeof(sig))) != 0 )
+    if ( (rc = raw_copy_from_guest(sig, (char *)eip, sizeof(sig))) != 0 )
     {
         propagate_page_fault(eip + sizeof(sig) - rc, 0);
         return EXCRET_fault_fixed;
@@ -933,7 +933,7 @@ static int emulate_forced_invalid_op(struct cpu_user_regs *regs)
     eip += sizeof(sig);
 
     /* We only emulate CPUID. */
-    if ( ( rc = copy_from_user(instr, (char *)eip, sizeof(instr))) != 0 )
+    if ( ( rc = raw_copy_from_guest(instr, (char *)eip, sizeof(instr))) != 0 )
     {
         propagate_page_fault(eip + sizeof(instr) - rc, 0);
         return EXCRET_fault_fixed;
@@ -1074,7 +1074,7 @@ static void reserved_bit_page_fault(
     show_execution_state(regs);
 }
 
-void propagate_page_fault(unsigned long addr, u16 error_code)
+static void pv_inject_page_fault(unsigned long addr, u16 error_code)
 {
     struct trap_info *ti;
     struct vcpu *v = current;
@@ -1106,6 +1106,13 @@ void propagate_page_fault(unsigned long addr, u16 error_code)
 
     if ( unlikely(error_code & PFEC_reserved_bit) )
         reserved_bit_page_fault(addr, guest_cpu_user_regs());
+}
+
+void propagate_page_fault(unsigned long addr, u16 error_code)
+{
+    is_pvh_vcpu(current) ?
+        hvm_inject_page_fault(error_code, addr) :
+        pv_inject_page_fault(addr, error_code);
 }
 
 static int handle_gdt_ldt_mapping_fault(
@@ -1626,6 +1633,13 @@ static int guest_io_okay(
     int user_mode = !(v->arch.flags & TF_kernel_mode);
 #define TOGGLE_MODE() if ( user_mode ) toggle_guest_mode(v)
 
+    /*
+     * For PVH, privilege checks are done by the hardware.  If we've
+     * gotten here, then the access is good.
+     */
+    if ( is_pvh_vcpu(v) )
+        return 1;
+
     if ( !vm86_mode(regs) &&
          (v->arch.pv_vcpu.iopl >= (guest_kernel_mode(v, regs) ? 1 : 3)) )
         return 1;
@@ -1871,7 +1885,7 @@ static inline uint64_t guest_misc_enable(uint64_t val)
         _ptr = (unsigned int)_ptr;                                          \
     if ( (limit) < sizeof(_x) - 1 || (eip) > (limit) - (sizeof(_x) - 1) )   \
         goto fail;                                                          \
-    if ( (_rc = copy_from_user(&_x, (type *)_ptr, sizeof(_x))) != 0 )       \
+    if ( (_rc = raw_copy_from_guest(&_x, (type *)_ptr, sizeof(_x))) != 0 )  \
     {                                                                       \
         propagate_page_fault(_ptr + sizeof(_x) - _rc, 0);                   \
         goto skip;                                                          \
@@ -1886,7 +1900,7 @@ static int is_cpufreq_controller(struct domain *d)
 
 #include "x86_64/mmconfig.h"
 
-static int emulate_privileged_op(struct cpu_user_regs *regs)
+int emulate_privileged_op(struct cpu_user_regs *regs)
 {
     enum x86_segment which_sel;
     struct vcpu *v = current;
