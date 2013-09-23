@@ -10,10 +10,13 @@
 #define ring_2(r)    (((r)->cs & 3) == 2)
 #define ring_3(r)    (((r)->cs & 3) == 3)
 
-#define guest_kernel_mode(v, r)                                 \
-    (!is_pv_32bit_vcpu(v) ?                                     \
-     (ring_3(r) && ((v)->arch.flags & TF_kernel_mode)) :        \
-     (ring_1(r)))
+bool_t hvm_kernel_mode(struct vcpu *);
+
+#define guest_kernel_mode(v, r)                                   \
+    (has_hvm_container_vcpu(v) ? hvm_kernel_mode(v) :             \
+     (!is_pv_32bit_vcpu(v) ?                                      \
+      (ring_3(r) && ((v)->arch.flags & TF_kernel_mode)) :         \
+      (ring_1(r))))
 
 #define permit_softint(dpl, v, r) \
     ((dpl) >= (guest_kernel_mode(v, r) ? 1 : 3))

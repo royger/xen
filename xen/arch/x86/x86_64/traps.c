@@ -142,7 +142,7 @@ void show_registers(struct cpu_user_regs *regs)
     }
 }
 
-void vcpu_show_registers(const struct vcpu *v)
+void vcpu_show_registers(struct vcpu *v)
 {
     const struct cpu_user_regs *regs = &v->arch.user_regs;
     unsigned long crs[8];

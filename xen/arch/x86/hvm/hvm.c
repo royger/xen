@@ -4739,6 +4739,14 @@ enum hvm_intblk nhvm_interrupt_blocked(struct vcpu *v)
     return hvm_funcs.nhvm_intr_blocked(v);
 }
 
+bool_t hvm_kernel_mode(struct vcpu *v)
+{
+    struct segment_register seg;
+
+    hvm_get_segment_register(v, x86_seg_ss, &seg);
+    return (seg.attr.fields.dpl == 0);
+}
+
 /*
  * Local variables:
  * mode: C

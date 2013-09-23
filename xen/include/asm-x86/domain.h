@@ -447,7 +447,7 @@ struct arch_vcpu
 #define hvm_svm         hvm_vcpu.u.svm
 
 void vcpu_show_execution_state(struct vcpu *);
-void vcpu_show_registers(const struct vcpu *);
+void vcpu_show_registers(struct vcpu *);
 
 /* Clean up CR4 bits that are not under guest control. */
 unsigned long pv_guest_cr4_fixup(const struct vcpu *, unsigned long guest_cr4);
