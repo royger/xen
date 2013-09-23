@@ -945,17 +945,16 @@ int arch_set_info_guest(
 
     clear_bit(_VPF_in_reset, &v->pause_flags);
 
-    if ( v->vcpu_id == 0 )
-        update_domain_wallclock_time(d);
-
-    /* Don't redo final setup */
-    v->is_initialised = 1;
-
     if ( paging_mode_enabled(d) )
         paging_update_paging_modes(v);
 
     update_cr3(v);
 
+    if ( v->vcpu_id == 0 )
+        update_domain_wallclock_time(d);
+
+    /* Don't redo final setup */
+    v->is_initialised = 1;
  out:
     if ( flags & VGCF_online )
         clear_bit(_VPF_down, &v->pause_flags);
