@@ -1827,6 +1827,22 @@ void tsc_set_info(struct domain *d,
         d->arch.vtsc = 0;
         return;
     }
+    if ( is_pvh_domain(d) )
+    {
+        /* PVH fixme: support more tsc modes. */
+        switch ( tsc_mode )
+        {
+        case TSC_MODE_NEVER_EMULATE:
+            break;
+        default:
+            printk(XENLOG_WARNING
+                   "PVH currently does not support tsc emulation. Setting timer_mode = never_emulate\n");
+            /* FALLTHRU */
+        case TSC_MODE_DEFAULT:
+            tsc_mode = TSC_MODE_NEVER_EMULATE;
+            break;
+        }
+    }
 
     switch ( d->arch.tsc_mode = tsc_mode )
     {
