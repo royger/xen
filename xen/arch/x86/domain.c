@@ -699,6 +699,18 @@ int arch_set_info_guest(
                 return -EINVAL;
         }
     }
+    else if ( is_pvh_vcpu(v) )
+    {
+        /* PVH 32bitfixme */
+        ASSERT(!compat);
+
+        if ( c(ctrlreg[1]) || c(ldt_base) || c(ldt_ents) ||
+             c(user_regs.cs) || c(user_regs.ss) || c(user_regs.es) ||
+             c(user_regs.ds) || c(user_regs.fs) || c(user_regs.gs) ||
+             c.nat->gdt_ents || c.nat->fs_base || c.nat->gs_base_user )
+            return -EINVAL;
+
+    }
 
     v->fpu_initialised = !!(flags & VGCF_I387_VALID);
 
@@ -736,8 +748,24 @@ int arch_set_info_guest(
 
     if ( has_hvm_container_vcpu(v) )
     {
-        hvm_set_info_guest(v);
-        goto out;
+        hvm_set_info_guest(v, compat ? 0 : c.nat->gs_base_kernel);
+
+        if ( is_hvm_vcpu(v) || v->is_initialised )
+            goto out;
+
+        cr3_gfn = xen_cr3_to_pfn(c.nat->ctrlreg[3]);
+        cr3_page = get_page_from_gfn(d, cr3_gfn, NULL, P2M_ALLOC);
+
+        v->arch.cr3 = page_to_maddr(cr3_page);
+        v->arch.hvm_vcpu.guest_cr[3] = c.nat->ctrlreg[3];
+        
+        ASSERT(paging_mode_enabled(d));
+
+        paging_update_paging_modes(v);
+
+        update_cr3(v);
+
+        goto pvh_skip_pv_stuff;
     }
 
     init_int80_direct_trap(v);
@@ -947,6 +975,7 @@ int arch_set_info_guest(
 
     update_cr3(v);
 
+ pvh_skip_pv_stuff:
     if ( v->vcpu_id == 0 )
         update_domain_wallclock_time(d);
 

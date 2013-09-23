@@ -1426,7 +1426,7 @@ static void vmx_set_uc_mode(struct vcpu *v)
     hvm_asid_flush_vcpu(v);
 }
 
-static void vmx_set_info_guest(struct vcpu *v)
+static void vmx_set_info_guest(struct vcpu *v, uint64_t gs_base_kernel)
 {
     unsigned long intr_shadow;
 
@@ -1450,6 +1450,11 @@ static void vmx_set_info_guest(struct vcpu *v)
         intr_shadow &= ~VMX_INTR_SHADOW_STI;
         __vmwrite(GUEST_INTERRUPTIBILITY_INFO, intr_shadow);
     }
+
+    /* PVH 32bitfixme */
+    if ( is_pvh_vcpu(v) )
+        __vmwrite(GUEST_GS_BASE, gs_base_kernel);
+
 
     vmx_vmcs_exit(v);
 }
