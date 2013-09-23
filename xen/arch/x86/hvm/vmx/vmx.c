@@ -1041,8 +1041,6 @@ void vmx_update_debug_state(struct vcpu *v)
 {
     unsigned long mask;
 
-    ASSERT(v == current);
-
     mask = 1u << TRAP_int3;
     if ( !cpu_has_monitor_trap_flag )
         mask |= 1u << TRAP_debug;
@@ -1051,7 +1049,10 @@ void vmx_update_debug_state(struct vcpu *v)
         v->arch.hvm_vmx.exception_bitmap |= mask;
     else
         v->arch.hvm_vmx.exception_bitmap &= ~mask;
+    
+    vmx_vmcs_enter(v);
     vmx_update_exception_bitmap(v);
+    vmx_vmcs_exit(v);
 }
 
 static void vmx_update_guest_cr(struct vcpu *v, unsigned int cr)
