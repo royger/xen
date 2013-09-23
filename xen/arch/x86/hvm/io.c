@@ -175,6 +175,10 @@ int handle_mmio(void)
     struct hvm_vcpu_io *vio = &curr->arch.hvm_vcpu.hvm_io;
     int rc;
 
+    /* No MMIO for PVH vcpus */
+    if ( is_pvh_vcpu(curr) )
+        return 0;
+
     hvm_emulate_prepare(&ctxt, guest_cpu_user_regs());
 
     rc = hvm_emulate_one(&ctxt);
@@ -227,6 +231,9 @@ int handle_pio(uint16_t port, int size, int dir)
     struct hvm_vcpu_io *vio = &curr->arch.hvm_vcpu.hvm_io;
     unsigned long data, reps = 1;
     int rc;
+
+    /* PIO for PVH is handled by the PV handlers */
+    ASSERT(!is_pvh_vcpu(curr));
 
     if ( dir == IOREQ_WRITE )
         data = guest_cpu_user_regs()->eax;
