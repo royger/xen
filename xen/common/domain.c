@@ -239,6 +239,17 @@ struct domain *domain_create(
 
     if ( domcr_flags & DOMCRF_hvm )
         d->guest_type = guest_type_hvm;
+    else if ( domcr_flags & DOMCRF_pvh )
+    {
+        if ( !(domcr_flags & DOMCRF_hap) )
+        {
+            err = -EOPNOTSUPP;
+            printk(XENLOG_INFO "PVH guest must have HAP on\n");
+            goto fail;
+        }
+        d->guest_type = guest_type_pvh;
+        printk("Creating PVH guest d%d\n", d->domain_id);
+    }
 
     if ( domid == 0 )
     {
