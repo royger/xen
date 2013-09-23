@@ -114,6 +114,7 @@ struct hvm_function_table {
                                  struct segment_register *reg);
     void (*set_segment_register)(struct vcpu *v, enum x86_segment seg,
                                  struct segment_register *reg);
+    u16 (*read_selector)(struct vcpu *v, enum x86_segment seg);
     unsigned long (*get_shadow_gs_base)(struct vcpu *v);
 
     /* 
@@ -319,6 +320,11 @@ hvm_set_segment_register(struct vcpu *v, enum x86_segment seg,
                          struct segment_register *reg)
 {
     hvm_funcs.set_segment_register(v, seg, reg);
+}
+
+static inline u16 hvm_read_selector(struct vcpu *v, enum x86_segment seg)
+{
+    return hvm_funcs.read_selector(v, seg);
 }
 
 static inline unsigned long hvm_get_shadow_gs_base(struct vcpu *v)

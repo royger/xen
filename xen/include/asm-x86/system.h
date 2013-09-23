@@ -4,10 +4,21 @@
 #include <xen/lib.h>
 #include <xen/bitops.h>
 
-#define read_segment_register(name)                             \
-({  u16 __sel;                                                  \
-    asm volatile ( "movw %%" STR(name) ",%0" : "=r" (__sel) );  \
-    __sel;                                                      \
+/*
+ * We need vcpu because during context switch, going from PV to PVH,
+ * in save_segments() current has been updated to next, and no longer pointing
+ * to the PV, but the intention is to get selector for the PV. Checking
+ * is_pvh_vcpu(current) will yield incorrect results in such a case.
+ */
+#define read_segment_register(vcpu, regs, name)                   \
+({  u16 __sel;                                                    \
+    struct cpu_user_regs *_regs = (regs);                         \
+                                                                  \
+    if ( is_pvh_vcpu(vcpu) && guest_mode(_regs) )                 \
+        __sel = hvm_read_selector(vcpu, x86_seg_##name);          \
+    else                                                          \
+        asm volatile ( "movw %%" #name ",%0" : "=r" (__sel) );    \
+    __sel;                                                        \
 })
 
 #define wbinvd() \

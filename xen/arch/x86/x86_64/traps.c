@@ -123,10 +123,10 @@ void show_registers(struct cpu_user_regs *regs)
         fault_crs[0] = read_cr0();
         fault_crs[3] = read_cr3();
         fault_crs[4] = read_cr4();
-        fault_regs.ds = read_segment_register(ds);
-        fault_regs.es = read_segment_register(es);
-        fault_regs.fs = read_segment_register(fs);
-        fault_regs.gs = read_segment_register(gs);
+        fault_regs.ds = read_segment_register(v, regs, ds);
+        fault_regs.es = read_segment_register(v, regs, es);
+        fault_regs.fs = read_segment_register(v, regs, fs);
+        fault_regs.gs = read_segment_register(v, regs, gs);
     }
 
     print_xen_info();
@@ -239,10 +239,10 @@ void do_double_fault(struct cpu_user_regs *regs)
     crs[2] = read_cr2();
     crs[3] = read_cr3();
     crs[4] = read_cr4();
-    regs->ds = read_segment_register(ds);
-    regs->es = read_segment_register(es);
-    regs->fs = read_segment_register(fs);
-    regs->gs = read_segment_register(gs);
+    regs->ds = read_segment_register(current, regs, ds);
+    regs->es = read_segment_register(current, regs, es);
+    regs->fs = read_segment_register(current, regs, fs);
+    regs->gs = read_segment_register(current, regs, gs);
 
     printk("CPU:    %d\n", cpu);
     _show_registers(regs, crs, CTXT_hypervisor, NULL);

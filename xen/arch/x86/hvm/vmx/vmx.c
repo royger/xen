@@ -664,6 +664,45 @@ static void vmx_ctxt_switch_to(struct vcpu *v)
         .fields = { .type = 0xb, .s = 0, .dpl = 0, .p = 1, .avl = 0,    \
                     .l = 0, .db = 0, .g = 0, .pad = 0 } }).bytes)
 
+u16 vmx_read_selector(struct vcpu *v, enum x86_segment seg)
+{
+    u16 sel = 0;
+
+    vmx_vmcs_enter(v);
+    switch ( seg )
+    {
+    case x86_seg_cs:
+        sel = __vmread(GUEST_CS_SELECTOR);
+        break;
+
+    case x86_seg_ss:
+        sel = __vmread(GUEST_SS_SELECTOR);
+        break;
+
+    case x86_seg_es:
+        sel = __vmread(GUEST_ES_SELECTOR);
+        break;
+
+    case x86_seg_ds:
+        sel = __vmread(GUEST_DS_SELECTOR);
+        break;
+
+    case x86_seg_fs:
+        sel = __vmread(GUEST_FS_SELECTOR);
+        break;
+
+    case x86_seg_gs:
+        sel = __vmread(GUEST_GS_SELECTOR);
+        break;
+
+    default:
+        BUG();
+    }
+    vmx_vmcs_exit(v);
+
+    return sel;
+}
+
 void vmx_get_segment_register(struct vcpu *v, enum x86_segment seg,
                               struct segment_register *reg)
 {
@@ -1526,6 +1565,7 @@ static struct hvm_function_table __initdata vmx_function_table = {
     .guest_x86_mode       = vmx_guest_x86_mode,
     .get_segment_register = vmx_get_segment_register,
     .set_segment_register = vmx_set_segment_register,
+    .read_selector        = vmx_read_selector,
     .get_shadow_gs_base   = vmx_get_shadow_gs_base,
     .update_host_cr3      = vmx_update_host_cr3,
     .update_guest_cr      = vmx_update_guest_cr,

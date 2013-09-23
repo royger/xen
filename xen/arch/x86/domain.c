@@ -1217,10 +1217,10 @@ static void save_segments(struct vcpu *v)
     struct cpu_user_regs *regs = &v->arch.user_regs;
     unsigned int dirty_segment_mask = 0;
 
-    regs->ds = read_segment_register(ds);
-    regs->es = read_segment_register(es);
-    regs->fs = read_segment_register(fs);
-    regs->gs = read_segment_register(gs);
+    regs->ds = read_segment_register(v, regs, ds);
+    regs->es = read_segment_register(v, regs, es);
+    regs->fs = read_segment_register(v, regs, fs);
+    regs->gs = read_segment_register(v, regs, gs);
 
     if ( regs->ds )
         dirty_segment_mask |= DIRTY_DS;
