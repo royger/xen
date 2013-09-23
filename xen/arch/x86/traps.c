@@ -1518,6 +1518,49 @@ static int read_descriptor(unsigned int sel,
     return 1;
 }
 
+static int read_descriptor_sel(unsigned int sel,
+                               enum x86_segment which_sel,
+                               struct vcpu *v,
+                               const struct cpu_user_regs *regs,
+                               unsigned long *base,
+                               unsigned long *limit,
+                               unsigned int *ar,
+                               unsigned int vm86attr)
+{
+    struct segment_register seg;
+    bool_t long_mode;
+
+    if ( !is_pvh_vcpu(v) )
+        return read_descriptor(sel, v, regs, base, limit, ar, vm86attr);
+
+    hvm_get_segment_register(v, x86_seg_cs, &seg);
+    long_mode = seg.attr.fields.l;
+
+    if ( which_sel != x86_seg_cs )
+        hvm_get_segment_register(v, which_sel, &seg);
+
+    /* "ar" is returned packed as in segment_attributes_t. Fix it up. */
+    *ar = seg.attr.bytes;
+    *ar = (*ar & 0xff) | ((*ar & 0xf00) << 4);
+    *ar <<= 8;
+
+    if ( long_mode )
+    {
+        *limit = ~0UL;
+
+        if ( which_sel < x86_seg_fs )
+        {
+            *base = 0UL;
+            return 1;
+        }
+   }
+   else
+       *limit = seg.limit;
+
+   *base = seg.base;
+    return 1;
+}
+
 static int read_gate_descriptor(unsigned int gate_sel,
                                 const struct vcpu *v,
                                 unsigned int *sel,
@@ -1845,6 +1888,7 @@ static int is_cpufreq_controller(struct domain *d)
 
 static int emulate_privileged_op(struct cpu_user_regs *regs)
 {
+    enum x86_segment which_sel;
     struct vcpu *v = current;
     unsigned long *reg, eip = regs->eip;
     u8 opcode, modrm_reg = 0, modrm_rm = 0, rep_prefix = 0, lock = 0, rex = 0;
@@ -1867,9 +1911,10 @@ static int emulate_privileged_op(struct cpu_user_regs *regs)
     void (*io_emul)(struct cpu_user_regs *) __attribute__((__regparm__(1)));
     uint64_t val, msr_content;
 
-    if ( !read_descriptor(regs->cs, v, regs,
-                          &code_base, &code_limit, &ar,
-                          _SEGMENT_CODE|_SEGMENT_S|_SEGMENT_DPL|_SEGMENT_P) )
+    if ( !read_descriptor_sel(regs->cs, x86_seg_cs, v, regs,
+                              &code_base, &code_limit, &ar,
+                              _SEGMENT_CODE|_SEGMENT_S|
+                              _SEGMENT_DPL|_SEGMENT_P) )
         goto fail;
     op_default = op_bytes = (ar & (_SEGMENT_L|_SEGMENT_DB)) ? 4 : 2;
     ad_default = ad_bytes = (ar & _SEGMENT_L) ? 8 : op_default;
@@ -1880,6 +1925,7 @@ static int emulate_privileged_op(struct cpu_user_regs *regs)
 
     /* emulating only opcodes not allowing SS to be default */
     data_sel = read_segment_register(v, regs, ds);
+    which_sel = x86_seg_ds;
 
     /* Legacy prefixes. */
     for ( i = 0; i < 8; i++, rex == opcode || (rex = 0) )
@@ -1895,23 +1941,29 @@ static int emulate_privileged_op(struct cpu_user_regs *regs)
             continue;
         case 0x2e: /* CS override */
             data_sel = regs->cs;
+            which_sel = x86_seg_cs;
             continue;
         case 0x3e: /* DS override */
             data_sel = read_segment_register(v, regs, ds);
+            which_sel = x86_seg_ds;
             continue;
         case 0x26: /* ES override */
             data_sel = read_segment_register(v, regs, es);
+            which_sel = x86_seg_es;
             continue;
         case 0x64: /* FS override */
             data_sel = read_segment_register(v, regs, fs);
+            which_sel = x86_seg_fs;
             lm_ovr = lm_seg_fs;
             continue;
         case 0x65: /* GS override */
             data_sel = read_segment_register(v, regs, gs);
+            which_sel = x86_seg_gs;
             lm_ovr = lm_seg_gs;
             continue;
         case 0x36: /* SS override */
             data_sel = regs->ss;
+            which_sel = x86_seg_ss;
             continue;
         case 0xf0: /* LOCK */
             lock = 1;
@@ -1955,15 +2007,16 @@ static int emulate_privileged_op(struct cpu_user_regs *regs)
         if ( !(opcode & 2) )
         {
             data_sel = read_segment_register(v, regs, es);
+            which_sel = x86_seg_es;
             lm_ovr = lm_seg_none;
         }
 
         if ( !(ar & _SEGMENT_L) )
         {
-            if ( !read_descriptor(data_sel, v, regs,
-                                  &data_base, &data_limit, &ar,
-                                  _SEGMENT_WR|_SEGMENT_S|_SEGMENT_DPL|
-                                  _SEGMENT_P) )
+            if ( !read_descriptor_sel(data_sel, which_sel, v, regs,
+                                      &data_base, &data_limit, &ar,
+                                      _SEGMENT_WR|_SEGMENT_S|_SEGMENT_DPL|
+                                      _SEGMENT_P) )
                 goto fail;
             if ( !(ar & _SEGMENT_S) ||
                  !(ar & _SEGMENT_P) ||
@@ -1993,9 +2046,9 @@ static int emulate_privileged_op(struct cpu_user_regs *regs)
                 }
             }
             else
-                read_descriptor(data_sel, v, regs,
-                                &data_base, &data_limit, &ar,
-                                0);
+                read_descriptor_sel(data_sel, which_sel, v, regs,
+                                    &data_base, &data_limit, &ar,
+                                    0);
             data_limit = ~0UL;
             ar = _SEGMENT_WR|_SEGMENT_S|_SEGMENT_DPL|_SEGMENT_P;
         }

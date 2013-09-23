@@ -38,7 +38,9 @@
 
 #ifndef __ASSEMBLY__
 
-#define GUEST_KERNEL_RPL(d) (is_pv_32bit_domain(d) ? 1 : 3)
+/* PVH 32bitfixme : see emulate_gate_op call from do_general_protection */
+#define GUEST_KERNEL_RPL(d) ({ ASSERT(is_pv_domain(d)); \
+                               is_pv_32bit_domain(d) ? 1 : 3; })
 
 /* Fix up the RPL of a guest segment selector. */
 #define __fixup_guest_selector(d, sel)                             \
