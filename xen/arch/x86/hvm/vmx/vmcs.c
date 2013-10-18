@@ -33,6 +33,7 @@
 #include <asm/hvm/vmx/vmx.h>
 #include <asm/hvm/vmx/vvmx.h>
 #include <asm/hvm/vmx/vmcs.h>
+#include <asm/hvm/nestedhvm.h>
 #include <asm/flushtlb.h>
 #include <xen/event.h>
 #include <xen/kernel.h>
@@ -1144,7 +1145,8 @@ static int construct_vmcs(struct vcpu *v)
     hvm_update_guest_cr(v, 0);
 
     v->arch.hvm_vcpu.guest_cr[4] = is_pvh_domain(d) ?
-        real_cr4_to_pv_guest_cr4(mmu_cr4_features)
+        real_cr4_to_pv_guest_cr4(mmu_cr4_features) &
+        ~HVM_CR4_GUEST_RESERVED_BITS(v)
         : 0;
     hvm_update_guest_cr(v, 4);
 
