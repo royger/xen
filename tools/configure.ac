@@ -220,7 +220,13 @@ AC_CHECK_HEADER([lzo/lzo1x.h], [
 AC_CHECK_LIB([lzo2], [lzo1x_decompress], [zlib="$zlib -DHAVE_LZO1X -llzo2"])
 ])
 AC_SUBST(zlib)
-AC_CHECK_LIB([aio], [io_setup], [], [AC_MSG_ERROR([Could not find libaio])])
+AC_CHECK_LIB([aio], [io_setup], [], [
+    case "$host_os" in
+    linux*)
+        AC_MSG_ERROR([Could not find libaio])
+        ;;
+    esac
+])
 AC_SUBST(system_aio)
 AC_CHECK_LIB([crypto], [MD5], [], [AC_MSG_ERROR([Could not find libcrypto])])
 AX_CHECK_EXTFS
