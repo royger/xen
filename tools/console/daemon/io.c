@@ -43,6 +43,11 @@
 #include <pty.h>
 #elif defined(__sun__)
 #include <stropts.h>
+#elif defined(__FreeBSD__)
+#include <sys/types.h>
+#include <sys/ioctl.h>
+#include <termios.h>
+#include <libutil.h>
 #endif
 
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
