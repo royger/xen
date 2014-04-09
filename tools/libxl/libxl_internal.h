@@ -3085,6 +3085,10 @@ void libxl__numa_candidate_put_nodemap(libxl__gc *gc,
  */
 #define CTYPE(isfoo,c) (isfoo((unsigned char)(c)))
 
+/*
+ * Compile time assertion
+ */
+#define BUILD_BUG_ON(p) ((void)sizeof(char[1 - 2 * !!(p)]))
 
 #endif
 
