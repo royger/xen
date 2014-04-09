@@ -57,6 +57,9 @@
 /* Define to 1 if you have the <sys/endian.h> header file. */
 #undef HAVE_SYS_ENDIAN_H
 
+/* Define to 1 if you have the <asm/unaligned.h> header file. */
+#undef HAVE_ASM_UNALIGNED_H
+
 /* Define curses header to use */
 #undef INCLUDE_CURSES_H
 

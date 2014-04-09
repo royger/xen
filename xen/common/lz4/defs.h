@@ -23,7 +23,49 @@ static inline u32 INIT get_unaligned_le32(const void *p)
 	return le32_to_cpup(p);
 }
 #else
+#ifdef HAVE_ASM_UNALIGNED_H
 #include <asm/unaligned.h>
+#else
+
+#if defined(HAVE_ENDIAN_H)
+#include <endian.h>
+#elif defined(HAVE_SYS_ENDIAN_H)
+#include <sys/endian.h>
+#endif
+
+#define le16_to_cpu(x)	le16toh(x)
+#define le32_to_cpu(x)	le32toh(x)
+
+extern void bad_unaligned_access_length(void) __attribute__((noreturn));
+
+struct __una_u32 { uint32_t x __attribute__((packed)); };
+struct __una_u16 { uint16_t x __attribute__((packed)); };
+
+static inline uint16_t __uldw(const uint16_t *addr)
+{
+	const struct __una_u16 *ptr = (const struct __una_u16 *) addr;
+	return ptr->x;
+}
+static inline uint32_t __uldl(const uint32_t *addr)
+{
+	const struct __una_u32 *ptr = (const struct __una_u32 *) addr;
+	return ptr->x;
+}
+#define __get_unaligned(ptr, size) ({		\
+	uint64_t __val;				\
+	switch (size) {				\
+	case 2:					\
+		__val = __uldw(ptr);		\
+		break;				\
+	case 4:					\
+		__val = __uldl(ptr);		\
+		break;				\
+	default:				\
+		bad_unaligned_access_length();	\
+	};					\
+	__val;					\
+})
+#endif /* !HAVE_ASM_UNALIGNED_H */
 
 static inline u16 INIT get_unaligned_le16(const void *p)
 {
