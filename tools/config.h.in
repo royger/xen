@@ -51,6 +51,12 @@
 /* Define to 1 if you have the <yajl/yajl_version.h> header file. */
 #undef HAVE_YAJL_YAJL_VERSION_H
 
+/* Define to 1 if you have the <endian.h> header file. */
+#undef HAVE_ENDIAN_H
+
+/* Define to 1 if you have the <sys/endian.h> header file. */
+#undef HAVE_SYS_ENDIAN_H
+
 /* Define curses header to use */
 #undef INCLUDE_CURSES_H
 

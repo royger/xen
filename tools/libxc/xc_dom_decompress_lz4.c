@@ -1,7 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <inttypes.h>
+#if defined(HAVE_ENDIAN_H)
 #include <endian.h>
+#elif defined(HAVE_SYS_ENDIAN_H)
+#include <sys/endian.h>
+#endif
 #include <stdint.h>
 
 #include "xg_private.h"

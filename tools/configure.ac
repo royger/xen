@@ -247,7 +247,7 @@ AC_CHECK_LIB([fdt], [fdt_create], [], [AC_MSG_ERROR([Could not find libfdt])])
 esac
 
 # Checks for header files.
-AC_CHECK_HEADERS([yajl/yajl_version.h sys/eventfd.h])
+AC_CHECK_HEADERS([yajl/yajl_version.h sys/eventfd.h endian.h sys/endian.h])
 
 AC_OUTPUT()
 

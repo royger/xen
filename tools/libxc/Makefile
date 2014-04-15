@@ -90,6 +90,7 @@ OSDEP_SRCS-y                 += xenctrl_osdep_ENOSYS.c
 
 CFLAGS   += -Werror -Wmissing-prototypes
 CFLAGS   += -I. $(CFLAGS_xeninclude)
+CFLAGS   += -include $(XEN_ROOT)/tools/config.h
 
 # Needed for posix_fadvise64() in xc_linux.c
 CFLAGS-$(CONFIG_Linux) += -D_GNU_SOURCE
