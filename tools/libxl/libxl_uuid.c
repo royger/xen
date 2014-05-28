@@ -102,6 +102,57 @@ uint8_t *libxl_uuid_bytearray(libxl_uuid *uuid)
     return uuid->uuid;
 }
 
+#elif defined(__FreeBSD__)
+
+int libxl_uuid_is_nil(libxl_uuid *uuid)
+{
+
+    return uuid_is_nil(&uuid->uuid, NULL);
+}
+
+void libxl_uuid_generate(libxl_uuid *uuid)
+{
+    uint32_t status;
+
+    BUILD_BUG_ON(sizeof(libxl_uuid) != sizeof(uuid_t));
+    uuid_create(&uuid->uuid, &status);
+    assert(status == uuid_s_ok);
+}
+
+int libxl_uuid_from_string(libxl_uuid *uuid, const char *in)
+{
+    uint32_t status;
+
+    uuid_from_string(in, &uuid->uuid, &status);
+    if (status != uuid_s_ok)
+        return -1;
+    return 0;
+}
+
+void libxl_uuid_copy(libxl_uuid *dst, const libxl_uuid *src)
+{
+
+    memcpy(&dst->uuid, &src->uuid, sizeof(dst->uuid));
+}
+
+void libxl_uuid_clear(libxl_uuid *uuid)
+{
+
+    memset(&uuid->uuid, 0, sizeof(uuid->uuid));
+}
+
+int libxl_uuid_compare(libxl_uuid *uuid1, libxl_uuid *uuid2)
+{
+
+    return uuid_compare(&uuid1->uuid, &uuid2->uuid, NULL);
+}
+
+uint8_t *libxl_uuid_bytearray(libxl_uuid *uuid)
+{
+
+    return uuid->uuid_raw;
+}
+
 #else
 
 #error "Please update libxl_uuid.c for your OS"
