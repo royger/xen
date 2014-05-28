@@ -47,6 +47,18 @@ typedef struct {
     uint8_t uuid[16];
 } libxl_uuid;
 
+#elif defined(__FreeBSD__)
+
+#include <uuid.h>
+#include <stdint.h>
+
+typedef union {
+    uuid_t uuid;
+    uint8_t uuid_raw[16];
+} libxl_uuid;
+
+#define LIBXL_UUID_BYTES(arg) LIBXL__UUID_BYTES(arg.uuid_raw)
+
 #else
 
 #error "Please update libxl_uuid.h for your OS"
