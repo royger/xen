@@ -22,6 +22,7 @@
 #include <xen/compat.h>
 #include <xen/libelf.h>
 #include <xen/pfn.h>
+#include <xen/serial.h>
 #include <asm/regs.h>
 #include <asm/system.h>
 #include <asm/io.h>
@@ -1541,6 +1542,11 @@ int __init construct_dom0(
     rc |= ioports_deny_access(d, 0x40, 0x43);
     /* PIT Channel 2 / PC Speaker Control. */
     rc |= ioports_deny_access(d, 0x61, 0x61);
+    /* Serial console. */
+    if ( uart_ioport1 != 0 )
+        rc |= ioports_deny_access(d, uart_ioport1, uart_ioport1 + 7);
+    if ( uart_ioport2 != 0 )
+        rc |= ioports_deny_access(d, uart_ioport2, uart_ioport2 + 7);
     /* ACPI PM Timer. */
     if ( pmtmr_ioport )
         rc |= ioports_deny_access(d, pmtmr_ioport, pmtmr_ioport + 3);
@@ -1618,6 +1624,10 @@ int __init construct_dom0(
 
         pvh_map_all_iomem(d, nr_pages);
         pvh_setup_e820(d, nr_pages);
+
+        for ( i = 0; i < 0x10000; i++ )
+            if ( ioports_access_permitted(d, i, i) )
+                __clear_bit(i, hvm_hw_io_bitmap);
     }
 
     if ( d->domain_id == hardware_domid )

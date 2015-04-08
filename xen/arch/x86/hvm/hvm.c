@@ -82,6 +82,10 @@ struct hvm_function_table hvm_funcs __read_mostly;
 unsigned long __attribute__ ((__section__ (".bss.page_aligned")))
     hvm_io_bitmap[3*PAGE_SIZE/BYTES_PER_LONG];
 
+/* I/O permission bitmap for HVM hardware domain */
+unsigned long __attribute__ ((__section__ (".bss.page_aligned")))
+    hvm_hw_io_bitmap[3*PAGE_SIZE/BYTES_PER_LONG];
+
 /* Xen command-line option to enable HAP */
 static bool_t __initdata opt_hap_enabled = 1;
 boolean_param("hap", opt_hap_enabled);
@@ -162,6 +166,7 @@ static int __init hvm_enable(void)
      * often used for I/O delays, but the vmexits simply slow things down).
      */
     memset(hvm_io_bitmap, ~0, sizeof(hvm_io_bitmap));
+    memset(hvm_hw_io_bitmap, ~0, sizeof(hvm_hw_io_bitmap));
     if ( hvm_port80_allowed )
         __clear_bit(0x80, hvm_io_bitmap);
     __clear_bit(0xed, hvm_io_bitmap);
@@ -1483,6 +1488,12 @@ int hvm_domain_initialise(struct domain *d)
     if ( !d->arch.hvm_domain.params || !d->arch.hvm_domain.io_handler )
         goto fail1;
     d->arch.hvm_domain.io_handler->num_slot = 0;
+
+    /* Set the default IO Bitmap */
+    if ( is_hardware_domain(d) )
+        d->arch.hvm_domain.io_bitmap = hvm_hw_io_bitmap;
+    else
+        d->arch.hvm_domain.io_bitmap = hvm_io_bitmap;
 
     if ( is_pvh_domain(d) )
     {

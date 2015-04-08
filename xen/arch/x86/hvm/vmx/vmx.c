@@ -3118,6 +3118,7 @@ void vmx_vmexit_handler(struct cpu_user_regs *regs)
             uint16_t port = (exit_qualification >> 16) & 0xFFFF;
             int bytes = (exit_qualification & 0x07) + 1;
             int dir = (exit_qualification & 0x08) ? IOREQ_READ : IOREQ_WRITE;
+
             if ( handle_pio(port, bytes, dir) )
                 update_guest_eip(); /* Safe: IN, OUT */
         }

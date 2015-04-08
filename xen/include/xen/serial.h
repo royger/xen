@@ -24,6 +24,10 @@ void serial_set_rx_handler(int handle, serial_rx_fn fn);
 /* Number of characters we buffer for an interrupt-driven transmitter. */
 extern unsigned int serial_txbufsz;
 
+/* UART IO port */
+extern unsigned int uart_ioport1;
+extern unsigned int uart_ioport2;
+
 struct uart_driver;
 
 enum serial_port_state {

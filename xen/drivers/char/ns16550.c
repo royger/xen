@@ -44,6 +44,9 @@ static char __initdata opt_com2[30] = "";
 string_param("com1", opt_com1);
 string_param("com2", opt_com2);
 
+unsigned int uart_ioport1 = 0;
+unsigned int uart_ioport2 = 0;
+
 static struct ns16550 {
     int baud, clock_hz, data_bits, parity, stop_bits, fifo_size, irq;
     u64 io_base;   /* I/O port or memory-mapped I/O address. */
@@ -1121,6 +1124,13 @@ void __init ns16550_init(int index, struct ns16550_defaults *defaults)
     uart->reg_shift = 0;
 
     ns16550_parse_port_config(uart, (index == 0) ? opt_com1 : opt_com2);
+    if ( uart->baud != 0 && uart->io_base < 0x10000 )
+    {
+        if ( index == 0 )
+            uart_ioport1 = uart->io_base;
+        else
+            uart_ioport2 = uart->io_base;
+    }
 }
 
 #ifdef HAS_DEVICE_TREE

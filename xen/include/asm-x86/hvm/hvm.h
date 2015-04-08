@@ -213,6 +213,7 @@ extern struct hvm_function_table hvm_funcs;
 extern bool_t hvm_enabled;
 extern bool_t cpu_has_lmsl;
 extern s8 hvm_port80_allowed;
+extern unsigned long hvm_hw_io_bitmap[];
 
 extern const struct hvm_function_table *start_svm(void);
 extern const struct hvm_function_table *start_vmx(void);
