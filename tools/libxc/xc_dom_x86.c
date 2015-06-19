@@ -49,6 +49,20 @@
 
 #define VGA_HOLE_SIZE (0x20)
 
+#define SPECIALPAGE_PAGING   0
+#define SPECIALPAGE_ACCESS   1
+#define SPECIALPAGE_SHARING  2
+#define SPECIALPAGE_BUFIOREQ 3
+#define SPECIALPAGE_XENSTORE 4
+#define SPECIALPAGE_IOREQ    5
+#define SPECIALPAGE_IDENT_PT 6
+#define SPECIALPAGE_CONSOLE  7
+#define NR_SPECIAL_PAGES     8
+#define special_pfn(x) (0xff000u - NR_SPECIAL_PAGES + (x))
+
+#define NR_IOREQ_SERVER_PAGES 8
+#define ioreq_server_pfn(x) (special_pfn(0) - NR_IOREQ_SERVER_PAGES + (x))
+
 #define bits_to_mask(bits)       (((xen_vaddr_t)1 << (bits))-1)
 #define round_down(addr, mask)   ((addr) & ~(mask))
 #define round_up(addr, mask)     ((addr) | (mask))
@@ -467,6 +481,135 @@ static int alloc_magic_pages(struct xc_dom_image *dom)
     return 0;
 }
 
+static void build_hvm_info(void *hvm_info_page, struct xc_dom_image *dom)
+{
+    struct hvm_info_table *hvm_info = (struct hvm_info_table *)
+        (((unsigned char *)hvm_info_page) + HVM_INFO_OFFSET);
+    uint8_t sum;
+    int i;
+
+    memset(hvm_info_page, 0, PAGE_SIZE);
+
+    /* Fill in the header. */
+    strncpy(hvm_info->signature, "HVM INFO", 8);
+    hvm_info->length = sizeof(struct hvm_info_table);
+
+    /* Sensible defaults: these can be overridden by the caller. */
+    hvm_info->apic_mode = 1;
+    hvm_info->nr_vcpus = 1;
+    memset(hvm_info->vcpu_online, 0xff, sizeof(hvm_info->vcpu_online));
+
+    /* Memory parameters. */
+    hvm_info->low_mem_pgend = dom->lowmem_end >> PAGE_SHIFT;
+    hvm_info->high_mem_pgend = dom->highmem_end >> PAGE_SHIFT;
+    hvm_info->reserved_mem_pgstart = ioreq_server_pfn(0);
+
+    /* Finish with the checksum. */
+    for ( i = 0, sum = 0; i < hvm_info->length; i++ )
+        sum += ((uint8_t *)hvm_info)[i];
+    hvm_info->checksum = -sum;
+}
+
+static int alloc_magic_pages_hvm(struct xc_dom_image *dom)
+{
+    unsigned long i;
+    void *hvm_info_page;
+    uint32_t *ident_pt, domid = dom->guest_domid;
+    int rc;
+    xen_pfn_t special_array[NR_SPECIAL_PAGES];
+    xen_pfn_t ioreq_server_array[NR_IOREQ_SERVER_PAGES];
+    xc_interface *xch = dom->xch;
+
+    if ( (hvm_info_page = xc_map_foreign_range(
+              xch, domid, PAGE_SIZE, PROT_READ | PROT_WRITE,
+              HVM_INFO_PFN)) == NULL )
+        goto error_out;
+    build_hvm_info(hvm_info_page, dom);
+    munmap(hvm_info_page, PAGE_SIZE);
+
+    /* Allocate and clear special pages. */
+    for ( i = 0; i < NR_SPECIAL_PAGES; i++ )
+        special_array[i] = special_pfn(i);
+
+    rc = xc_domain_populate_physmap_exact(xch, domid, NR_SPECIAL_PAGES, 0, 0,
+                                          special_array);
+    if ( rc != 0 )
+    {
+        DOMPRINTF("Could not allocate special pages.");
+        goto error_out;
+    }
+
+    if ( xc_clear_domain_pages(xch, domid, special_pfn(0), NR_SPECIAL_PAGES) )
+            goto error_out;
+
+    xc_hvm_param_set(xch, domid, HVM_PARAM_STORE_PFN,
+                     special_pfn(SPECIALPAGE_XENSTORE));
+    xc_hvm_param_set(xch, domid, HVM_PARAM_BUFIOREQ_PFN,
+                     special_pfn(SPECIALPAGE_BUFIOREQ));
+    xc_hvm_param_set(xch, domid, HVM_PARAM_IOREQ_PFN,
+                     special_pfn(SPECIALPAGE_IOREQ));
+    xc_hvm_param_set(xch, domid, HVM_PARAM_CONSOLE_PFN,
+                     special_pfn(SPECIALPAGE_CONSOLE));
+    xc_hvm_param_set(xch, domid, HVM_PARAM_PAGING_RING_PFN,
+                     special_pfn(SPECIALPAGE_PAGING));
+    xc_hvm_param_set(xch, domid, HVM_PARAM_MONITOR_RING_PFN,
+                     special_pfn(SPECIALPAGE_ACCESS));
+    xc_hvm_param_set(xch, domid, HVM_PARAM_SHARING_RING_PFN,
+                     special_pfn(SPECIALPAGE_SHARING));
+
+    /*
+     * Allocate and clear additional ioreq server pages. The default
+     * server will use the IOREQ and BUFIOREQ special pages above.
+     */
+    for ( i = 0; i < NR_IOREQ_SERVER_PAGES; i++ )
+        ioreq_server_array[i] = ioreq_server_pfn(i);
+
+    rc = xc_domain_populate_physmap_exact(xch, domid, NR_IOREQ_SERVER_PAGES, 0,
+                                          0, ioreq_server_array);
+    if ( rc != 0 )
+    {
+        DOMPRINTF("Could not allocate ioreq server pages.");
+        goto error_out;
+    }
+
+    if ( xc_clear_domain_pages(xch, domid, ioreq_server_pfn(0),
+                               NR_IOREQ_SERVER_PAGES) )
+            goto error_out;
+
+    /* Tell the domain where the pages are and how many there are */
+    xc_hvm_param_set(xch, domid, HVM_PARAM_IOREQ_SERVER_PFN,
+                     ioreq_server_pfn(0));
+    xc_hvm_param_set(xch, domid, HVM_PARAM_NR_IOREQ_SERVER_PAGES,
+                     NR_IOREQ_SERVER_PAGES);
+
+    /*
+     * Identity-map page table is required for running with CR0.PG=0 when
+     * using Intel EPT. Create a 32-bit non-PAE page directory of superpages.
+     */
+    if ( (ident_pt = xc_map_foreign_range(
+              xch, domid, PAGE_SIZE, PROT_READ | PROT_WRITE,
+              special_pfn(SPECIALPAGE_IDENT_PT))) == NULL )
+        goto error_out;
+    for ( i = 0; i < PAGE_SIZE / sizeof(*ident_pt); i++ )
+        ident_pt[i] = ((i << 22) | _PAGE_PRESENT | _PAGE_RW | _PAGE_USER |
+                       _PAGE_ACCESSED | _PAGE_DIRTY | _PAGE_PSE);
+    munmap(ident_pt, PAGE_SIZE);
+    xc_hvm_param_set(xch, domid, HVM_PARAM_IDENT_PT,
+                     special_pfn(SPECIALPAGE_IDENT_PT) << PAGE_SHIFT);
+
+    dom->console_pfn = special_pfn(SPECIALPAGE_CONSOLE);
+    dom->xenstore_pfn = special_pfn(SPECIALPAGE_XENSTORE);
+    dom->parms.virt_hypercall = -1;
+
+    rc = 0;
+    goto out;
+ error_out:
+    rc = -1;
+ out:
+
+    return rc;
+}
+
 /* ------------------------------------------------------------------------ */
 
 static int start_info_x86_32(struct xc_dom_image *dom)
@@ -674,6 +817,28 @@ static int vcpu_x86_64(struct xc_dom_image *dom, void *ptr)
     return 0;
 }
 
+static int vcpu_hvm(struct xc_dom_image *dom, void *ptr)
+{
+    vcpu_guest_context_x86_64_t *ctxt = ptr;
+
+    DOMPRINTF_CALLED(dom->xch);
+
+    /* clear everything */
+    memset(ctxt, 0, sizeof(*ctxt));
+
+    ctxt->user_regs.ds = FLAT_KERNEL_DS_X86_32;
+    ctxt->user_regs.es = FLAT_KERNEL_DS_X86_32;
+    ctxt->user_regs.fs = FLAT_KERNEL_DS_X86_32;
+    ctxt->user_regs.gs = FLAT_KERNEL_DS_X86_32;
+    ctxt->user_regs.ss = FLAT_KERNEL_SS_X86_32;
+    ctxt->user_regs.cs = FLAT_KERNEL_CS_X86_32;
+    ctxt->user_regs.rip = dom->parms.phys_entry;
+
+    ctxt->flags = VGCF_in_kernel_X86_32 | VGCF_online_X86_32;
+
+    return 0;
+}
+
 /* ------------------------------------------------------------------------ */
 
 static struct xc_dom_arch xc_dom_32_pae = {
@@ -702,10 +867,24 @@ static struct xc_dom_arch xc_dom_64 = {
     .vcpu = vcpu_x86_64,
 };
 
+static struct xc_dom_arch xc_hvm_32 = {
+    .guest_type = "hvm-3.0-x86_32",
+    .native_protocol = XEN_IO_PROTO_ABI_X86_32,
+    .page_shift = PAGE_SHIFT_X86,
+    .sizeof_pfn = 4,
+    .alloc_magic_pages = alloc_magic_pages_hvm,
+    .count_pgtables = NULL,
+    .setup_pgtables = NULL,
+    .start_info = NULL,
+    .shared_info = NULL,
+    .vcpu = vcpu_hvm,
+};
+
 static void __init register_arch_hooks(void)
 {
     xc_dom_register_arch_hooks(&xc_dom_32_pae);
     xc_dom_register_arch_hooks(&xc_dom_64);
+    xc_dom_register_arch_hooks(&xc_hvm_32);
 }
 
 static int x86_compat(xc_interface *xch, domid_t domid, char *guest_type)
@@ -1351,6 +1530,10 @@ int arch_setup_bootlate(struct xc_dom_image *dom)
     shared_info_t *shared_info;
     xen_pfn_t shinfo;
     int i, rc;
+
+    if ( dom->container_type == XC_DOM_HVM_CONTAINER )
+        /* Nothing to do for HVM-type guests. */
+        return 0;
 
     for ( i = 0; i < ARRAY_SIZE(types); i++ )
         if ( !strcmp(types[i].guest, dom->guest_type) )
