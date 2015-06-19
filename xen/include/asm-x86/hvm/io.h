@@ -95,6 +95,8 @@ struct hvm_io_ops {
     hvm_io_complete_t complete;
 };
 
+int hvm_process_io_intercept(const struct hvm_io_handler *handler,
+                             ioreq_t *p);
 int hvm_io_intercept(ioreq_t *p);
 
 bool_t hvm_mmio_internal(paddr_t gpa);
@@ -119,7 +121,6 @@ int handle_mmio_with_translation(unsigned long gva, unsigned long gpfn,
                                  struct npfec);
 int handle_pio(uint16_t port, unsigned int size, int dir);
 void hvm_interrupt_post(struct vcpu *v, int vector, int type);
-void hvm_io_assist(ioreq_t *p);
 void hvm_dpci_eoi(struct domain *d, unsigned int guest_irq,
                   const union vioapic_redir_entry *ent);
 void msix_write_completion(struct vcpu *);

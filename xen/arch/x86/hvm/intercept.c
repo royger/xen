@@ -119,8 +119,8 @@ static const struct hvm_io_ops portio_ops = {
     .write = hvm_portio_write
 };
 
-static int hvm_process_io_intercept(const struct hvm_io_handler *handler,
-                                    ioreq_t *p)
+int hvm_process_io_intercept(const struct hvm_io_handler *handler,
+                             ioreq_t *p)
 {
     const struct hvm_io_ops *ops = handler->ops;
     int rc = X86EMUL_OKAY, i, step = p->df ? -p->size : p->size;
