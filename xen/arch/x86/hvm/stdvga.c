@@ -547,11 +547,26 @@ static int mmio_move(struct hvm_hw_stdvga *s, ioreq_t *p)
     return 1;
 }
 
-static int stdvga_intercept_mmio(ioreq_t *p)
+int stdvga_intercept_mmio(ioreq_t *p)
 {
     struct domain *d = current->domain;
     struct hvm_hw_stdvga *s = &d->arch.hvm_domain.stdvga;
+    uint64_t start, end, count = p->count, size = p->size;
     int buf = 0, rc;
+
+    if ( p->df )
+    {
+        start = (p->addr - (count - 1) * size);
+        end = p->addr + size;
+    }
+    else
+    {
+        start = p->addr;
+        end = p->addr + count * size;
+    }
+
+    if ( (start < VGA_MEM_BASE) || (end > (VGA_MEM_BASE + VGA_MEM_SIZE)) )
+        return X86EMUL_UNHANDLEABLE;
 
     if ( p->size > 8 )
     {
@@ -619,9 +634,6 @@ void stdvga_init(struct domain *d)
         register_portio_handler(d, 0x3c4, 2, stdvga_intercept_pio);
         /* Graphics registers. */
         register_portio_handler(d, 0x3ce, 2, stdvga_intercept_pio);
-        /* MMIO. */
-        register_buffered_io_handler(
-            d, VGA_MEM_BASE, VGA_MEM_SIZE, stdvga_intercept_mmio);
     }
 }
 
@@ -638,3 +650,13 @@ void stdvga_deinit(struct domain *d)
         s->vram_page[i] = NULL;
     }
 }
+
+/*
+ * Local variables:
+ * mode: C
+ * c-file-style: "BSD"
+ * c-basic-offset: 4
+ * tab-width: 4
+ * indent-tabs-mode: nil
+ * End:
+ */

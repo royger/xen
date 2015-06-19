@@ -344,7 +344,7 @@ static int msixtbl_range(struct vcpu *v, unsigned long addr)
     return !!desc;
 }
 
-const struct hvm_mmio_ops msixtbl_mmio_ops = {
+static const struct hvm_mmio_ops msixtbl_mmio_ops = {
     .check = msixtbl_range,
     .read = msixtbl_read,
     .write = msixtbl_write
@@ -479,6 +479,11 @@ found:
 
     spin_unlock(&d->arch.hvm_domain.msixtbl_list_lock);
     spin_unlock_irq(&irq_desc->lock);
+}
+
+void msixtbl_init(struct domain *d)
+{
+    register_mmio_handler(d, &msixtbl_mmio_ops);
 }
 
 void msixtbl_pt_cleanup(struct domain *d)
