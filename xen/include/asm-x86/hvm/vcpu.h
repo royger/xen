@@ -30,12 +30,6 @@
 #include <asm/hvm/svm/nestedsvm.h>
 #include <asm/mtrr.h>
 
-enum hvm_io_state {
-    HVMIO_none = 0,
-    HVMIO_awaiting_completion,
-    HVMIO_completed
-};
-
 enum hvm_io_completion {
     HVMIO_no_completion = 0,
     HVMIO_mmio_completion,
@@ -50,7 +44,7 @@ struct hvm_vcpu_asid {
 
 struct hvm_vcpu_io {
     /* I/O request in flight to device model. */
-    enum hvm_io_state      io_state;
+    uint8_t                io_state;
     unsigned long          io_data;
     unsigned int           io_size;
     enum hvm_io_completion io_completion;
@@ -90,7 +84,7 @@ struct hvm_vcpu_io {
 
 static inline bool_t hvm_vcpu_io_need_completion(const struct hvm_vcpu_io *vio)
 {
-    return (vio->io_state == HVMIO_awaiting_completion) &&
+    return (vio->io_state == STATE_IOREQ_READY) &&
            !vio->io_data_is_addr &&
            (vio->io_dir == IOREQ_READ);
 }
