@@ -186,6 +186,14 @@ struct xc_dom_image {
         XC_DOM_PV_CONTAINER,
         XC_DOM_HVM_CONTAINER,
     } container_type;
+
+    /* HVM specific fields. */
+    xen_pfn_t target_pages;
+    xen_pfn_t mmio_start;
+    xen_pfn_t mmio_size;
+    xen_pfn_t lowmem_end;
+    xen_pfn_t highmem_end;
+    int vga_hole;
 };
 
 /* --- pluggable kernel loader ------------------------------------- */

@@ -666,6 +666,7 @@ int libxl__build_pv(libxl__gc *gc, uint32_t domid,
     dom->xenstore_evtchn = state->store_port;
     dom->xenstore_domid = state->store_domid;
     dom->claim_enabled = libxl_defbool_val(info->claim_mode);
+    dom->vga_hole = 0;
 
     if (info->num_vnuma_nodes != 0) {
         unsigned int i;

@@ -40,9 +40,14 @@
 
 /* ------------------------------------------------------------------------ */
 
-#define SUPERPAGE_PFN_SHIFT  9
-#define SUPERPAGE_NR_PFNS    (1UL << SUPERPAGE_PFN_SHIFT)
 #define SUPERPAGE_BATCH_SIZE 512
+
+#define SUPERPAGE_2MB_SHIFT   9
+#define SUPERPAGE_2MB_NR_PFNS (1UL << SUPERPAGE_2MB_SHIFT)
+#define SUPERPAGE_1GB_SHIFT   18
+#define SUPERPAGE_1GB_NR_PFNS (1UL << SUPERPAGE_1GB_SHIFT)
+
+#define VGA_HOLE_SIZE (0x20)
 
 #define bits_to_mask(bits)       (((xen_vaddr_t)1 << (bits))-1)
 #define round_down(addr, mask)   ((addr) & ~(mask))
@@ -758,7 +763,7 @@ static int x86_shadow(xc_interface *xch, domid_t domid)
     return rc;
 }
 
-int arch_setup_meminit(struct xc_dom_image *dom)
+static int arch_setup_meminit_pv(struct xc_dom_image *dom)
 {
     int rc;
     xen_pfn_t pfn, allocsz, mfn, total, pfn_base;
@@ -782,7 +787,7 @@ int arch_setup_meminit(struct xc_dom_image *dom)
 
     if ( dom->superpages )
     {
-        int count = dom->total_pages >> SUPERPAGE_PFN_SHIFT;
+        int count = dom->total_pages >> SUPERPAGE_2MB_SHIFT;
         xen_pfn_t extents[count];
 
         dom->p2m_size = dom->total_pages;
@@ -793,9 +798,9 @@ int arch_setup_meminit(struct xc_dom_image *dom)
 
         DOMPRINTF("Populating memory with %d superpages", count);
         for ( pfn = 0; pfn < count; pfn++ )
-            extents[pfn] = pfn << SUPERPAGE_PFN_SHIFT;
+            extents[pfn] = pfn << SUPERPAGE_2MB_SHIFT;
         rc = xc_domain_populate_physmap_exact(dom->xch, dom->guest_domid,
-                                               count, SUPERPAGE_PFN_SHIFT, 0,
+                                               count, SUPERPAGE_2MB_SHIFT, 0,
                                                extents);
         if ( rc )
             return rc;
@@ -805,7 +810,7 @@ int arch_setup_meminit(struct xc_dom_image *dom)
         for ( i = 0; i < count; i++ )
         {
             mfn = extents[i];
-            for ( j = 0; j < SUPERPAGE_NR_PFNS; j++, pfn++ )
+            for ( j = 0; j < SUPERPAGE_2MB_NR_PFNS; j++, pfn++ )
                 dom->p2m_host[pfn] = mfn + j;
         }
     }
@@ -881,7 +886,7 @@ int arch_setup_meminit(struct xc_dom_image *dom)
             unsigned int memflags;
             uint64_t pages;
             unsigned int pnode = vnode_to_pnode[vmemranges[i].nid];
-            int nr_spages = dom->total_pages >> SUPERPAGE_PFN_SHIFT;
+            int nr_spages = dom->total_pages >> SUPERPAGE_2MB_SHIFT;
             xen_pfn_t extents[SUPERPAGE_BATCH_SIZE];
             xen_pfn_t pfn_base_idx;
 
@@ -902,11 +907,11 @@ int arch_setup_meminit(struct xc_dom_image *dom)
                 nr_spages -= count;
 
                 for ( pfn = pfn_base_idx, j = 0;
-                      pfn < pfn_base_idx + (count << SUPERPAGE_PFN_SHIFT);
-                      pfn += SUPERPAGE_NR_PFNS, j++ )
+                      pfn < pfn_base_idx + (count << SUPERPAGE_2MB_SHIFT);
+                      pfn += SUPERPAGE_2MB_NR_PFNS, j++ )
                     extents[j] = dom->p2m_host[pfn];
                 rc = xc_domain_populate_physmap(dom->xch, dom->guest_domid, count,
-                                                SUPERPAGE_PFN_SHIFT, memflags,
+                                                SUPERPAGE_2MB_SHIFT, memflags,
                                                 extents);
                 if ( rc < 0 )
                     return rc;
@@ -916,7 +921,7 @@ int arch_setup_meminit(struct xc_dom_image *dom)
                 for ( j = 0; j < rc; j++ )
                 {
                     mfn = extents[j];
-                    for ( k = 0; k < SUPERPAGE_NR_PFNS; k++, pfn++ )
+                    for ( k = 0; k < SUPERPAGE_2MB_NR_PFNS; k++, pfn++ )
                         dom->p2m_host[pfn] = mfn + k;
                 }
                 pfn_base_idx = pfn;
@@ -955,6 +960,342 @@ int arch_setup_meminit(struct xc_dom_image *dom)
     }
 
     return rc;
+}
+
+/*
+ * Check whether there exists mmio hole in the specified memory range.
+ * Returns 1 if exists, else returns 0.
+ */
+static int check_mmio_hole(uint64_t start, uint64_t memsize,
+                           uint64_t mmio_start, uint64_t mmio_size)
+{
+    if ( start + memsize <= mmio_start || start >= mmio_start + mmio_size )
+        return 0;
+    else
+        return 1;
+}
+
+static int arch_setup_meminit_hvm(struct xc_dom_image *dom)
+{
+    unsigned long i, vmemid, nr_pages = dom->total_pages;
+    unsigned long p2m_size;
+    unsigned long target_pages = dom->target_pages;
+    unsigned long cur_pages, cur_pfn;
+    int rc;
+    xen_capabilities_info_t caps;
+    unsigned long stat_normal_pages = 0, stat_2mb_pages = 0, 
+        stat_1gb_pages = 0;
+    unsigned int memflags = 0;
+    int claim_enabled = dom->claim_enabled;
+    uint64_t total_pages;
+    xen_vmemrange_t dummy_vmemrange[2];
+    unsigned int dummy_vnode_to_pnode[1];
+    xen_vmemrange_t *vmemranges;
+    unsigned int *vnode_to_pnode;
+    unsigned int nr_vmemranges, nr_vnodes;
+    xc_interface *xch = dom->xch;
+    uint32_t domid = dom->guest_domid;
+
+    if ( nr_pages > target_pages )
+        memflags |= XENMEMF_populate_on_demand;
+
+    if ( dom->nr_vmemranges == 0 )
+    {
+        /* Build dummy vnode information
+         *
+         * Guest physical address space layout:
+         * [0, hole_start) [hole_start, 4G) [4G, highmem_end)
+         *
+         * Of course if there is no high memory, the second vmemrange
+         * has no effect on the actual result.
+         */
+
+        dummy_vmemrange[0].start = 0;
+        dummy_vmemrange[0].end   = dom->lowmem_end;
+        dummy_vmemrange[0].flags = 0;
+        dummy_vmemrange[0].nid   = 0;
+        nr_vmemranges = 1;
+
+        if ( dom->highmem_end > (1ULL << 32) )
+        {
+            dummy_vmemrange[1].start = 1ULL << 32;
+            dummy_vmemrange[1].end   = dom->highmem_end;
+            dummy_vmemrange[1].flags = 0;
+            dummy_vmemrange[1].nid   = 0;
+
+            nr_vmemranges++;
+        }
+
+        dummy_vnode_to_pnode[0] = XC_NUMA_NO_NODE;
+        nr_vnodes = 1;
+        vmemranges = dummy_vmemrange;
+        vnode_to_pnode = dummy_vnode_to_pnode;
+    }
+    else
+    {
+        if ( nr_pages > target_pages )
+        {
+            DOMPRINTF("Cannot enable vNUMA and PoD at the same time");
+            goto error_out;
+        }
+
+        nr_vmemranges = dom->nr_vmemranges;
+        nr_vnodes = dom->nr_vnodes;
+        vmemranges = dom->vmemranges;
+        vnode_to_pnode = dom->vnode_to_pnode;
+    }
+
+    total_pages = 0;
+    p2m_size = 0;
+    for ( i = 0; i < nr_vmemranges; i++ )
+    {
+        total_pages += ((vmemranges[i].end - vmemranges[i].start)
+                        >> PAGE_SHIFT);
+        p2m_size = p2m_size > (vmemranges[i].end >> PAGE_SHIFT) ?
+            p2m_size : (vmemranges[i].end >> PAGE_SHIFT);
+    }
+
+    if ( total_pages != nr_pages )
+    {
+        DOMPRINTF("vNUMA memory pages mismatch (0x%"PRIx64" != 0x%"PRIx64")",
+               total_pages, nr_pages);
+        goto error_out;
+    }
+
+    if ( xc_version(xch, XENVER_capabilities, &caps) != 0 )
+    {
+        DOMPRINTF("Could not get Xen capabilities");
+        goto error_out;
+    }
+
+    dom->p2m_size = p2m_size;
+    dom->p2m_host = xc_dom_malloc(dom, sizeof(xen_pfn_t) *
+                                      dom->p2m_size);
+    if ( dom->p2m_host == NULL )
+    {
+        DOMPRINTF("Could not allocate p2m");
+        goto error_out;
+    }
+
+    for ( i = 0; i < p2m_size; i++ )
+        dom->p2m_host[i] = ((xen_pfn_t)-1);
+    for ( vmemid = 0; vmemid < nr_vmemranges; vmemid++ )
+    {
+        uint64_t pfn;
+
+        for ( pfn = vmemranges[vmemid].start >> PAGE_SHIFT;
+              pfn < vmemranges[vmemid].end >> PAGE_SHIFT;
+              pfn++ )
+            dom->p2m_host[pfn] = pfn;
+    }
+
+    /*
+     * Try to claim pages for early warning of insufficient memory available.
+     * This should go before xc_domain_set_pod_target, becuase that function
+     * actually allocates memory for the guest. Claiming after memory has been
+     * allocated is pointless.
+     */
+    if ( claim_enabled ) {
+        rc = xc_domain_claim_pages(xch, domid, target_pages -
+                                   dom->vga_hole ? VGA_HOLE_SIZE : 0);
+        if ( rc != 0 )
+        {
+            DOMPRINTF("Could not allocate memory for HVM guest as we cannot claim memory!");
+            goto error_out;
+        }
+    }
+
+    if ( memflags & XENMEMF_populate_on_demand )
+    {
+        /*
+         * Subtract VGA_HOLE_SIZE from target_pages for the VGA
+         * "hole".  Xen will adjust the PoD cache size so that domain
+         * tot_pages will be target_pages - VGA_HOLE_SIZE after
+         * this call.
+         */
+        rc = xc_domain_set_pod_target(xch, domid,
+                                      target_pages - 
+                                      dom->vga_hole ? VGA_HOLE_SIZE : 0,
+                                      NULL, NULL, NULL);
+        if ( rc != 0 )
+        {
+            DOMPRINTF("Could not set PoD target for HVM guest.\n");
+            goto error_out;
+        }
+    }
+
+    /*
+     * Allocate memory for HVM guest, skipping VGA hole 0xA0000-0xC0000.
+     *
+     * We attempt to allocate 1GB pages if possible. It falls back on 2MB
+     * pages if 1GB allocation fails. 4KB pages will be used eventually if
+     * both fail.
+     * 
+     * Under 2MB mode, we allocate pages in batches of no more than 8MB to 
+     * ensure that we can be preempted and hence dom0 remains responsive.
+     */
+    if ( dom->vga_hole )
+        rc = xc_domain_populate_physmap_exact(
+            xch, domid, 0xa0, 0, memflags, &dom->p2m_host[0x00]);
+
+    stat_normal_pages = 0;
+    for ( vmemid = 0; vmemid < nr_vmemranges; vmemid++ )
+    {
+        unsigned int new_memflags = memflags;
+        uint64_t end_pages;
+        unsigned int vnode = vmemranges[vmemid].nid;
+        unsigned int pnode = vnode_to_pnode[vnode];
+
+        if ( pnode != XC_NUMA_NO_NODE )
+            new_memflags |= XENMEMF_exact_node(pnode);
+
+        end_pages = vmemranges[vmemid].end >> PAGE_SHIFT;
+        /*
+         * Consider vga hole belongs to the vmemrange that covers
+         * 0xA0000-0xC0000. Note that 0x00000-0xA0000 is populated just
+         * before this loop.
+         */
+        if ( vmemranges[vmemid].start == 0 && dom->vga_hole )
+        {
+            cur_pages = 0xc0;
+            stat_normal_pages += 0xc0;
+        }
+        else
+            cur_pages = vmemranges[vmemid].start >> PAGE_SHIFT;
+
+        while ( (rc == 0) && (end_pages > cur_pages) )
+        {
+            /* Clip count to maximum 1GB extent. */
+            unsigned long count = end_pages - cur_pages;
+            unsigned long max_pages = SUPERPAGE_1GB_NR_PFNS;
+
+            if ( count > max_pages )
+                count = max_pages;
+
+            cur_pfn = dom->p2m_host[cur_pages];
+
+            /* Take care the corner cases of super page tails */
+            if ( ((cur_pfn & (SUPERPAGE_1GB_NR_PFNS-1)) != 0) &&
+                 (count > (-cur_pfn & (SUPERPAGE_1GB_NR_PFNS-1))) )
+                count = -cur_pfn & (SUPERPAGE_1GB_NR_PFNS-1);
+            else if ( ((count & (SUPERPAGE_1GB_NR_PFNS-1)) != 0) &&
+                      (count > SUPERPAGE_1GB_NR_PFNS) )
+                count &= ~(SUPERPAGE_1GB_NR_PFNS - 1);
+
+            /* Attemp to allocate 1GB super page. Because in each pass
+             * we only allocate at most 1GB, we don't have to clip
+             * super page boundaries.
+             */
+            if ( ((count | cur_pfn) & (SUPERPAGE_1GB_NR_PFNS - 1)) == 0 &&
+                 /* Check if there exists MMIO hole in the 1GB memory
+                  * range */
+                 !check_mmio_hole(cur_pfn << PAGE_SHIFT,
+                                  SUPERPAGE_1GB_NR_PFNS << PAGE_SHIFT,
+                                  dom->mmio_start, dom->mmio_size) )
+            {
+                long done;
+                unsigned long nr_extents = count >> SUPERPAGE_1GB_SHIFT;
+                xen_pfn_t sp_extents[nr_extents];
+
+                for ( i = 0; i < nr_extents; i++ )
+                    sp_extents[i] =
+                        dom->p2m_host[cur_pages+(i<<SUPERPAGE_1GB_SHIFT)];
+
+                done = xc_domain_populate_physmap(xch, domid, nr_extents,
+                                                  SUPERPAGE_1GB_SHIFT,
+                                                  memflags, sp_extents);
+
+                if ( done > 0 )
+                {
+                    stat_1gb_pages += done;
+                    done <<= SUPERPAGE_1GB_SHIFT;
+                    cur_pages += done;
+                    count -= done;
+                }
+            }
+
+            if ( count != 0 )
+            {
+                /* Clip count to maximum 8MB extent. */
+                max_pages = SUPERPAGE_2MB_NR_PFNS * 4;
+                if ( count > max_pages )
+                    count = max_pages;
+
+                /* Clip partial superpage extents to superpage
+                 * boundaries. */
+                if ( ((cur_pfn & (SUPERPAGE_2MB_NR_PFNS-1)) != 0) &&
+                     (count > (-cur_pfn & (SUPERPAGE_2MB_NR_PFNS-1))) )
+                    count = -cur_pfn & (SUPERPAGE_2MB_NR_PFNS-1);
+                else if ( ((count & (SUPERPAGE_2MB_NR_PFNS-1)) != 0) &&
+                          (count > SUPERPAGE_2MB_NR_PFNS) )
+                    count &= ~(SUPERPAGE_2MB_NR_PFNS - 1); /* clip non-s.p. tail */
+
+                /* Attempt to allocate superpage extents. */
+                if ( ((count | cur_pfn) & (SUPERPAGE_2MB_NR_PFNS - 1)) == 0 )
+                {
+                    long done;
+                    unsigned long nr_extents = count >> SUPERPAGE_2MB_SHIFT;
+                    xen_pfn_t sp_extents[nr_extents];
+
+                    for ( i = 0; i < nr_extents; i++ )
+                        sp_extents[i] =
+                            dom->p2m_host[cur_pages+(i<<SUPERPAGE_2MB_SHIFT)];
+
+                    done = xc_domain_populate_physmap(xch, domid, nr_extents,
+                                                      SUPERPAGE_2MB_SHIFT,
+                                                      memflags, sp_extents);
+
+                    if ( done > 0 )
+                    {
+                        stat_2mb_pages += done;
+                        done <<= SUPERPAGE_2MB_SHIFT;
+                        cur_pages += done;
+                        count -= done;
+                    }
+                }
+            }
+
+            /* Fall back to 4kB extents. */
+            if ( count != 0 )
+            {
+                rc = xc_domain_populate_physmap_exact(
+                    xch, domid, count, 0, new_memflags, &dom->p2m_host[cur_pages]);
+                cur_pages += count;
+                stat_normal_pages += count;
+            }
+        }
+
+        if ( rc != 0 )
+            break;
+    }
+
+    if ( rc != 0 )
+    {
+        DOMPRINTF("Could not allocate memory for HVM guest.");
+        goto error_out;
+    }
+
+    DPRINTF("PHYSICAL MEMORY ALLOCATION:\n");
+    DPRINTF("  4KB PAGES: 0x%016lx\n", stat_normal_pages);
+    DPRINTF("  2MB PAGES: 0x%016lx\n", stat_2mb_pages);
+    DPRINTF("  1GB PAGES: 0x%016lx\n", stat_1gb_pages);
+
+    rc = 0;
+    goto out;
+ error_out:
+    rc = -1;
+ out:
+
+    /* ensure no unclaimed pages are left unused */
+    xc_domain_claim_pages(xch, domid, 0 /* cancels the claim */);
+
+    return rc;
+}
+
+int arch_setup_meminit(struct xc_dom_image *dom)
+{
+    return (dom->container_type == XC_DOM_PV_CONTAINER) ?
+           arch_setup_meminit_pv(dom) : arch_setup_meminit_hvm(dom);
 }
 
 int arch_setup_bootearly(struct xc_dom_image *dom)
