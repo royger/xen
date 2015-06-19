@@ -35,9 +35,19 @@
 static bool_t hvm_mmio_accept(const struct hvm_io_handler *handler,
                               const ioreq_t *p)
 {
+    paddr_t first = hvm_mmio_first_byte(p);
+    paddr_t last = hvm_mmio_last_byte(p);
+
     BUG_ON(handler->type != IOREQ_TYPE_COPY);
 
-    return handler->mmio.ops->check(current, p->addr);
+    if ( !handler->mmio.ops->check(current, first) )
+        return 0;
+
+    if ( p->size > 1 &&
+         !handler->mmio.ops->check(current, last) )
+        domain_crash(current->domain);
+
+    return 1;
 }
 
 static int hvm_mmio_read(const struct hvm_io_handler *handler,
@@ -112,7 +122,8 @@ static const struct hvm_io_ops portio_ops = {
 static int hvm_process_io_intercept(const struct hvm_io_handler *handler,
                                     ioreq_t *p)
 {
-    struct hvm_vcpu_io *vio = &current->arch.hvm_vcpu.hvm_io;
+    struct vcpu *curr = current;
+    struct hvm_vcpu_io *vio = &curr->arch.hvm_vcpu.hvm_io;
     const struct hvm_io_ops *ops =
         (p->type == IOREQ_TYPE_COPY) ?
         &mmio_ops :
@@ -223,6 +234,9 @@ static int hvm_process_io_intercept(const struct hvm_io_handler *handler,
 
     if ( i != 0 )
     {
+        if ( rc == X86EMUL_UNHANDLEABLE )
+            domain_crash(curr->domain);
+
         p->count = i;
         rc = X86EMUL_OKAY;
     }
@@ -342,7 +356,9 @@ bool_t hvm_mmio_internal(paddr_t gpa)
 {
     ioreq_t p = {
         .type = IOREQ_TYPE_COPY,
-        .addr = gpa
+        .addr = gpa,
+        .count = 1,
+        .size = 1
     };
 
     return (hvm_find_io_handler(&p) != NULL);
