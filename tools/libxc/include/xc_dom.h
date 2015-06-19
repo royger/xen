@@ -15,6 +15,7 @@
  */
 
 #include <xen/libelf/libelf.h>
+#include <xenguest.h>
 
 #define INVALID_P2M_ENTRY   ((xen_pfn_t)-1)
 
@@ -194,6 +195,12 @@ struct xc_dom_image {
     xen_pfn_t lowmem_end;
     xen_pfn_t highmem_end;
     int vga_hole;
+
+    /* Extra ACPI tables passed to HVMLOADER */
+    struct xc_hvm_firmware_module acpi_module;
+
+    /* Extra SMBIOS structures passed to HVMLOADER */
+    struct xc_hvm_firmware_module smbios_module;
 };
 
 /* --- pluggable kernel loader ------------------------------------- */
