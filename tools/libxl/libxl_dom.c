@@ -801,39 +801,39 @@ static int hvm_build_set_params(xc_interface *handle, uint32_t domid,
 
 static int hvm_build_set_xs_values(libxl__gc *gc,
                                    uint32_t domid,
-                                   struct xc_hvm_build_args *args)
+                                   struct xc_dom_image *dom)
 {
     char *path = NULL;
     int ret = 0;
 
-    if (args->smbios_module.guest_addr_out) {
+    if (dom->smbios_module.guest_addr_out) {
         path = GCSPRINTF("/local/domain/%d/"HVM_XS_SMBIOS_PT_ADDRESS, domid);
 
         ret = libxl__xs_write(gc, XBT_NULL, path, "0x%"PRIx64,
-                              args->smbios_module.guest_addr_out);
+                              dom->smbios_module.guest_addr_out);
         if (ret)
             goto err;
 
         path = GCSPRINTF("/local/domain/%d/"HVM_XS_SMBIOS_PT_LENGTH, domid);
 
         ret = libxl__xs_write(gc, XBT_NULL, path, "0x%x",
-                              args->smbios_module.length);
+                              dom->smbios_module.length);
         if (ret)
             goto err;
     }
 
-    if (args->acpi_module.guest_addr_out) {
+    if (dom->acpi_module.guest_addr_out) {
         path = GCSPRINTF("/local/domain/%d/"HVM_XS_ACPI_PT_ADDRESS, domid);
 
         ret = libxl__xs_write(gc, XBT_NULL, path, "0x%"PRIx64,
-                              args->acpi_module.guest_addr_out);
+                              dom->acpi_module.guest_addr_out);
         if (ret)
             goto err;
 
         path = GCSPRINTF("/local/domain/%d/"HVM_XS_ACPI_PT_LENGTH, domid);
 
         ret = libxl__xs_write(gc, XBT_NULL, path, "0x%x",
-                              args->acpi_module.length);
+                              dom->acpi_module.length);
         if (ret)
             goto err;
     }
@@ -847,7 +847,7 @@ err:
 
 static int libxl__domain_firmware(libxl__gc *gc,
                                   libxl_domain_build_info *info,
-                                  struct xc_hvm_build_args *args)
+                                  struct xc_dom_image *dom)
 {
     libxl_ctx *ctx = libxl__gc_owner(gc);
     const char *firmware;
@@ -873,8 +873,13 @@ static int libxl__domain_firmware(libxl__gc *gc,
             break;
         }
     }
-    args->image_file_name = libxl__abs_path(gc, firmware,
-                                            libxl__xenfirmwaredir_path());
+
+    rc = xc_dom_kernel_file(dom, libxl__abs_path(gc, firmware,
+                                                 libxl__xenfirmwaredir_path()));
+    if (rc != 0) {
+        LOGE(ERROR, "xc_dom_kernel_file failed");
+        goto out;
+    }
 
     if (info->u.hvm.smbios_firmware) {
         data = NULL;
@@ -888,8 +893,8 @@ static int libxl__domain_firmware(libxl__gc *gc,
         libxl__ptr_add(gc, data);
         if (datalen) {
             /* Only accept non-empty files */
-            args->smbios_module.data = data;
-            args->smbios_module.length = (uint32_t)datalen;
+            dom->smbios_module.data = data;
+            dom->smbios_module.length = (uint32_t)datalen;
         }
     }
 
@@ -905,8 +910,8 @@ static int libxl__domain_firmware(libxl__gc *gc,
         libxl__ptr_add(gc, data);
         if (datalen) {
             /* Only accept non-empty files */
-            args->acpi_module.data = data;
-            args->acpi_module.length = (uint32_t)datalen;
+            dom->acpi_module.data = data;
+            dom->acpi_module.length = (uint32_t)datalen;
         }
     }
 
@@ -920,50 +925,61 @@ int libxl__build_hvm(libxl__gc *gc, uint32_t domid,
               libxl__domain_build_state *state)
 {
     libxl_ctx *ctx = libxl__gc_owner(gc);
-    struct xc_hvm_build_args args = {};
     int ret, rc = ERROR_FAIL;
-    uint64_t mmio_start, lowmem_end, highmem_end;
+    uint64_t mmio_start, lowmem_end, highmem_end, mem_size;
+    struct xc_dom_image *dom = NULL;
 
-    memset(&args, 0, sizeof(struct xc_hvm_build_args));
+    xc_dom_loginit(ctx->xch);
+
+    dom = xc_dom_allocate(ctx->xch, NULL, NULL);
+    if (!dom) {
+        LOGE(ERROR, "xc_dom_allocate failed");
+        goto out;
+    }
+
+    dom->container_type = XC_DOM_HVM_CONTAINER;
+
     /* The params from the configuration file are in Mb, which are then
      * multiplied by 1 Kb. This was then divided off when calling
      * the old xc_hvm_build_target_mem() which then turned them to bytes.
      * Do all this in one step here...
      */
-    args.mem_size = (uint64_t)(info->max_memkb - info->video_memkb) << 10;
-    args.mem_target = (uint64_t)(info->target_memkb - info->video_memkb) << 10;
-    args.claim_enabled = libxl_defbool_val(info->claim_mode);
+    mem_size = (uint64_t)(info->max_memkb - info->video_memkb) << 10;
+    dom->target_pages = (uint64_t)(info->target_memkb - info->video_memkb) >> 2;
+    dom->claim_enabled = libxl_defbool_val(info->claim_mode);
     if (info->u.hvm.mmio_hole_memkb) {
         uint64_t max_ram_below_4g = (1ULL << 32) -
             (info->u.hvm.mmio_hole_memkb << 10);
 
         if (max_ram_below_4g < HVM_BELOW_4G_MMIO_START)
-            args.mmio_size = info->u.hvm.mmio_hole_memkb << 10;
+            dom->mmio_size = info->u.hvm.mmio_hole_memkb << 10;
     }
-    if (libxl__domain_firmware(gc, info, &args)) {
+    if (libxl__domain_firmware(gc, info, dom)) {
         LOG(ERROR, "initializing domain firmware failed");
         goto out;
     }
-    if (args.mem_target == 0)
-        args.mem_target = args.mem_size;
-    if (args.mmio_size == 0)
-        args.mmio_size = HVM_BELOW_4G_MMIO_LENGTH;
-    lowmem_end = args.mem_size;
+
+    if (dom->target_pages == 0)
+        dom->target_pages = mem_size >> XC_PAGE_SHIFT;
+    if (dom->mmio_size == 0)
+        dom->mmio_size = HVM_BELOW_4G_MMIO_LENGTH;
+    lowmem_end = mem_size;
     highmem_end = 0;
-    mmio_start = (1ull << 32) - args.mmio_size;
+    mmio_start = (1ull << 32) - dom->mmio_size;
     if (lowmem_end > mmio_start)
     {
         highmem_end = (1ull << 32) + (lowmem_end - mmio_start);
         lowmem_end = mmio_start;
     }
-    args.lowmem_end = lowmem_end;
-    args.highmem_end = highmem_end;
-    args.mmio_start = mmio_start;
+    dom->lowmem_end = lowmem_end;
+    dom->highmem_end = highmem_end;
+    dom->mmio_start = mmio_start;
+    dom->vga_hole = 1;
 
     if (info->num_vnuma_nodes != 0) {
         int i;
 
-        ret = libxl__vnuma_build_vmemrange_hvm(gc, domid, info, state, &args);
+        ret = libxl__vnuma_build_vmemrange_hvm(gc, domid, info, state, dom);
         if (ret) {
             LOGEV(ERROR, ret, "hvm build vmemranges failed");
             goto out;
@@ -973,27 +989,57 @@ int libxl__build_hvm(libxl__gc *gc, uint32_t domid,
         ret = set_vnuma_info(gc, domid, info, state);
         if (ret) goto out;
 
-        args.nr_vmemranges = state->num_vmemranges;
-        args.vmemranges = libxl__malloc(gc, sizeof(*args.vmemranges) *
-                                        args.nr_vmemranges);
+        dom->nr_vmemranges = state->num_vmemranges;
+        dom->vmemranges = libxl__malloc(gc, sizeof(*dom->vmemranges) *
+                                        dom->nr_vmemranges);
 
-        for (i = 0; i < args.nr_vmemranges; i++) {
-            args.vmemranges[i].start = state->vmemranges[i].start;
-            args.vmemranges[i].end   = state->vmemranges[i].end;
-            args.vmemranges[i].flags = state->vmemranges[i].flags;
-            args.vmemranges[i].nid   = state->vmemranges[i].nid;
+        for (i = 0; i < dom->nr_vmemranges; i++) {
+            dom->vmemranges[i].start = state->vmemranges[i].start;
+            dom->vmemranges[i].end   = state->vmemranges[i].end;
+            dom->vmemranges[i].flags = state->vmemranges[i].flags;
+            dom->vmemranges[i].nid   = state->vmemranges[i].nid;
         }
 
-        args.nr_vnodes = info->num_vnuma_nodes;
-        args.vnode_to_pnode = libxl__malloc(gc, sizeof(*args.vnode_to_pnode) *
-                                            args.nr_vnodes);
-        for (i = 0; i < args.nr_vnodes; i++)
-            args.vnode_to_pnode[i] = info->vnuma_nodes[i].pnode;
+        dom->nr_vnodes = info->num_vnuma_nodes;
+        dom->vnode_to_pnode = libxl__malloc(gc, sizeof(*dom->vnode_to_pnode) *
+                                            dom->nr_vnodes);
+        for (i = 0; i < dom->nr_vnodes; i++)
+            dom->vnode_to_pnode[i] = info->vnuma_nodes[i].pnode;
     }
 
-    ret = xc_hvm_build(ctx->xch, domid, &args);
-    if (ret) {
-        LOGEV(ERROR, ret, "hvm building failed");
+    rc = xc_dom_boot_xen_init(dom, ctx->xch, domid);
+    if (rc != 0) {
+        LOGE(ERROR, "xc_dom_boot_xen_init failed");
+        goto out;
+    }
+
+    rc = xc_dom_parse_image(dom);
+    if (rc != 0) {
+        LOGE(ERROR, "xc_dom_parse_image failed");
+        goto out;
+    }
+
+    rc = xc_dom_mem_init(dom, mem_size / (1024 * 1024));
+    if (rc != 0) {
+        LOGE(ERROR, "xc_dom_mem_init failed");
+        goto out;
+    }
+
+    rc = xc_dom_boot_mem_init(dom);
+    if (rc != 0) {
+        LOGE(ERROR, "xc_dom_boot_mem_init failed");
+        goto out;
+    }
+
+    rc = xc_dom_build_image(dom);
+    if (rc != 0) {
+        LOGE(ERROR, "xc_dom_build_image failed");
+        goto out;
+    }
+
+    rc = xc_dom_boot_image(dom);
+    if (rc != 0) {
+        LOGE(ERROR, "xc_dom_boot_image failed");
         goto out;
     }
 
@@ -1006,14 +1052,16 @@ int libxl__build_hvm(libxl__gc *gc, uint32_t domid,
         goto out;
     }
 
-    ret = hvm_build_set_xs_values(gc, domid, &args);
+    ret = hvm_build_set_xs_values(gc, domid, dom);
     if (ret) {
         LOG(ERROR, "hvm build set xenstore values failed (ret=%d)", ret);
         goto out;
     }
 
+    xc_dom_release(dom);
     return 0;
 out:
+    if (dom != NULL) xc_dom_release(dom);
     return rc;
 }
 
