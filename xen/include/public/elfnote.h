@@ -200,9 +200,18 @@
 #define XEN_ELFNOTE_SUPPORTED_FEATURES 17
 
 /*
+ * Physical entry point into the kernel.
+ *
+ * 32bit entry point into the kernel. Xen will use this entry point
+ * in order to launch the guest kernel in 32bit protected mode
+ * with paging disabled.
+ */
+#define XEN_ELFNOTE_PHYS32_ENTRY 18
+
+/*
  * The number of the highest elfnote defined.
  */
-#define XEN_ELFNOTE_MAX XEN_ELFNOTE_SUPPORTED_FEATURES
+#define XEN_ELFNOTE_MAX XEN_ELFNOTE_PHYS32_ENTRY
 
 /*
  * System information exported through crash notes.
