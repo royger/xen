@@ -900,10 +900,21 @@ static int libxl__domain_firmware(libxl__gc *gc,
         }
     }
 
-    rc = xc_dom_kernel_file(dom, libxl__abs_path(gc, firmware,
+    if (info->kernel != NULL &&
+        info->device_model_version == LIBXL_DEVICE_MODEL_VERSION_NONE) {
+        /* Try to load a kernel instead of the firmware. */
+        rc = xc_dom_kernel_file(dom, info->kernel);
+        if (rc == 0 && info->ramdisk != NULL)
+            rc = xc_dom_ramdisk_file(dom, info->ramdisk);
+        dom->emulation = false;
+    } else {
+        rc = xc_dom_kernel_file(dom, libxl__abs_path(gc, firmware,
                                                  libxl__xenfirmwaredir_path()));
+        dom->emulation = true;
+    }
+
     if (rc != 0) {
-        LOGE(ERROR, "xc_dom_kernel_file failed");
+        LOGE(ERROR, "xc_dom_{kernel_file/ramdisk_file} failed");
         goto out;
     }
 
@@ -960,7 +971,7 @@ int libxl__build_hvm(libxl__gc *gc, uint32_t domid,
 
     xc_dom_loginit(ctx->xch);
 
-    dom = xc_dom_allocate(ctx->xch, NULL, NULL);
+    dom = xc_dom_allocate(ctx->xch, info->cmdline, NULL);
     if (!dom) {
         LOGE(ERROR, "xc_dom_allocate failed");
         goto out;
@@ -1003,7 +1014,6 @@ int libxl__build_hvm(libxl__gc *gc, uint32_t domid,
     dom->lowmem_end = lowmem_end;
     dom->highmem_end = highmem_end;
     dom->mmio_start = mmio_start;
-    dom->emulation = true;
 
     if (info->num_vnuma_nodes != 0) {
         int i;
