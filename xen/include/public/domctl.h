@@ -63,6 +63,9 @@ struct xen_domctl_createdomain {
  /* Is this a PVH guest (as opposed to an HVM or PV guest)? */
 #define _XEN_DOMCTL_CDF_pvh_guest     4
 #define XEN_DOMCTL_CDF_pvh_guest      (1U<<_XEN_DOMCTL_CDF_pvh_guest)
+ /* Disable emulated devices */
+#define _XEN_DOMCTL_CDF_noemu         5
+#define XEN_DOMCTL_CDF_noemu          (1U<<_XEN_DOMCTL_CDF_noemu)
     uint32_t flags;
     struct xen_arch_domainconfig config;
 };

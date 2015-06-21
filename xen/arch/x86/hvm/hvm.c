@@ -343,7 +343,7 @@ u64 hvm_get_guest_tsc_adjust(struct vcpu *v)
 void hvm_migrate_timers(struct vcpu *v)
 {
     /* PVH doesn't use rtc and emulated timers, it uses pvclock mechanism. */
-    if ( is_pvh_vcpu(v) )
+    if ( is_pvh_vcpu(v) || v->domain->arch.hvm_domain.no_emu )
         return;
 
     rtc_migrate_timers(v);
@@ -1423,7 +1423,7 @@ static int hvm_set_dm_domain(struct domain *d, domid_t domid)
     return rc;
 }
 
-int hvm_domain_initialise(struct domain *d)
+int hvm_domain_initialise(struct domain *d, unsigned int domcr_flags)
 {
     int rc;
 
@@ -1485,9 +1485,10 @@ int hvm_domain_initialise(struct domain *d)
     else
         d->arch.hvm_domain.io_bitmap = hvm_io_bitmap;
 
-    if ( is_pvh_domain(d) )
+    if ( is_pvh_domain(d) || domcr_flags & DOMCRF_noemu )
     {
         register_portio_handler(d, 0, 0x10003, handle_pvh_io);
+        d->arch.hvm_domain.no_emu = TRUE;
         return 0;
     }
 
@@ -1531,7 +1532,7 @@ int hvm_domain_initialise(struct domain *d)
 
 void hvm_domain_relinquish_resources(struct domain *d)
 {
-    if ( is_pvh_domain(d) )
+    if ( is_pvh_domain(d) || d->arch.hvm_domain.no_emu )
         return;
 
     if ( hvm_funcs.nhvm_domain_relinquish_resources )
@@ -1557,7 +1558,7 @@ void hvm_domain_destroy(struct domain *d)
 
     hvm_destroy_cacheattr_region_list(d);
 
-    if ( is_pvh_domain(d) )
+    if ( is_pvh_domain(d) || d->arch.hvm_domain.no_emu )
         return;
 
     hvm_funcs.domain_destroy(d);
@@ -2326,6 +2327,9 @@ int hvm_vcpu_initialise(struct vcpu *v)
         v->arch.hvm_vcpu.guest_efer = EFER_LMA | EFER_LME;
         return 0;
     }
+
+    if ( d->arch.hvm_domain.no_emu )
+        return 0;
 
     rc = setup_compat_arg_xlat(v); /* teardown: free_compat_arg_xlat() */
     if ( rc != 0 )

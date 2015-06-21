@@ -168,6 +168,9 @@ bool_t hvm_mmio_internal(paddr_t gpa)
     struct vcpu *curr = current;
     unsigned int i;
 
+    if ( curr->domain->arch.hvm_domain.no_emu )
+        return 0;
+
     for ( i = 0; i < HVM_MMIO_HANDLER_NR; ++i )
         if ( hvm_mmio_handlers[i]->check_handler(curr, gpa) )
             return 1;
@@ -179,6 +182,9 @@ int hvm_mmio_intercept(ioreq_t *p)
 {
     struct vcpu *v = current;
     int i;
+
+    if ( v->domain->arch.hvm_domain.no_emu )
+        return X86EMUL_UNHANDLEABLE;
 
     for ( i = 0; i < HVM_MMIO_HANDLER_NR; i++ )
     {

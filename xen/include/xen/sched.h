@@ -552,6 +552,10 @@ struct domain *domain_create(domid_t domid, unsigned int domcr_flags,
  /* DOMCRF_pvh: Create PV domain in HVM container. */
 #define _DOMCRF_pvh             5
 #define DOMCRF_pvh              (1U<<_DOMCRF_pvh)
+/* DOMCRF_noemu: Create a HVM domain without emulated devices. */
+/* XXX: Should be split into smaller flags that disable specific devices? */
+#define _DOMCRF_noemu           6
+#define DOMCRF_noemu            (1U<<_DOMCRF_noemu)
 
 /*
  * rcu_lock_domain_by_id() is more efficient than get_domain_by_id().

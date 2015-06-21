@@ -1587,11 +1587,10 @@ void libxl__destroy_domid(libxl__egc *egc, libxl__destroy_domid_state *dis)
 
     switch (libxl__domain_type(gc, domid)) {
     case LIBXL_DOMAIN_TYPE_HVM:
-        if (!libxl_get_stubdom_id(CTX, domid))
-            dm_present = 1;
-        else
+        if (libxl_get_stubdom_id(CTX, domid)) {
             dm_present = 0;
-        break;
+            break;
+        }
     case LIBXL_DOMAIN_TYPE_PV:
         pid = libxl__xs_read(gc, XBT_NULL, libxl__sprintf(gc, "/local/domain/%d/image/device-model-pid", domid));
         dm_present = (pid != NULL);

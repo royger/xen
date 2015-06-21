@@ -217,7 +217,7 @@ extern s8 hvm_port80_allowed;
 extern const struct hvm_function_table *start_svm(void);
 extern const struct hvm_function_table *start_vmx(void);
 
-int hvm_domain_initialise(struct domain *d);
+int hvm_domain_initialise(struct domain *d, unsigned int domcr_flags);
 void hvm_domain_relinquish_resources(struct domain *d);
 void hvm_domain_destroy(struct domain *d);
 

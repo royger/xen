@@ -866,6 +866,12 @@ static int libxl__domain_firmware(libxl__gc *gc,
         case LIBXL_DEVICE_MODEL_VERSION_QEMU_XEN:
             firmware = "hvmloader";
             break;
+        case LIBXL_DEVICE_MODEL_VERSION_NONE:
+            if (info->kernel == NULL) {
+                LOG(ERROR, "no device model requested without a kernel");
+                return ERROR_FAIL;
+            }
+            break;
         default:
             LOG(ERROR, "invalid device model version %d",
                 info->device_model_version);
