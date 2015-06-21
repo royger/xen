@@ -120,6 +120,7 @@ elf_errorstatus elf_xen_parse_note(struct elf_binary *elf,
         [XEN_ELFNOTE_BSD_SYMTAB] = { "BSD_SYMTAB", 1},
         [XEN_ELFNOTE_SUSPEND_CANCEL] = { "SUSPEND_CANCEL", 0 },
         [XEN_ELFNOTE_MOD_START_PFN] = { "MOD_START_PFN", 0 },
+        [XEN_ELFNOTE_PHYS_ENTRY] = { "PHYS_ENTRY", 0 },
     };
 /* *INDENT-ON* */
 
@@ -213,6 +214,9 @@ elf_errorstatus elf_xen_parse_note(struct elf_binary *elf,
                 elf, note, sizeof(*parms->f_supported), i);
         break;
 
+    case XEN_ELFNOTE_PHYS_ENTRY:
+        parms->phys_entry = val;
+        break;
     }
     return 0;
 }
