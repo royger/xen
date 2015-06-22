@@ -279,7 +279,7 @@ int main(int argc, char **argv)
 		{ 0 },
 
 	};
-	char *dom_path = NULL, *path = NULL;
+	char *dom_path = NULL, *path = NULL, *test = NULL;
 	int spty, xsfd;
 	struct xs_handle *xs;
 	char *end;
@@ -357,9 +357,14 @@ int main(int argc, char **argv)
 	path = malloc(strlen(dom_path) + strlen("/device/console/0/tty") + 5);
 	if (path == NULL)
 		err(ENOMEM, "malloc");
-	if (type == CONSOLE_SERIAL)
+	if (type == CONSOLE_SERIAL) {
 		snprintf(path, strlen(dom_path) + strlen("/serial/0/tty") + 5, "%s/serial/%d/tty", dom_path, num);
-	else {
+		test = xs_read(xs, XBT_NULL, path, NULL);
+		free(test);
+		if (test == NULL)
+			goto pv_console;
+	} else {
+pv_console:
 		if (num == 0)
 			snprintf(path, strlen(dom_path) + strlen("/console/tty") + 1, "%s/console/tty", dom_path);
 		else
