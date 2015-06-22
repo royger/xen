@@ -1154,6 +1154,7 @@ static int check_mmio_hole(uint64_t start, uint64_t memsize,
         return 1;
 }
 
+#define MAX_E820_ENTRIES    128
 static int arch_setup_meminit_hvm(struct xc_dom_image *dom)
 {
     unsigned long i, vmemid, nr_pages = dom->total_pages;
@@ -1174,6 +1175,8 @@ static int arch_setup_meminit_hvm(struct xc_dom_image *dom)
     unsigned int nr_vmemranges, nr_vnodes;
     xc_interface *xch = dom->xch;
     uint32_t domid = dom->guest_domid;
+    struct e820entry entries[MAX_E820_ENTRIES];
+    int e820_index = 0;
 
     if ( nr_pages > target_pages )
         memflags |= XENMEMF_populate_on_demand;
@@ -1222,6 +1225,13 @@ static int arch_setup_meminit_hvm(struct xc_dom_image *dom)
         nr_vnodes = dom->nr_vnodes;
         vmemranges = dom->vmemranges;
         vnode_to_pnode = dom->vnode_to_pnode;
+    }
+
+    /* Add one additional memeory range to account for the VGA hole */
+    if ( (nr_vmemranges + (dom->vga_hole ? 1 : 0)) > MAX_E820_ENTRIES )
+    {
+        DOMPRINTF("Too many memory ranges");
+        goto error_out;
     }
 
     total_pages = 0;
@@ -1313,9 +1323,13 @@ static int arch_setup_meminit_hvm(struct xc_dom_image *dom)
      * Under 2MB mode, we allocate pages in batches of no more than 8MB to 
      * ensure that we can be preempted and hence dom0 remains responsive.
      */
-    if ( dom->vga_hole )
+    if ( dom->vga_hole ) {
         rc = xc_domain_populate_physmap_exact(
             xch, domid, 0xa0, 0, memflags, &dom->p2m_host[0x00]);
+        entries[e820_index].addr = 0;
+        entries[e820_index].size = 0xa0 << PAGE_SHIFT;
+        entries[e820_index++].type = E820_RAM;
+    }
 
     stat_normal_pages = 0;
     for ( vmemid = 0; vmemid < nr_vmemranges; vmemid++ )
@@ -1341,6 +1355,12 @@ static int arch_setup_meminit_hvm(struct xc_dom_image *dom)
         }
         else
             cur_pages = vmemranges[vmemid].start >> PAGE_SHIFT;
+
+                /* Build an e820 map. */
+        entries[e820_index].addr = cur_pages << PAGE_SHIFT;
+        entries[e820_index].size = vmemranges[vmemid].end -
+                                   entries[e820_index].addr;
+        entries[e820_index++].type = E820_RAM;
 
         while ( (rc == 0) && (end_pages > cur_pages) )
         {
@@ -1458,6 +1478,13 @@ static int arch_setup_meminit_hvm(struct xc_dom_image *dom)
     DPRINTF("  4KB PAGES: 0x%016lx\n", stat_normal_pages);
     DPRINTF("  2MB PAGES: 0x%016lx\n", stat_2mb_pages);
     DPRINTF("  1GB PAGES: 0x%016lx\n", stat_1gb_pages);
+
+    rc = xc_domain_set_memory_map(xch, domid, entries, e820_index);
+    if ( rc != 0 )
+    {
+        DOMPRINTF("unable to set memory map.");
+        goto error_out;
+    }
 
     rc = 0;
     goto out;
