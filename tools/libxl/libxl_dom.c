@@ -992,6 +992,7 @@ int libxl__build_hvm(libxl__gc *gc, uint32_t domid,
     dom->lowmem_end = lowmem_end;
     dom->highmem_end = highmem_end;
     dom->mmio_start = mmio_start;
+    dom->emulation = true;
 
     if (info->num_vnuma_nodes != 0) {
         int i;
