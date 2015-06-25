@@ -789,21 +789,23 @@ static int hvm_build_set_params(xc_interface *handle, uint32_t domid,
     uint64_t str_mfn, cons_mfn;
     int i;
 
-    va_map = xc_map_foreign_range(handle, domid,
-                                  XC_PAGE_SIZE, PROT_READ | PROT_WRITE,
-                                  HVM_INFO_PFN);
-    if (va_map == NULL)
-        return -1;
+    if ( info->device_model_version != LIBXL_DEVICE_MODEL_VERSION_NONE) {
+        va_map = xc_map_foreign_range(handle, domid,
+                                      XC_PAGE_SIZE, PROT_READ | PROT_WRITE,
+                                      HVM_INFO_PFN);
+        if (va_map == NULL)
+            return -1;
 
-    va_hvm = (struct hvm_info_table *)(va_map + HVM_INFO_OFFSET);
-    va_hvm->apic_mode = libxl_defbool_val(info->u.hvm.apic);
-    va_hvm->nr_vcpus = info->max_vcpus;
-    memset(va_hvm->vcpu_online, 0, sizeof(va_hvm->vcpu_online));
-    memcpy(va_hvm->vcpu_online, info->avail_vcpus.map, info->avail_vcpus.size);
-    for (i = 0, sum = 0; i < va_hvm->length; i++)
-        sum += ((uint8_t *) va_hvm)[i];
-    va_hvm->checksum -= sum;
-    munmap(va_map, XC_PAGE_SIZE);
+        va_hvm = (struct hvm_info_table *)(va_map + HVM_INFO_OFFSET);
+        va_hvm->apic_mode = libxl_defbool_val(info->u.hvm.apic);
+        va_hvm->nr_vcpus = info->max_vcpus;
+        memset(va_hvm->vcpu_online, 0, sizeof(va_hvm->vcpu_online));
+        memcpy(va_hvm->vcpu_online, info->avail_vcpus.map, info->avail_vcpus.size);
+        for (i = 0, sum = 0; i < va_hvm->length; i++)
+            sum += ((uint8_t *) va_hvm)[i];
+        va_hvm->checksum -= sum;
+        munmap(va_map, XC_PAGE_SIZE);
+    }
 
     xc_hvm_param_get(handle, domid, HVM_PARAM_STORE_PFN, &str_mfn);
     xc_hvm_param_get(handle, domid, HVM_PARAM_CONSOLE_PFN, &cons_mfn);
@@ -884,6 +886,12 @@ static int libxl__domain_firmware(libxl__gc *gc,
         case LIBXL_DEVICE_MODEL_VERSION_QEMU_XEN:
             firmware = "hvmloader";
             break;
+        case LIBXL_DEVICE_MODEL_VERSION_NONE:
+            if (info->kernel == NULL) {
+                LOG(ERROR, "no device model requested without a kernel");
+                return ERROR_FAIL;
+            }
+            break;
         default:
             LOG(ERROR, "invalid device model version %d",
                 info->device_model_version);
@@ -946,6 +954,9 @@ int libxl__build_hvm(libxl__gc *gc, uint32_t domid,
     int ret;
     uint64_t mmio_start, lowmem_end, highmem_end, mem_size;
     struct xc_dom_image *dom = NULL;
+    bool emulated_devices =
+        info->device_model_version != LIBXL_DEVICE_MODEL_VERSION_NONE ?
+        true : false;
 
     xc_dom_loginit(ctx->xch);
 
@@ -979,7 +990,7 @@ int libxl__build_hvm(libxl__gc *gc, uint32_t domid,
 
     if (dom->target_pages == 0)
         dom->target_pages = mem_size >> XC_PAGE_SHIFT;
-    if (dom->mmio_size == 0)
+    if (dom->mmio_size == 0 && emulated_devices)
         dom->mmio_size = HVM_BELOW_4G_MMIO_LENGTH;
     lowmem_end = mem_size;
     highmem_end = 0;

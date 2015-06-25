@@ -164,6 +164,8 @@ int libxl__domain_build_info_setdefault(libxl__gc *gc,
                 b_info->u.hvm.bios = LIBXL_BIOS_TYPE_ROMBIOS; break;
             case LIBXL_DEVICE_MODEL_VERSION_QEMU_XEN:
                 b_info->u.hvm.bios = LIBXL_BIOS_TYPE_SEABIOS; break;
+            case LIBXL_DEVICE_MODEL_VERSION_NONE:
+                break;
             default:return ERROR_INVAL;
             }
 
@@ -176,6 +178,8 @@ int libxl__domain_build_info_setdefault(libxl__gc *gc,
         case LIBXL_DEVICE_MODEL_VERSION_QEMU_XEN:
             if (b_info->u.hvm.bios == LIBXL_BIOS_TYPE_ROMBIOS)
                 return ERROR_INVAL;
+            break;
+        case LIBXL_DEVICE_MODEL_VERSION_NONE:
             break;
         default:abort();
         }
@@ -277,6 +281,9 @@ int libxl__domain_build_info_setdefault(libxl__gc *gc,
                     LOG(WARN, "ignoring videoram other than 4 MB for CIRRUS on QEMU_XEN_TRADITIONAL");
                 break;
             }
+            break;
+        case LIBXL_DEVICE_MODEL_VERSION_NONE:
+            b_info->video_memkb = 0;
             break;
         case LIBXL_DEVICE_MODEL_VERSION_QEMU_XEN:
         default:
@@ -535,6 +542,7 @@ int libxl__domain_make(libxl__gc *gc, libxl_domain_config *d_config,
 
     /* convenience aliases */
     libxl_domain_create_info *info = &d_config->c_info;
+    libxl_domain_build_info *b_info = &d_config->b_info;
 
     assert(!libxl_domid_valid_guest(*domid));
 
@@ -549,6 +557,8 @@ int libxl__domain_make(libxl__gc *gc, libxl_domain_config *d_config,
         flags |= XEN_DOMCTL_CDF_hvm_guest;
         flags |= libxl_defbool_val(info->hap) ? XEN_DOMCTL_CDF_hap : 0;
         flags |= libxl_defbool_val(info->oos) ? 0 : XEN_DOMCTL_CDF_oos_off;
+        if (b_info->device_model_version == LIBXL_DEVICE_MODEL_VERSION_NONE)
+            flags |= XEN_DOMCTL_CDF_noemu;
     } else if (libxl_defbool_val(info->pvh)) {
         flags |= XEN_DOMCTL_CDF_pvh_guest;
         if (!libxl_defbool_val(info->hap)) {
@@ -1292,6 +1302,12 @@ static void domcreate_launch_dm(libxl__egc *egc, libxl__multidev *multidev,
         console.backend_domid = state->console_domid;
         libxl__device_console_add(gc, domid, &console, state, &device);
         libxl__device_console_dispose(&console);
+
+        if (d_config->b_info.device_model_version ==
+            LIBXL_DEVICE_MODEL_VERSION_NONE) {
+            domcreate_devmodel_started(egc, &dcs->dmss.dm, 0);
+            return;
+        }
 
         libxl_device_vkb_init(&vkb);
         libxl__device_vkb_add(gc, domid, &vkb);
