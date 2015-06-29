@@ -250,7 +250,7 @@ static int vioapic_range(struct vcpu *v, unsigned long addr)
              (addr < vioapic->base_address + VIOAPIC_MEM_LENGTH)));
 }
 
-const struct hvm_mmio_ops vioapic_mmio_ops = {
+struct hvm_mmio_ops vioapic_mmio_ops = {
     .check = vioapic_range,
     .read = vioapic_read,
     .write = vioapic_write
@@ -449,6 +449,9 @@ void vioapic_reset(struct domain *d)
 
 int vioapic_init(struct domain *d)
 {
+    if ( d->arch.hvm_domain.no_emu )
+        return 0;
+
     if ( (d->arch.hvm_domain.vioapic == NULL) &&
          ((d->arch.hvm_domain.vioapic = xmalloc(struct hvm_vioapic)) == NULL) )
         return -ENOMEM;
@@ -461,6 +464,9 @@ int vioapic_init(struct domain *d)
 
 void vioapic_deinit(struct domain *d)
 {
+    if ( d->arch.hvm_domain.no_emu )
+        return;
+
     xfree(d->arch.hvm_domain.vioapic);
     d->arch.hvm_domain.vioapic = NULL;
 }

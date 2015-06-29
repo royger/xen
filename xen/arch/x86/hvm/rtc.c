@@ -726,6 +726,9 @@ void rtc_migrate_timers(struct vcpu *v)
 {
     RTCState *s = vcpu_vrtc(v);
 
+    if ( v->domain->arch.hvm_domain.no_emu )
+        return;
+
     if ( v->vcpu_id == 0 )
     {
         migrate_timer(&s->update_timer, v->processor);;
@@ -790,6 +793,9 @@ void rtc_init(struct domain *d)
 {
     RTCState *s = domain_vrtc(d);
 
+    if ( d->arch.hvm_domain.no_emu )
+        return;
+
     spin_lock_init(&s->lock);
 
     init_timer(&s->update_timer, rtc_update_timer, s, smp_processor_id());
@@ -819,6 +825,9 @@ void rtc_init(struct domain *d)
 void rtc_deinit(struct domain *d)
 {
     RTCState *s = domain_vrtc(d);
+
+    if ( d->arch.hvm_domain.no_emu )
+        return;
 
     spin_barrier(&s->lock);
 

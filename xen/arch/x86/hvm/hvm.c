@@ -1423,7 +1423,7 @@ static int hvm_set_dm_domain(struct domain *d, domid_t domid)
     return rc;
 }
 
-int hvm_domain_initialise(struct domain *d)
+int hvm_domain_initialise(struct domain *d, unsigned int domcr_flags)
 {
     int rc;
 
@@ -1491,10 +1491,12 @@ int hvm_domain_initialise(struct domain *d)
         return 0;
     }
 
-    hvm_init_guest_time(d);
+    if ( domcr_flags & DOMCRF_noemu )
+        d->arch.hvm_domain.no_emu = 1;
 
-    d->arch.hvm_domain.params[HVM_PARAM_HPET_ENABLED] = 1;
-    d->arch.hvm_domain.params[HVM_PARAM_TRIPLE_FAULT_REASON] = SHUTDOWN_reboot;
+    setup_mmio_handlers(d);
+
+    hvm_init_guest_time(d);
 
     vpic_init(d);
 
@@ -1506,8 +1508,13 @@ int hvm_domain_initialise(struct domain *d)
 
     rtc_init(d);
 
-    register_portio_handler(d, 0xe9, 1, hvm_print_line);
-    register_portio_handler(d, 0xcf8, 4, hvm_access_cf8);
+    if ( !d->arch.hvm_domain.no_emu )
+    {
+        d->arch.hvm_domain.params[HVM_PARAM_HPET_ENABLED] = 1;
+        d->arch.hvm_domain.params[HVM_PARAM_TRIPLE_FAULT_REASON] = SHUTDOWN_reboot;
+        register_portio_handler(d, 0xe9, 1, hvm_print_line);
+        register_portio_handler(d, 0xcf8, 4, hvm_access_cf8);
+    }
 
     rc = hvm_funcs.domain_initialise(d);
     if ( rc != 0 )

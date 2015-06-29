@@ -504,7 +504,7 @@ static int hpet_range(struct vcpu *v, unsigned long addr)
              (addr < (HPET_BASE_ADDRESS + HPET_MMAP_SIZE)) );
 }
 
-const struct hvm_mmio_ops hpet_mmio_ops = {
+struct hvm_mmio_ops hpet_mmio_ops = {
     .check = hpet_range,
     .read  = hpet_read,
     .write = hpet_write
@@ -634,6 +634,9 @@ void hpet_init(struct domain *d)
     HPETState *h = domain_vhpet(d);
     int i;
 
+    if ( d->arch.hvm_domain.no_emu )
+        return;
+
     memset(h, 0, sizeof(HPETState));
 
     rwlock_init(&h->lock);
@@ -665,6 +668,9 @@ void hpet_deinit(struct domain *d)
 {
     int i;
     HPETState *h = domain_vhpet(d);
+
+    if ( d->arch.hvm_domain.no_emu )
+        return;
 
     write_lock(&h->lock);
 

@@ -329,6 +329,9 @@ void pmtimer_init(struct vcpu *v)
 {
     PMTState *s = &v->domain->arch.hvm_domain.pl_time.vpmt;
 
+    if ( v->domain->arch.hvm_domain.no_emu )
+        return;
+
     spin_lock_init(&s->lock);
 
     s->scale = ((uint64_t)FREQUENCE_PMTIMER << 32) / SYSTEM_TIME_HZ;
@@ -349,6 +352,10 @@ void pmtimer_init(struct vcpu *v)
 void pmtimer_deinit(struct domain *d)
 {
     PMTState *s = &d->arch.hvm_domain.pl_time.vpmt;
+
+    if ( d->arch.hvm_domain.no_emu )
+        return;
+
     kill_timer(&s->timer);
 }
 

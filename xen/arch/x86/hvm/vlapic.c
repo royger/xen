@@ -977,7 +977,7 @@ static int vlapic_range(struct vcpu *v, unsigned long addr)
            (offset < PAGE_SIZE);
 }
 
-const struct hvm_mmio_ops vlapic_mmio_ops = {
+struct hvm_mmio_ops vlapic_mmio_ops = {
     .check = vlapic_range,
     .read = vlapic_read,
     .write = vlapic_write
@@ -994,6 +994,9 @@ static void set_x2apic_id(struct vlapic *vlapic)
 
 bool_t vlapic_msr_set(struct vlapic *vlapic, uint64_t value)
 {
+    if ( vlapic_domain(vlapic)->arch.hvm_domain.no_emu )
+        return 0;
+
     if ( (vlapic->hw.apic_base_msr ^ value) & MSR_IA32_APICBASE_ENABLE )
     {
         if ( unlikely(value & MSR_IA32_APICBASE_EXTD) )
@@ -1044,7 +1047,7 @@ void vlapic_tdt_msr_set(struct vlapic *vlapic, uint64_t value)
     struct vcpu *v = vlapic_vcpu(vlapic);
 
     /* may need to exclude some other conditions like vlapic->hw.disabled */
-    if ( !vlapic_lvtt_tdt(vlapic) )
+    if ( !vlapic_lvtt_tdt(vlapic) || vlapic_hw_disabled(vlapic) )
     {
         HVM_DBG_LOG(DBG_LEVEL_VLAPIC_TIMER, "ignore tsc deadline msr write");
         return;
@@ -1119,6 +1122,9 @@ static int __vlapic_accept_pic_intr(struct vcpu *v)
 
 int vlapic_accept_pic_intr(struct vcpu *v)
 {
+    if ( v->domain->arch.hvm_domain.no_emu )
+        return 0;
+
     TRACE_2D(TRC_HVM_EMUL_LAPIC_PIC_INTR,
              (v == v->domain->arch.hvm_domain.i8259_target),
              v ? __vlapic_accept_pic_intr(v) : -1);
@@ -1400,7 +1406,7 @@ int vlapic_init(struct vcpu *v)
 
     HVM_DBG_LOG(DBG_LEVEL_VLAPIC, "%d", v->vcpu_id);
 
-    if ( is_pvh_vcpu(v) )
+    if ( is_pvh_vcpu(v) || v->domain->arch.hvm_domain.no_emu )
     {
         vlapic->hw.disabled = VLAPIC_HW_DISABLED;
         return 0;
@@ -1449,6 +1455,9 @@ int vlapic_init(struct vcpu *v)
 void vlapic_destroy(struct vcpu *v)
 {
     struct vlapic *vlapic = vcpu_vlapic(v);
+
+    if ( v->domain->arch.hvm_domain.no_emu )
+        return;
 
     tasklet_kill(&vlapic->init_sipi.tasklet);
     TRACE_0D(TRC_HVM_EMUL_LAPIC_STOP_TIMER);

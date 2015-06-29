@@ -32,7 +32,7 @@
 #include <xen/event.h>
 #include <xen/iommu.h>
 
-static const struct hvm_mmio_ops *const
+static struct hvm_mmio_ops *const
 hvm_mmio_handlers[HVM_MMIO_HANDLER_NR] =
 {
     &hpet_mmio_ops,
@@ -166,10 +166,12 @@ static int hvm_mmio_access(struct vcpu *v,
 bool_t hvm_mmio_internal(paddr_t gpa)
 {
     struct vcpu *curr = current;
+    struct hvm_mmio_ops *const *mmio_handlers =
+        curr->domain->arch.hvm_domain.mmio_handlers;
     unsigned int i;
 
-    for ( i = 0; i < HVM_MMIO_HANDLER_NR; ++i )
-        if ( hvm_mmio_handlers[i]->check(curr, gpa) )
+    for ( i = 0; i < curr->domain->arch.hvm_domain.nr_mmio_handlers; ++i )
+        if ( mmio_handlers[i]->check(curr, gpa) )
             return 1;
 
     return 0;
@@ -178,11 +180,13 @@ bool_t hvm_mmio_internal(paddr_t gpa)
 int hvm_mmio_intercept(ioreq_t *p)
 {
     struct vcpu *v = current;
+    struct hvm_mmio_ops *const *mmio_handlers =
+        v->domain->arch.hvm_domain.mmio_handlers;
     int i;
 
-    for ( i = 0; i < HVM_MMIO_HANDLER_NR; i++ )
+    for ( i = 0; i < v->domain->arch.hvm_domain.nr_mmio_handlers; i++ )
     {
-        hvm_mmio_check_t check = hvm_mmio_handlers[i]->check;
+        hvm_mmio_check_t check = mmio_handlers[i]->check;
 
         if ( check(v, p->addr) )
         {
@@ -194,8 +198,8 @@ int hvm_mmio_intercept(ioreq_t *p)
 
             return hvm_mmio_access(
                 v, p,
-                hvm_mmio_handlers[i]->read,
-                hvm_mmio_handlers[i]->write);
+                mmio_handlers[i]->read,
+                mmio_handlers[i]->write);
         }
     }
 
@@ -396,6 +400,19 @@ void relocate_io_handler(
              (handler->hdl_list[i].size == size) &&
              (handler->hdl_list[i].type == type) )
             handler->hdl_list[i].addr = new_addr;
+}
+
+void setup_mmio_handlers(struct domain *d)
+{
+    if ( d->arch.hvm_domain.no_emu )
+    {
+        d->arch.hvm_domain.nr_mmio_handlers = 0;
+    }
+    else
+    {
+        d->arch.hvm_domain.mmio_handlers = hvm_mmio_handlers;
+        d->arch.hvm_domain.nr_mmio_handlers = HVM_MMIO_HANDLER_NR;
+    }
 }
 
 /*

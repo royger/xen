@@ -992,6 +992,20 @@ static int construct_vmcs(struct vcpu *v)
         ASSERT(!(v->arch.hvm_vmx.exec_control & CPU_BASED_RDTSC_EXITING));
     }
 
+    if ( d->arch.hvm_domain.no_emu )
+    {
+        /* Disable virtual apics, TPR */
+        v->arch.hvm_vmx.secondary_exec_control &=
+            ~(SECONDARY_EXEC_VIRTUALIZE_APIC_ACCESSES
+              | SECONDARY_EXEC_APIC_REGISTER_VIRT
+              | SECONDARY_EXEC_VIRTUAL_INTR_DELIVERY);
+        v->arch.hvm_vmx.exec_control &= ~CPU_BASED_TPR_SHADOW;
+
+        /* In turn, disable posted interrupts. */
+        __vmwrite(PIN_BASED_VM_EXEC_CONTROL,
+                  vmx_pin_based_exec_control & ~PIN_BASED_POSTED_INTERRUPT);
+    }
+
     vmx_update_cpu_exec_control(v);
 
     __vmwrite(VM_EXIT_CONTROLS, vmexit_ctl);

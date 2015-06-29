@@ -919,7 +919,7 @@ static int guest_iommu_mmio_range(struct vcpu *v, unsigned long addr)
            addr < iommu->mmio_base + IOMMU_MMIO_SIZE;
 }
 
-const struct hvm_mmio_ops iommu_mmio_ops = {
+struct hvm_mmio_ops iommu_mmio_ops = {
     .check = guest_iommu_mmio_range,
     .read = guest_iommu_mmio_read,
     .write = guest_iommu_mmio_write

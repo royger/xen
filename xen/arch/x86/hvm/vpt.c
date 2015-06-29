@@ -375,6 +375,9 @@ void pt_migrate(struct vcpu *v)
     struct list_head *head = &v->arch.hvm_vcpu.tm_list;
     struct periodic_time *pt;
 
+    if ( v->domain->arch.hvm_domain.no_emu )
+        return;
+
     spin_lock(&v->arch.hvm_vcpu.tm_lock);
 
     list_for_each_entry ( pt, head, list )

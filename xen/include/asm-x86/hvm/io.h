@@ -65,11 +65,11 @@ struct hvm_mmio_ops {
     hvm_mmio_write_t write;
 };
 
-extern const struct hvm_mmio_ops hpet_mmio_ops;
-extern const struct hvm_mmio_ops vlapic_mmio_ops;
-extern const struct hvm_mmio_ops vioapic_mmio_ops;
-extern const struct hvm_mmio_ops msixtbl_mmio_ops;
-extern const struct hvm_mmio_ops iommu_mmio_ops;
+extern struct hvm_mmio_ops hpet_mmio_ops;
+extern struct hvm_mmio_ops vlapic_mmio_ops;
+extern struct hvm_mmio_ops vioapic_mmio_ops;
+extern struct hvm_mmio_ops msixtbl_mmio_ops;
+extern struct hvm_mmio_ops iommu_mmio_ops;
 
 #define HVM_MMIO_HANDLER_NR 5
 
@@ -80,6 +80,8 @@ void register_io_handler(
 void relocate_io_handler(
     struct domain *d, unsigned long old_addr, unsigned long new_addr,
     unsigned long size, int type);
+
+void setup_mmio_handlers(struct domain *d);
 
 static inline int hvm_portio_intercept(ioreq_t *p)
 {

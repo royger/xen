@@ -425,6 +425,9 @@ void vpic_reset(struct domain *d)
 
 void vpic_init(struct domain *d)
 {
+    if ( d->arch.hvm_domain.no_emu )
+        return;
+
     vpic_reset(d);
 
     register_portio_handler(d, 0x20, 2, vpic_intercept_pic_io);

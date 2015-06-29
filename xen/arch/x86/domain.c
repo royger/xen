@@ -626,7 +626,7 @@ int arch_domain_create(struct domain *d, unsigned int domcr_flags,
 
     if ( has_hvm_container_domain(d) )
     {
-        if ( (rc = hvm_domain_initialise(d)) != 0 )
+        if ( (rc = hvm_domain_initialise(d, domcr_flags)) != 0 )
         {
             iommu_domain_destroy(d);
             goto fail;

@@ -344,7 +344,7 @@ static int msixtbl_range(struct vcpu *v, unsigned long addr)
     return !!desc;
 }
 
-const struct hvm_mmio_ops msixtbl_mmio_ops = {
+struct hvm_mmio_ops msixtbl_mmio_ops = {
     .check = msixtbl_range,
     .read = msixtbl_read,
     .write = msixtbl_write

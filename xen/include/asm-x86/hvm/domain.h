@@ -135,6 +135,7 @@ struct hvm_domain {
     bool_t                 mem_sharing_enabled;
     bool_t                 qemu_mapcache_invalidate;
     bool_t                 is_s3_suspended;
+    bool_t                 no_emu;
 
     /*
      * TSC value that VCPUs use to calculate their tsc_offset value.
@@ -143,6 +144,9 @@ struct hvm_domain {
     uint64_t sync_tsc;
 
     unsigned long *io_bitmap;
+
+    struct hvm_mmio_ops *const *mmio_handlers;
+    int nr_mmio_handlers;
 
     union {
         struct vmx_domain vmx;
