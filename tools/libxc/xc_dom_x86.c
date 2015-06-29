@@ -57,7 +57,8 @@
 #define SPECIALPAGE_IOREQ    5
 #define SPECIALPAGE_IDENT_PT 6
 #define SPECIALPAGE_CONSOLE  7
-#define NR_SPECIAL_PAGES     8
+#define SPECIALPAGE_CMDLINE  8
+#define NR_SPECIAL_PAGES     9
 #define LAST_SPECIAL_PFN     0xff000u
 
 #define NR_IOREQ_SERVER_PAGES 8
@@ -531,6 +532,7 @@ static int alloc_magic_pages_hvm(struct xc_dom_image *dom)
     xen_pfn_t special_array[NR_SPECIAL_PAGES];
     xen_pfn_t ioreq_server_array[NR_IOREQ_SERVER_PAGES];
     xc_interface *xch = dom->xch;
+    char *cmdline;
 
     if ( dom->emulation )
     {
@@ -571,6 +573,23 @@ static int alloc_magic_pages_hvm(struct xc_dom_image *dom)
                      special_pfn(SPECIALPAGE_ACCESS, dom));
     xc_hvm_param_set(xch, domid, HVM_PARAM_SHARING_RING_PFN,
                      special_pfn(SPECIALPAGE_SHARING, dom));
+
+    if ( dom->cmdline )
+    {
+        cmdline = xc_map_foreign_range(
+                  xch, domid, PAGE_SIZE, PROT_READ | PROT_WRITE,
+                  special_pfn(SPECIALPAGE_CMDLINE, dom));
+        if ( cmdline == NULL ) {
+            DOMPRINTF("Unable to map command line page");
+            goto error_out;
+        }
+
+        strncpy(cmdline, dom->cmdline, MAX_GUEST_CMDLINE);
+        cmdline[MAX_GUEST_CMDLINE - 1] = '\0';
+        munmap(cmdline, PAGE_SIZE);
+        xc_hvm_param_set(xch, domid, HVM_PARAM_CMDLINE_PFN,
+                     special_pfn(SPECIALPAGE_CMDLINE, dom));
+    }
 
     if ( dom->emulation )
     {

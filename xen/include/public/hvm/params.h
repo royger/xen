@@ -187,6 +187,9 @@
 /* Location of the VM Generation ID in guest physical address space. */
 #define HVM_PARAM_VM_GENERATION_ID_ADDR 34
 
-#define HVM_NR_PARAMS          35
+/* PFN of the command line. */
+#define HVM_PARAM_CMDLINE_PFN 35
+
+#define HVM_NR_PARAMS          36
 
 #endif /* __XEN_PUBLIC_HVM_PARAMS_H__ */
