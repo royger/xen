@@ -58,14 +58,26 @@
 #define SPECIALPAGE_IDENT_PT 6
 #define SPECIALPAGE_CONSOLE  7
 #define NR_SPECIAL_PAGES     8
-#define special_pfn(x) (0xff000u - NR_SPECIAL_PAGES + (x))
+#define LAST_SPECIAL_PFN     0xff000u
 
 #define NR_IOREQ_SERVER_PAGES 8
-#define ioreq_server_pfn(x) (special_pfn(0) - NR_IOREQ_SERVER_PAGES + (x))
+#define ioreq_server_pfn(x, dom) (special_pfn(0, dom) - NR_IOREQ_SERVER_PAGES + (x))
 
 #define bits_to_mask(bits)       (((xen_vaddr_t)1 << (bits))-1)
 #define round_down(addr, mask)   ((addr) & ~(mask))
 #define round_up(addr, mask)     ((addr) | (mask))
+
+static unsigned long special_pfn(int index, struct xc_dom_image *dom)
+{
+    unsigned long start_pfn;
+
+    if ( dom->emulation )
+        return (LAST_SPECIAL_PFN - NR_SPECIAL_PAGES + index);
+
+    start_pfn = (dom->virt_alloc_end - dom->parms.virt_base) >>
+                XC_DOM_PAGE_SHIFT(dom);
+    return (start_pfn + index);
+}
 
 /* get guest IO ABI protocol */
 const char *xc_domain_get_native_protocol(xc_interface *xch,
@@ -502,7 +514,7 @@ static void build_hvm_info(void *hvm_info_page, struct xc_dom_image *dom)
     /* Memory parameters. */
     hvm_info->low_mem_pgend = dom->lowmem_end >> PAGE_SHIFT;
     hvm_info->high_mem_pgend = dom->highmem_end >> PAGE_SHIFT;
-    hvm_info->reserved_mem_pgstart = ioreq_server_pfn(0);
+    hvm_info->reserved_mem_pgstart = ioreq_server_pfn(0, dom);
 
     /* Finish with the checksum. */
     for ( i = 0, sum = 0; i < hvm_info->length; i++ )
@@ -532,7 +544,7 @@ static int alloc_magic_pages_hvm(struct xc_dom_image *dom)
 
     /* Allocate and clear special pages. */
     for ( i = 0; i < NR_SPECIAL_PAGES; i++ )
-        special_array[i] = special_pfn(i);
+        special_array[i] = special_pfn(i, dom);
 
     rc = xc_domain_populate_physmap_exact(xch, domid, NR_SPECIAL_PAGES, 0, 0,
                                           special_array);
@@ -542,23 +554,23 @@ static int alloc_magic_pages_hvm(struct xc_dom_image *dom)
         goto error_out;
     }
 
-    if ( xc_clear_domain_pages(xch, domid, special_pfn(0), NR_SPECIAL_PAGES) )
+    if ( xc_clear_domain_pages(xch, domid, special_pfn(0, dom), NR_SPECIAL_PAGES) )
             goto error_out;
 
     xc_hvm_param_set(xch, domid, HVM_PARAM_STORE_PFN,
-                     special_pfn(SPECIALPAGE_XENSTORE));
+                     special_pfn(SPECIALPAGE_XENSTORE, dom));
     xc_hvm_param_set(xch, domid, HVM_PARAM_BUFIOREQ_PFN,
-                     special_pfn(SPECIALPAGE_BUFIOREQ));
+                     special_pfn(SPECIALPAGE_BUFIOREQ, dom));
     xc_hvm_param_set(xch, domid, HVM_PARAM_IOREQ_PFN,
-                     special_pfn(SPECIALPAGE_IOREQ));
+                     special_pfn(SPECIALPAGE_IOREQ, dom));
     xc_hvm_param_set(xch, domid, HVM_PARAM_CONSOLE_PFN,
-                     special_pfn(SPECIALPAGE_CONSOLE));
+                     special_pfn(SPECIALPAGE_CONSOLE, dom));
     xc_hvm_param_set(xch, domid, HVM_PARAM_PAGING_RING_PFN,
-                     special_pfn(SPECIALPAGE_PAGING));
+                     special_pfn(SPECIALPAGE_PAGING, dom));
     xc_hvm_param_set(xch, domid, HVM_PARAM_MONITOR_RING_PFN,
-                     special_pfn(SPECIALPAGE_ACCESS));
+                     special_pfn(SPECIALPAGE_ACCESS, dom));
     xc_hvm_param_set(xch, domid, HVM_PARAM_SHARING_RING_PFN,
-                     special_pfn(SPECIALPAGE_SHARING));
+                     special_pfn(SPECIALPAGE_SHARING, dom));
 
     if ( dom->emulation )
     {
@@ -567,7 +579,7 @@ static int alloc_magic_pages_hvm(struct xc_dom_image *dom)
          * server will use the IOREQ and BUFIOREQ special pages above.
          */
         for ( i = 0; i < NR_IOREQ_SERVER_PAGES; i++ )
-            ioreq_server_array[i] = ioreq_server_pfn(i);
+            ioreq_server_array[i] = ioreq_server_pfn(i, dom);
 
         rc = xc_domain_populate_physmap_exact(xch, domid, NR_IOREQ_SERVER_PAGES, 0,
                                               0, ioreq_server_array);
@@ -577,13 +589,13 @@ static int alloc_magic_pages_hvm(struct xc_dom_image *dom)
             goto error_out;
         }
 
-        if ( xc_clear_domain_pages(xch, domid, ioreq_server_pfn(0),
+        if ( xc_clear_domain_pages(xch, domid, ioreq_server_pfn(0, dom),
                                    NR_IOREQ_SERVER_PAGES) )
                 goto error_out;
 
         /* Tell the domain where the pages are and how many there are */
         xc_hvm_param_set(xch, domid, HVM_PARAM_IOREQ_SERVER_PFN,
-                         ioreq_server_pfn(0));
+                         ioreq_server_pfn(0, dom));
         xc_hvm_param_set(xch, domid, HVM_PARAM_NR_IOREQ_SERVER_PAGES,
                          NR_IOREQ_SERVER_PAGES);
     }
@@ -594,17 +606,17 @@ static int alloc_magic_pages_hvm(struct xc_dom_image *dom)
      */
     if ( (ident_pt = xc_map_foreign_range(
               xch, domid, PAGE_SIZE, PROT_READ | PROT_WRITE,
-              special_pfn(SPECIALPAGE_IDENT_PT))) == NULL )
+              special_pfn(SPECIALPAGE_IDENT_PT, dom))) == NULL )
         goto error_out;
     for ( i = 0; i < PAGE_SIZE / sizeof(*ident_pt); i++ )
         ident_pt[i] = ((i << 22) | _PAGE_PRESENT | _PAGE_RW | _PAGE_USER |
                        _PAGE_ACCESSED | _PAGE_DIRTY | _PAGE_PSE);
     munmap(ident_pt, PAGE_SIZE);
     xc_hvm_param_set(xch, domid, HVM_PARAM_IDENT_PT,
-                     special_pfn(SPECIALPAGE_IDENT_PT) << PAGE_SHIFT);
+                     special_pfn(SPECIALPAGE_IDENT_PT, dom) << PAGE_SHIFT);
 
-    dom->console_pfn = special_pfn(SPECIALPAGE_CONSOLE);
-    dom->xenstore_pfn = special_pfn(SPECIALPAGE_XENSTORE);
+    dom->console_pfn = special_pfn(SPECIALPAGE_CONSOLE, dom);
+    dom->xenstore_pfn = special_pfn(SPECIALPAGE_XENSTORE, dom);
     dom->parms.virt_hypercall = -1;
 
     rc = 0;
