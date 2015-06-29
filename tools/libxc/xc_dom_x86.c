@@ -573,6 +573,8 @@ static int alloc_magic_pages_hvm(struct xc_dom_image *dom)
                      special_pfn(SPECIALPAGE_ACCESS, dom));
     xc_hvm_param_set(xch, domid, HVM_PARAM_SHARING_RING_PFN,
                      special_pfn(SPECIALPAGE_SHARING, dom));
+    xc_hvm_param_set(xch, domid, HVM_PARAM_FIRST_FREE_PFN,
+                     special_pfn(NR_SPECIAL_PAGES, dom));
 
     if ( dom->cmdline )
     {
