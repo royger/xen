@@ -190,6 +190,9 @@
 /* PFN of the command line. */
 #define HVM_PARAM_CMDLINE_PFN 35
 
-#define HVM_NR_PARAMS          36
+/* First free PFN after the special pages. */
+#define HVM_PARAM_FIRST_FREE_PFN 36
+
+#define HVM_NR_PARAMS          37
 
 #endif /* __XEN_PUBLIC_HVM_PARAMS_H__ */

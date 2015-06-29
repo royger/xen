@@ -5901,6 +5901,7 @@ static int hvm_allow_get_param(struct domain *d,
     case HVM_PARAM_CONSOLE_PFN:
     case HVM_PARAM_CONSOLE_EVTCHN:
     case HVM_PARAM_CMDLINE_PFN:
+    case HVM_PARAM_FIRST_FREE_PFN:
         break;
     /*
      * The following parameters must not be read by the guest
