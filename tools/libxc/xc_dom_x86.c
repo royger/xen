@@ -58,7 +58,8 @@
 #define SPECIALPAGE_IDENT_PT 6
 #define SPECIALPAGE_CONSOLE  7
 #define SPECIALPAGE_CMDLINE  8
-#define NR_SPECIAL_PAGES     9
+#define SPECIALPAGE_MODLIST  9
+#define NR_SPECIAL_PAGES     10
 #define LAST_SPECIAL_PFN     0xff000u
 
 #define NR_IOREQ_SERVER_PAGES 8
@@ -533,6 +534,7 @@ static int alloc_magic_pages_hvm(struct xc_dom_image *dom)
     xen_pfn_t ioreq_server_array[NR_IOREQ_SERVER_PAGES];
     xc_interface *xch = dom->xch;
     char *cmdline;
+    uint64_t *modlist;
 
     if ( dom->emulation )
     {
@@ -619,6 +621,26 @@ static int alloc_magic_pages_hvm(struct xc_dom_image *dom)
                          ioreq_server_pfn(0, dom));
         xc_hvm_param_set(xch, domid, HVM_PARAM_NR_IOREQ_SERVER_PAGES,
                          NR_IOREQ_SERVER_PAGES);
+    }
+
+    if ( dom->ramdisk_blob )
+    {
+        modlist = xc_map_foreign_range(
+                  xch, domid, PAGE_SIZE, PROT_READ | PROT_WRITE,
+                  special_pfn(SPECIALPAGE_MODLIST, dom));
+        if ( modlist == NULL ) {
+            DOMPRINTF("Unable to map module list page");
+            goto error_out;
+        }
+
+        /* This is currently limited to only one module. */
+        modlist[0] = dom->ramdisk_seg.vstart - dom->parms.virt_base;
+        modlist[1] = dom->ramdisk_seg.vend - dom->ramdisk_seg.vstart;
+        modlist[2] = 0;
+        modlist[3] = 0;
+        munmap(modlist, PAGE_SIZE);
+        xc_hvm_param_set(xch, domid, HVM_PARAM_MODLIST_PFN,
+                     special_pfn(SPECIALPAGE_MODLIST, dom));
     }
 
     /*
