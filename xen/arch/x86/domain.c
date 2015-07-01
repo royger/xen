@@ -795,6 +795,15 @@ int arch_set_info_guest(
               c.nat->fs_base || c.nat->gs_base_user)) )
             return -EINVAL;
     }
+    else if ( is_hvm_domain(d) )
+    {
+        if ( c(ctrlreg[0]) || c(ctrlreg[1]) || c(ctrlreg[2]) ||
+             c(ctrlreg[3]) || c(ctrlreg[4]) || c(ctrlreg[5]) ||
+             c(ctrlreg[6]) || c(ctrlreg[7]) || c(ldt_base) ||
+             c(ldt_ents) || c(kernel_ss) || c(kernel_sp) ||
+             c(gdt_ents) )
+            return -EINVAL;
+    }
 
     v->fpu_initialised = !!(flags & VGCF_I387_VALID);
 
@@ -1064,15 +1073,14 @@ int arch_set_info_guest(
     if ( v->vcpu_id == 0 )
         update_domain_wallclock_time(d);
 
-    /* Don't redo final setup */
-    v->is_initialised = 1;
-
     if ( paging_mode_enabled(d) )
         paging_update_paging_modes(v);
 
     update_cr3(v);
 
  out:
+    /* Don't redo final setup */
+    v->is_initialised = 1;
     if ( flags & VGCF_online )
         clear_bit(_VPF_down, &v->pause_flags);
     else
