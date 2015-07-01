@@ -224,6 +224,9 @@ struct xc_dom_arch {
     int (*shared_info) (struct xc_dom_image * dom, void *shared_info);
     int (*vcpu) (struct xc_dom_image * dom, void *vcpu_ctxt);
 
+    /* arch-specific memory initialization. */
+    int (*meminit) (struct xc_dom_image * dom);
+
     char *guest_type;
     char *native_protocol;
     int page_shift;
@@ -401,7 +404,6 @@ static inline xen_pfn_t xc_dom_p2m(struct xc_dom_image *dom, xen_pfn_t pfn)
 
 /* --- arch bits --------------------------------------------------- */
 
-int arch_setup_meminit(struct xc_dom_image *dom);
 int arch_setup_bootearly(struct xc_dom_image *dom);
 int arch_setup_bootlate(struct xc_dom_image *dom);
 
