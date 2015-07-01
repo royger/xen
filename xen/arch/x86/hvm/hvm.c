@@ -4808,6 +4808,10 @@ static long hvm_vcpu_op(
     case VCPUOP_stop_singleshot_timer:
     case VCPUOP_register_vcpu_info:
     case VCPUOP_register_vcpu_time_memory_area:
+    case VCPUOP_initialise:
+    case VCPUOP_up:
+    case VCPUOP_down:
+    case VCPUOP_is_up:
         rc = do_vcpu_op(cmd, vcpuid, arg);
         break;
     default:
@@ -4866,6 +4870,10 @@ static long hvm_vcpu_op_compat32(
     case VCPUOP_stop_singleshot_timer:
     case VCPUOP_register_vcpu_info:
     case VCPUOP_register_vcpu_time_memory_area:
+    case VCPUOP_initialise:
+    case VCPUOP_up:
+    case VCPUOP_down:
+    case VCPUOP_is_up:
         rc = compat_vcpu_op(cmd, vcpuid, arg);
         break;
     default:
