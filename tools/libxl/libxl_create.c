@@ -955,6 +955,11 @@ static void initiate_domain_create(libxl__egc *egc,
         ret = libxl__device_nic_setdefault(gc, &d_config->nics[i], domid);
         if (ret) goto error_out;
 
+        /* HVM guests without a device model only have PV nics. */
+        if (d_config->b_info.device_model_version ==
+            LIBXL_DEVICE_MODEL_VERSION_NONE)
+            d_config->nics[i].nictype = LIBXL_NIC_TYPE_VIF;
+
         if (d_config->nics[i].devid > last_devid)
             last_devid = d_config->nics[i].devid;
     }
