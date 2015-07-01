@@ -926,41 +926,7 @@ static int meminit_pv(struct xc_dom_image *dom)
 
 /* ------------------------------------------------------------------------ */
 
-static struct xc_dom_arch xc_dom_32_pae = {
-    .guest_type = "xen-3.0-x86_32p",
-    .native_protocol = XEN_IO_PROTO_ABI_X86_32,
-    .page_shift = PAGE_SHIFT_X86,
-    .sizeof_pfn = 4,
-    .alloc_magic_pages = alloc_magic_pages,
-    .count_pgtables = count_pgtables_x86_32_pae,
-    .setup_pgtables = setup_pgtables_x86_32_pae,
-    .start_info = start_info_x86_32,
-    .shared_info = shared_info_x86_32,
-    .vcpu = vcpu_x86_32,
-    .meminit = meminit_pv,
-};
-
-static struct xc_dom_arch xc_dom_64 = {
-    .guest_type = "xen-3.0-x86_64",
-    .native_protocol = XEN_IO_PROTO_ABI_X86_64,
-    .page_shift = PAGE_SHIFT_X86,
-    .sizeof_pfn = 8,
-    .alloc_magic_pages = alloc_magic_pages,
-    .count_pgtables = count_pgtables_x86_64,
-    .setup_pgtables = setup_pgtables_x86_64,
-    .start_info = start_info_x86_64,
-    .shared_info = shared_info_x86_64,
-    .vcpu = vcpu_x86_64,
-    .meminit = meminit_pv,
-};
-
-static void __init register_arch_hooks(void)
-{
-    xc_dom_register_arch_hooks(&xc_dom_32_pae);
-    xc_dom_register_arch_hooks(&xc_dom_64);
-}
-
-int arch_setup_bootearly(struct xc_dom_image *dom)
+static int bootearly(struct xc_dom_image *dom)
 {
     DOMPRINTF("%s: doing nothing", __FUNCTION__);
     return 0;
@@ -999,7 +965,7 @@ static int map_grant_table_frames(struct xc_dom_image *dom)
     return 0;
 }
 
-int arch_setup_bootlate(struct xc_dom_image *dom)
+static int bootlate_pv(struct xc_dom_image *dom)
 {
     static const struct {
         char *guest;
@@ -1070,6 +1036,46 @@ int arch_setup_bootlate(struct xc_dom_image *dom)
     munmap(shared_info, PAGE_SIZE_X86);
 
     return 0;
+}
+
+/* ------------------------------------------------------------------------ */
+
+static struct xc_dom_arch xc_dom_32_pae = {
+    .guest_type = "xen-3.0-x86_32p",
+    .native_protocol = XEN_IO_PROTO_ABI_X86_32,
+    .page_shift = PAGE_SHIFT_X86,
+    .sizeof_pfn = 4,
+    .alloc_magic_pages = alloc_magic_pages,
+    .count_pgtables = count_pgtables_x86_32_pae,
+    .setup_pgtables = setup_pgtables_x86_32_pae,
+    .start_info = start_info_x86_32,
+    .shared_info = shared_info_x86_32,
+    .vcpu = vcpu_x86_32,
+    .meminit = meminit_pv,
+    .bootearly = bootearly,
+    .bootlate = bootlate_pv,
+};
+
+static struct xc_dom_arch xc_dom_64 = {
+    .guest_type = "xen-3.0-x86_64",
+    .native_protocol = XEN_IO_PROTO_ABI_X86_64,
+    .page_shift = PAGE_SHIFT_X86,
+    .sizeof_pfn = 8,
+    .alloc_magic_pages = alloc_magic_pages,
+    .count_pgtables = count_pgtables_x86_64,
+    .setup_pgtables = setup_pgtables_x86_64,
+    .start_info = start_info_x86_64,
+    .shared_info = shared_info_x86_64,
+    .vcpu = vcpu_x86_64,
+    .meminit = meminit_pv,
+    .bootearly = bootearly,
+    .bootlate = bootlate_pv,
+};
+
+static void __init register_arch_hooks(void)
+{
+    xc_dom_register_arch_hooks(&xc_dom_32_pae);
+    xc_dom_register_arch_hooks(&xc_dom_64);
 }
 
 int xc_dom_feature_translated(struct xc_dom_image *dom)
