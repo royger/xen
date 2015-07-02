@@ -233,7 +233,7 @@ void vpmu_initialise(struct vcpu *v)
     uint8_t vendor = current_cpu_data.x86_vendor;
     int ret;
 
-    if ( is_pvh_vcpu(v) )
+    if ( is_pvh_vcpu(v) || !has_vpmu(v->domain) )
         return;
 
     ASSERT(!vpmu->flags && !vpmu->context);
