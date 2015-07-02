@@ -248,6 +248,9 @@ static int pmtimer_save(struct domain *d, hvm_domain_context_t *h)
     uint32_t x, msb = s->pm.tmr_val & TMR_VAL_MSB;
     int rc;
 
+    if ( !has_vpmtimer(d) )
+        return 0;
+
     spin_lock(&s->lock);
 
     /* Update the counter to the guest's current time.  We always save
@@ -271,6 +274,9 @@ static int pmtimer_save(struct domain *d, hvm_domain_context_t *h)
 static int pmtimer_load(struct domain *d, hvm_domain_context_t *h)
 {
     PMTState *s = &d->arch.hvm_domain.pl_time.vpmt;
+
+    if ( !has_vpmtimer(d) )
+        return 0;
 
     spin_lock(&s->lock);
 
@@ -329,6 +335,9 @@ void pmtimer_init(struct vcpu *v)
 {
     PMTState *s = &v->domain->arch.hvm_domain.pl_time.vpmt;
 
+    if ( !has_vpmtimer(v->domain) )
+        return;
+
     spin_lock_init(&s->lock);
 
     s->scale = ((uint64_t)FREQUENCE_PMTIMER << 32) / SYSTEM_TIME_HZ;
@@ -349,6 +358,10 @@ void pmtimer_init(struct vcpu *v)
 void pmtimer_deinit(struct domain *d)
 {
     PMTState *s = &d->arch.hvm_domain.pl_time.vpmt;
+
+    if ( !has_vpmtimer(d) )
+        return;
+
     kill_timer(&s->timer);
 }
 
