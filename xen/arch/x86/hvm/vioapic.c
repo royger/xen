@@ -425,12 +425,20 @@ void vioapic_update_EOI(struct domain *d, u8 vector)
 static int ioapic_save(struct domain *d, hvm_domain_context_t *h)
 {
     struct hvm_hw_vioapic *s = domain_vioapic(d);
+
+    if ( !has_vioapic(d) )
+        return 0;
+
     return hvm_save_entry(IOAPIC, 0, h, s);
 }
 
 static int ioapic_load(struct domain *d, hvm_domain_context_t *h)
 {
     struct hvm_hw_vioapic *s = domain_vioapic(d);
+
+    if ( !has_vioapic(d) )
+        return 0;
+
     return hvm_load_entry(IOAPIC, h, s);
 }
 
@@ -449,6 +457,9 @@ void vioapic_reset(struct domain *d)
 
 int vioapic_init(struct domain *d)
 {
+    if ( !has_vioapic(d) )
+        return 0;
+
     if ( (d->arch.hvm_domain.vioapic == NULL) &&
          ((d->arch.hvm_domain.vioapic = xmalloc(struct hvm_vioapic)) == NULL) )
         return -ENOMEM;
@@ -463,6 +474,9 @@ int vioapic_init(struct domain *d)
 
 void vioapic_deinit(struct domain *d)
 {
+    if ( !has_vioapic(d) )
+        return;
+
     xfree(d->arch.hvm_domain.vioapic);
     d->arch.hvm_domain.vioapic = NULL;
 }
