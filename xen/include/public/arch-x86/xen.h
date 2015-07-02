@@ -268,7 +268,25 @@ typedef struct arch_shared_info arch_shared_info_t;
  * XEN_DOMCTL_INTERFACE_VERSION.
  */
 struct xen_arch_domainconfig {
-    char dummy;
+#define _EMU_LAPIC                  0
+#define EMU_LAPIC                   (1U<<_EMU_LAPIC)
+#define _EMU_HPET                   1
+#define EMU_HPET                    (1U<<_EMU_HPET)
+#define _EMU_PMTIMER                2
+#define EMU_PMTIMER                 (1U<<_EMU_PMTIMER)
+#define _EMU_RTC                    3
+#define EMU_RTC                     (1U<<_EMU_RTC)
+#define _EMU_IOAPIC                 4
+#define EMU_IOAPIC                  (1U<<_EMU_IOAPIC)
+#define _EMU_PIC                    5
+#define EMU_PIC                     (1U<<_EMU_PIC)
+#define _EMU_PMU                    6
+#define EMU_PMU                     (1U<<_EMU_PMU)
+#define _EMU_VGA                    7
+#define EMU_VGA                     (1U<<_EMU_VGA)
+#define _EMU_IOMMU                  8
+#define EMU_IOMMU                   (1U<<_EMU_IOMMU)
+    uint32_t emulation_flags;
 };
 #endif
 
