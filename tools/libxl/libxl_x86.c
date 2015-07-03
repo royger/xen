@@ -5,7 +5,9 @@ int libxl__arch_domain_prepare_config(libxl__gc *gc,
                                       libxl_domain_config *d_config,
                                       xc_domain_configuration_t *xc_config)
 {
-    if (d_config->c_info.type == LIBXL_DOMAIN_TYPE_HVM)
+    if (d_config->c_info.type == LIBXL_DOMAIN_TYPE_HVM &&
+        d_config->b_info.device_model_version !=
+        LIBXL_DEVICE_MODEL_VERSION_NONE)
         xc_config->emulation_flags = (EMU_LAPIC | EMU_HPET | EMU_PMTIMER |
                                       EMU_RTC | EMU_IOAPIC | EMU_PIC |
                                       EMU_PMU | EMU_VGA | EMU_IOMMU);
