@@ -37,6 +37,7 @@
 #include <xen/wait.h>
 #include <xen/guest_access.h>
 #include <public/sysctl.h>
+#include <public/hvm/hvm_vcpu.h>
 #include <asm/regs.h>
 #include <asm/mc146818rtc.h>
 #include <asm/system.h>
@@ -1133,6 +1134,161 @@ int arch_set_info_guest(
         set_bit(_VPF_down, &v->pause_flags);
     return 0;
 #undef c
+}
+
+/* Called by VCPUOP_initialise for HVM guests. */
+static int arch_set_info_hvm_guest(struct vcpu *v, vcpu_hvm_context_t *ctx)
+{
+    struct segment_register seg;
+
+#define get_context_seg(ctx, seg, f)                                        \
+    (ctx)->mode == VCPU_HVM_MODE_16B ? (ctx)->cpu_regs.x86_16.seg##_##f :   \
+    (ctx)->mode == VCPU_HVM_MODE_32B ? (ctx)->cpu_regs.x86_32.seg##_##f :   \
+    (ctx)->cpu_regs.x86_64.seg##_##f
+
+#define get_context_gpr(ctx, gpr)                                           \
+    (ctx)->mode == VCPU_HVM_MODE_16B ? (ctx)->cpu_regs.x86_16.gpr :         \
+    (ctx)->mode == VCPU_HVM_MODE_32B ? (ctx)->cpu_regs.x86_32.e##gpr :      \
+    (ctx)->cpu_regs.x86_64.r##gpr
+
+#define get_context_field(ctx, field)                                       \
+    (ctx)->mode == VCPU_HVM_MODE_16B ? (ctx)->cpu_regs.x86_16.field :       \
+    (ctx)->mode == VCPU_HVM_MODE_32B ? (ctx)->cpu_regs.x86_32.field :       \
+    (ctx)->cpu_regs.x86_64.field
+
+    memset(&seg, 0, sizeof(seg));
+
+    if ( !paging_mode_hap(v->domain) )
+        v->arch.guest_table = pagetable_null();
+
+    v->arch.user_regs.rax = get_context_gpr(ctx, ax);
+    v->arch.user_regs.rcx = get_context_gpr(ctx, cx);
+    v->arch.user_regs.rdx = get_context_gpr(ctx, dx);
+    v->arch.user_regs.rbx = get_context_gpr(ctx, bx);
+    v->arch.user_regs.rsp = get_context_gpr(ctx, sp);
+    v->arch.user_regs.rbp = get_context_gpr(ctx, bp);
+    v->arch.user_regs.rsi = get_context_gpr(ctx, si);
+    v->arch.user_regs.rdi = get_context_gpr(ctx, di);
+    v->arch.user_regs.rip = get_context_gpr(ctx, ip);
+    v->arch.user_regs.rflags = get_context_gpr(ctx, flags);
+
+    v->arch.hvm_vcpu.guest_cr[0] = get_context_field(ctx, cr0) | X86_CR0_ET;
+    hvm_update_guest_cr(v, 0);
+    v->arch.hvm_vcpu.guest_cr[4] = get_context_field(ctx, cr4);
+    hvm_update_guest_cr(v, 4);
+
+    switch ( ctx->mode )
+    {
+    case VCPU_HVM_MODE_32B:
+        v->arch.hvm_vcpu.guest_efer = ctx->cpu_regs.x86_32.efer;
+        hvm_update_guest_efer(v);
+        v->arch.hvm_vcpu.guest_cr[3] = ctx->cpu_regs.x86_32.cr3;
+        hvm_update_guest_cr(v, 3);
+        break;
+    case VCPU_HVM_MODE_64B:
+        v->arch.user_regs.r8 = ctx->cpu_regs.x86_64.r8;
+        v->arch.user_regs.r9 = ctx->cpu_regs.x86_64.r9;
+        v->arch.user_regs.r10 = ctx->cpu_regs.x86_64.r10;
+        v->arch.user_regs.r11 = ctx->cpu_regs.x86_64.r11;
+        v->arch.user_regs.r12 = ctx->cpu_regs.x86_64.r12;
+        v->arch.user_regs.r13 = ctx->cpu_regs.x86_64.r13;
+        v->arch.user_regs.r14 = ctx->cpu_regs.x86_64.r14;
+        v->arch.user_regs.r15 = ctx->cpu_regs.x86_64.r15;
+        v->arch.hvm_vcpu.guest_efer = ctx->cpu_regs.x86_64.efer;
+        hvm_update_guest_efer(v);
+        v->arch.hvm_vcpu.guest_cr[3] = ctx->cpu_regs.x86_64.cr3;
+        hvm_update_guest_cr(v, 3);
+        break;
+    default:
+        break;
+    }
+
+    if ( hvm_paging_enabled(v) && !paging_mode_hap(v->domain) )
+    {
+        /* Shadow-mode CR3 change. Check PDBR and update refcounts. */
+        struct page_info *page = get_page_from_gfn(v->domain,
+                                 v->arch.hvm_vcpu.guest_cr[3] >> PAGE_SHIFT,
+                                 NULL, P2M_ALLOC);
+        if ( !page )
+        {
+            gdprintk(XENLOG_ERR, "Invalid CR3\n");
+            domain_crash(v->domain);
+            return -EINVAL;
+        }
+
+        v->arch.guest_table = pagetable_from_page(page);
+    }
+
+    seg.base = get_context_seg(ctx, cs, base);
+    seg.limit = get_context_seg(ctx, cs, limit);
+    seg.attr.bytes = get_context_seg(ctx, cs, ar);
+    hvm_set_segment_register(v, x86_seg_cs, &seg);
+    seg.base = get_context_seg(ctx, ds, base);
+    seg.limit = get_context_seg(ctx, ds, limit);
+    seg.attr.bytes = get_context_seg(ctx, ds, ar);
+    hvm_set_segment_register(v, x86_seg_ds, &seg);
+    seg.base = get_context_seg(ctx, ss, base);
+    seg.limit = get_context_seg(ctx, ss, limit);
+    seg.attr.bytes = get_context_seg(ctx, ss, ar);
+    hvm_set_segment_register(v, x86_seg_ss, &seg);
+    seg.base = get_context_seg(ctx, tr, base);
+    seg.limit = get_context_seg(ctx, tr, limit);
+    seg.attr.bytes = get_context_seg(ctx, tr, ar);
+    hvm_set_segment_register(v, x86_seg_tr, &seg);
+
+    /* Sync AP's TSC with BSP's. */
+    v->arch.hvm_vcpu.cache_tsc_offset =
+        v->domain->vcpu[0]->arch.hvm_vcpu.cache_tsc_offset;
+    hvm_funcs.set_tsc_offset(v, v->arch.hvm_vcpu.cache_tsc_offset,
+                             v->domain->arch.hvm_domain.sync_tsc);
+
+    v->arch.hvm_vcpu.msr_tsc_adjust = 0;
+
+    paging_update_paging_modes(v);
+
+    v->arch.flags |= TF_kernel_mode;
+    v->is_initialised = 1;
+    set_bit(_VPF_down, &v->pause_flags);
+
+    return 0;
+#undef get_context_field
+#undef get_context_gpr
+#undef get_context_seg
+}
+
+int arch_initialize_vcpu(struct vcpu *v, XEN_GUEST_HANDLE_PARAM(void) arg)
+{
+    struct vcpu_guest_context *ctxt;
+    struct vcpu_hvm_context hvm_ctx;
+    struct domain *d = current->domain;
+    int rc;
+
+    if ( is_hvm_vcpu(v) )
+    {
+        if ( copy_from_guest(&hvm_ctx, arg, 1) )
+            return -EFAULT;
+
+        domain_lock(d);
+        rc = v->is_initialised ? -EEXIST : arch_set_info_hvm_guest(v, &hvm_ctx);
+        domain_unlock(d);
+    } else {
+        if ( (ctxt = alloc_vcpu_guest_context()) == NULL )
+            return -ENOMEM;
+
+        if ( copy_from_guest(ctxt, arg, 1) )
+        {
+            free_vcpu_guest_context(ctxt);
+            return -EFAULT;
+        }
+
+        domain_lock(d);
+        rc = v->is_initialised ? -EEXIST : arch_set_info_guest(v, ctxt);
+        domain_unlock(d);
+
+        free_vcpu_guest_context(ctxt);
+    }
+
+    return rc;
 }
 
 int arch_vcpu_reset(struct vcpu *v)
