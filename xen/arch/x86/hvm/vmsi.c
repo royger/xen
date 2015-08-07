@@ -482,6 +482,9 @@ found:
 
 void msixtbl_init(struct domain *d)
 {
+    if ( !has_vlapic(d) )
+        return;
+
     INIT_LIST_HEAD(&d->arch.hvm_domain.msixtbl_list);
     spin_lock_init(&d->arch.hvm_domain.msixtbl_list_lock);
 
@@ -492,6 +495,9 @@ void msixtbl_pt_cleanup(struct domain *d)
 {
     struct msixtbl_entry *entry, *temp;
     unsigned long flags;
+
+    if ( !has_vlapic(d) )
+        return;
 
     /* msixtbl_list_lock must be acquired with irq_disabled for check_lock() */
     local_irq_save(flags); 
