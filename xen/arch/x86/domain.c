@@ -533,6 +533,7 @@ int arch_domain_create(struct domain *d, unsigned int domcr_flags,
 {
     int i, paging_initialised = 0;
     int rc = -ENOMEM;
+    uint32_t emulation_mask;
 
     d->arch.s3_integrity = !!(domcr_flags & DOMCRF_s3_integrity);
 
@@ -553,6 +554,23 @@ int arch_domain_create(struct domain *d, unsigned int domcr_flags,
         printk(XENLOG_G_WARNING
                "Dom%d may compromise security on this CPU.\n",
                d->domain_id);
+    }
+
+    if ( is_hvm_domain(d) )
+    {
+        emulation_mask = (XEN_X86_EMU_LAPIC | XEN_X86_EMU_HPET |
+                          XEN_X86_EMU_PMTIMER | XEN_X86_EMU_RTC |
+                          XEN_X86_EMU_IOAPIC | XEN_X86_EMU_PIC |
+                          XEN_X86_EMU_PMU | XEN_X86_EMU_VGA |
+                          XEN_X86_EMU_IOMMU);
+        if ( (config->emulation_flags & emulation_mask) != emulation_mask )
+        {
+            printk(XENLOG_G_ERR "d%d: Xen does not allow HVM creation with the "
+                   "current selection of emulators: %#x.\n", d->domain_id,
+                   config->emulation_flags);
+            return -EOPNOTSUPP;
+        }
+        d->arch.emulation_flags = config->emulation_flags;
     }
 
     if ( has_hvm_container_domain(d) )

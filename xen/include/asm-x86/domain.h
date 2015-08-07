@@ -387,7 +387,20 @@ struct arch_domain
     bool_t mem_access_emulate_enabled;
 
     struct monitor_write_data *event_write_data;
+
+    /* Emulated devices enabled bitmap. */
+    uint32_t emulation_flags;
 } __cacheline_aligned;
+
+#define has_vlapic(d)       ((d)->arch.emulation_flags & XEN_X86_EMU_LAPIC)
+#define has_vhpet(d)        ((d)->arch.emulation_flags & XEN_X86_EMU_HPET)
+#define has_vpmtimer(d)     ((d)->arch.emulation_flags & XEN_X86_EMU_PMTIMER)
+#define has_vrtc(d)         ((d)->arch.emulation_flags & XEN_X86_EMU_RTC)
+#define has_vioapic(d)      ((d)->arch.emulation_flags & XEN_X86_EMU_IOAPIC)
+#define has_vpic(d)         ((d)->arch.emulation_flags & XEN_X86_EMU_PIC)
+#define has_vpmu(d)         ((d)->arch.emulation_flags & XEN_X86_EMU_PMU)
+#define has_vvga(d)         ((d)->arch.emulation_flags & XEN_X86_EMU_VGA)
+#define has_viommu(d)       ((d)->arch.emulation_flags & XEN_X86_EMU_IOMMU)
 
 #define has_arch_pdevs(d)    (!list_empty(&(d)->arch.pdev_list))
 

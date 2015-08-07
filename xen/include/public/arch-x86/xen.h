@@ -268,7 +268,26 @@ typedef struct arch_shared_info arch_shared_info_t;
  * XEN_DOMCTL_INTERFACE_VERSION.
  */
 struct xen_arch_domainconfig {
-    char dummy;
+#define _XEN_X86_EMU_LAPIC              0
+#define XEN_X86_EMU_LAPIC               (1U<<_XEN_X86_EMU_LAPIC)
+#define _XEN_X86_EMU_HPET               1
+#define XEN_X86_EMU_HPET                (1U<<_XEN_X86_EMU_HPET)
+#define _XEN_X86_EMU_PMTIMER            2
+#define XEN_X86_EMU_PMTIMER             (1U<<_XEN_X86_EMU_PMTIMER)
+#define _XEN_X86_EMU_RTC                3
+#define XEN_X86_EMU_RTC                 (1U<<_XEN_X86_EMU_RTC)
+#define _XEN_X86_EMU_IOAPIC             4
+#define XEN_X86_EMU_IOAPIC              (1U<<_XEN_X86_EMU_IOAPIC)
+#define _XEN_X86_EMU_PIC                5
+#define XEN_X86_EMU_PIC                 (1U<<_XEN_X86_EMU_PIC)
+#define _XEN_X86_EMU_PMU                6
+#define XEN_X86_EMU_PMU                 (1U<<_XEN_X86_EMU_PMU)
+#define _XEN_X86_EMU_VGA                7
+#define XEN_X86_EMU_VGA                 (1U<<_XEN_X86_EMU_VGA)
+#define _XEN_X86_EMU_IOMMU              8
+#define XEN_X86_EMU_IOMMU               (1U<<_XEN_X86_EMU_IOMMU)
+    /* For HVM guests only, this field is ignored for PV guests. */
+    uint32_t emulation_flags;
 };
 #endif
 
