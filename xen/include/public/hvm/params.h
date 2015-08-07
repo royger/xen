@@ -190,6 +190,9 @@
 /* Boolean: Enable altp2m */
 #define HVM_PARAM_ALTP2M       35
 
-#define HVM_NR_PARAMS          36
+/* PFN of the command line. */
+#define HVM_PARAM_CMDLINE_PFN 36
+
+#define HVM_NR_PARAMS          37
 
 #endif /* __XEN_PUBLIC_HVM_PARAMS_H__ */

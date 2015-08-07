@@ -562,6 +562,23 @@ static int alloc_magic_pages_hvm(struct xc_dom_image *dom)
     xc_hvm_param_set(xch, domid, HVM_PARAM_SHARING_RING_PFN,
                      special_pfn(SPECIALPAGE_SHARING));
 
+    if ( dom->cmdline )
+    {
+        xen_pfn_t cmdline_pfn = xc_dom_alloc_page(dom, "command line");
+        char *cmdline = xc_map_foreign_range(xch, domid, PAGE_SIZE,
+                                             PROT_READ | PROT_WRITE,
+                                             cmdline_pfn);
+        if ( cmdline == NULL ) {
+            DOMPRINTF("Unable to map command line page");
+            goto error_out;
+        }
+
+        strncpy(cmdline, dom->cmdline, MAX_GUEST_CMDLINE);
+        cmdline[MAX_GUEST_CMDLINE - 1] = '\0';
+        munmap(cmdline, PAGE_SIZE);
+        xc_hvm_param_set(xch, domid, HVM_PARAM_CMDLINE_PFN, cmdline_pfn);
+    }
+
     if ( dom->emulation )
     {
         /*
