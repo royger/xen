@@ -194,6 +194,9 @@ struct xc_dom_image {
     xen_pfn_t lowmem_end;
     xen_pfn_t highmem_end;
 
+    /* If set disables the setup of the IOREQ pages and the VGA MMIO hole. */
+    bool emulation;
+
     /* Extra ACPI tables passed to HVMLOADER */
     struct xc_hvm_firmware_module acpi_module;
 

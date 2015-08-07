@@ -522,12 +522,15 @@ static int alloc_magic_pages_hvm(struct xc_dom_image *dom)
     xen_pfn_t ioreq_server_array[NR_IOREQ_SERVER_PAGES];
     xc_interface *xch = dom->xch;
 
-    if ( (hvm_info_page = xc_map_foreign_range(
-              xch, domid, PAGE_SIZE, PROT_READ | PROT_WRITE,
-              HVM_INFO_PFN)) == NULL )
-        goto error_out;
-    build_hvm_info(hvm_info_page, dom);
-    munmap(hvm_info_page, PAGE_SIZE);
+    if ( dom->emulation )
+    {
+        if ( (hvm_info_page = xc_map_foreign_range(
+                  xch, domid, PAGE_SIZE, PROT_READ | PROT_WRITE,
+                  HVM_INFO_PFN)) == NULL )
+            goto error_out;
+        build_hvm_info(hvm_info_page, dom);
+        munmap(hvm_info_page, PAGE_SIZE);
+    }
 
     /* Allocate and clear special pages. */
     for ( i = 0; i < NR_SPECIAL_PAGES; i++ )
@@ -559,30 +562,33 @@ static int alloc_magic_pages_hvm(struct xc_dom_image *dom)
     xc_hvm_param_set(xch, domid, HVM_PARAM_SHARING_RING_PFN,
                      special_pfn(SPECIALPAGE_SHARING));
 
-    /*
-     * Allocate and clear additional ioreq server pages. The default
-     * server will use the IOREQ and BUFIOREQ special pages above.
-     */
-    for ( i = 0; i < NR_IOREQ_SERVER_PAGES; i++ )
-        ioreq_server_array[i] = ioreq_server_pfn(i);
-
-    rc = xc_domain_populate_physmap_exact(xch, domid, NR_IOREQ_SERVER_PAGES, 0,
-                                          0, ioreq_server_array);
-    if ( rc != 0 )
+    if ( dom->emulation )
     {
-        DOMPRINTF("Could not allocate ioreq server pages.");
-        goto error_out;
-    }
+        /*
+         * Allocate and clear additional ioreq server pages. The default
+         * server will use the IOREQ and BUFIOREQ special pages above.
+         */
+        for ( i = 0; i < NR_IOREQ_SERVER_PAGES; i++ )
+            ioreq_server_array[i] = ioreq_server_pfn(i);
 
-    if ( xc_clear_domain_pages(xch, domid, ioreq_server_pfn(0),
-                               NR_IOREQ_SERVER_PAGES) )
+        rc = xc_domain_populate_physmap_exact(xch, domid, NR_IOREQ_SERVER_PAGES, 0,
+                                              0, ioreq_server_array);
+        if ( rc != 0 )
+        {
+            DOMPRINTF("Could not allocate ioreq server pages.");
             goto error_out;
+        }
 
-    /* Tell the domain where the pages are and how many there are */
-    xc_hvm_param_set(xch, domid, HVM_PARAM_IOREQ_SERVER_PFN,
-                     ioreq_server_pfn(0));
-    xc_hvm_param_set(xch, domid, HVM_PARAM_NR_IOREQ_SERVER_PAGES,
-                     NR_IOREQ_SERVER_PAGES);
+        if ( xc_clear_domain_pages(xch, domid, ioreq_server_pfn(0),
+                                   NR_IOREQ_SERVER_PAGES) )
+                goto error_out;
+
+        /* Tell the domain where the pages are and how many there are */
+        xc_hvm_param_set(xch, domid, HVM_PARAM_IOREQ_SERVER_PFN,
+                         ioreq_server_pfn(0));
+        xc_hvm_param_set(xch, domid, HVM_PARAM_NR_IOREQ_SERVER_PAGES,
+                         NR_IOREQ_SERVER_PAGES);
+    }
 
     /*
      * Identity-map page table is required for running with CR0.PG=0 when
@@ -1320,7 +1326,8 @@ static int meminit_hvm(struct xc_dom_image *dom)
      * allocated is pointless.
      */
     if ( claim_enabled ) {
-        rc = xc_domain_claim_pages(xch, domid, target_pages - VGA_HOLE_SIZE);
+        rc = xc_domain_claim_pages(xch, domid, target_pages -
+                                   dom->emulation ? VGA_HOLE_SIZE : 0);
         if ( rc != 0 )
         {
             DOMPRINTF("Could not allocate memory for HVM guest as we cannot claim memory!");
@@ -1336,7 +1343,8 @@ static int meminit_hvm(struct xc_dom_image *dom)
          * tot_pages will be target_pages - VGA_HOLE_SIZE after
          * this call.
          */
-        rc = xc_domain_set_pod_target(xch, domid, target_pages - VGA_HOLE_SIZE,
+        rc = xc_domain_set_pod_target(xch, domid, target_pages -
+                                      dom->emulation ? VGA_HOLE_SIZE : 0,
                                       NULL, NULL, NULL);
         if ( rc != 0 )
         {
@@ -1355,8 +1363,9 @@ static int meminit_hvm(struct xc_dom_image *dom)
      * Under 2MB mode, we allocate pages in batches of no more than 8MB to 
      * ensure that we can be preempted and hence dom0 remains responsive.
      */
-    rc = xc_domain_populate_physmap_exact(
-        xch, domid, 0xa0, 0, memflags, &dom->p2m_host[0x00]);
+    if ( dom->emulation )
+        rc = xc_domain_populate_physmap_exact(
+            xch, domid, 0xa0, 0, memflags, &dom->p2m_host[0x00]);
 
     stat_normal_pages = 0;
     for ( vmemid = 0; vmemid < nr_vmemranges; vmemid++ )
@@ -1375,7 +1384,7 @@ static int meminit_hvm(struct xc_dom_image *dom)
          * 0xA0000-0xC0000. Note that 0x00000-0xA0000 is populated just
          * before this loop.
          */
-        if ( vmemranges[vmemid].start == 0 )
+        if ( vmemranges[vmemid].start == 0 && dom->emulation )
         {
             cur_pages = 0xc0;
             stat_normal_pages += 0xc0;

@@ -987,6 +987,7 @@ int libxl__build_hvm(libxl__gc *gc, uint32_t domid,
     dom->lowmem_end = lowmem_end;
     dom->highmem_end = highmem_end;
     dom->mmio_start = mmio_start;
+    dom->emulation = true;
 
     rc = libxl__domain_device_construct_rdm(gc, d_config,
                                             info->u.hvm.rdm_mem_boundary_memkb*1024,
