@@ -1269,6 +1269,13 @@ static int meminit_hvm(struct xc_dom_image *dom)
     if ( nr_pages > target_pages )
         memflags |= XENMEMF_populate_on_demand;
 
+    /* Make sure there's a MMIO hole for the special pages. */
+    if ( dom->mmio_size == 0 )
+    {
+        dom->mmio_size = NR_SPECIAL_PAGES << PAGE_SHIFT;
+        dom->mmio_start = special_pfn(0);
+    }
+
     if ( dom->nr_vmemranges == 0 )
     {
         /* Build dummy vnode information

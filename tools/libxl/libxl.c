@@ -1033,11 +1033,13 @@ int libxl_domain_unpause(libxl_ctx *ctx, uint32_t domid)
     }
 
     if (type == LIBXL_DOMAIN_TYPE_HVM) {
-        rc = libxl__domain_resume_device_model(gc, domid);
-        if (rc < 0) {
-            LOG(ERROR, "failed to unpause device model for domain %u:%d",
-                domid, rc);
-            goto out;
+        if (libxl__domain_has_device_model(gc, domid)) {
+            rc = libxl__domain_resume_device_model(gc, domid);
+            if (rc < 0) {
+                LOG(ERROR, "failed to unpause device model for domain %u:%d",
+                    domid, rc);
+                goto out;
+            }
         }
     }
     ret = xc_domain_unpause(ctx->xch, domid);
@@ -1567,7 +1569,6 @@ void libxl__destroy_domid(libxl__egc *egc, libxl__destroy_domid_state *dis)
     libxl_ctx *ctx = CTX;
     uint32_t domid = dis->domid;
     char *dom_path;
-    char *pid;
     int rc, dm_present;
 
     libxl__ev_child_init(&dis->destroyer);
@@ -1584,14 +1585,13 @@ void libxl__destroy_domid(libxl__egc *egc, libxl__destroy_domid_state *dis)
 
     switch (libxl__domain_type(gc, domid)) {
     case LIBXL_DOMAIN_TYPE_HVM:
-        if (!libxl_get_stubdom_id(CTX, domid))
-            dm_present = 1;
-        else
+        if (libxl_get_stubdom_id(CTX, domid)) {
             dm_present = 0;
-        break;
+            break;
+        }
+        /* fall through */
     case LIBXL_DOMAIN_TYPE_PV:
-        pid = libxl__xs_read(gc, XBT_NULL, libxl__sprintf(gc, "/local/domain/%d/image/device-model-pid", domid));
-        dm_present = (pid != NULL);
+        dm_present = libxl__domain_has_device_model(gc, domid);
         break;
     case LIBXL_DOMAIN_TYPE_INVALID:
         rc = ERROR_FAIL;
@@ -3203,7 +3203,7 @@ out:
 /******************************************************************************/
 
 int libxl__device_nic_setdefault(libxl__gc *gc, libxl_device_nic *nic,
-                                 uint32_t domid)
+                                 uint32_t domid, libxl_domain_build_info *info)
 {
     int rc;
 
@@ -3240,8 +3240,15 @@ int libxl__device_nic_setdefault(libxl__gc *gc, libxl_device_nic *nic,
 
     switch (libxl__domain_type(gc, domid)) {
     case LIBXL_DOMAIN_TYPE_HVM:
-        if (!nic->nictype)
-            nic->nictype = LIBXL_NIC_TYPE_VIF_IOEMU;
+        if (!nic->nictype) {
+            if (info != NULL &&
+                info->device_model_version != LIBXL_DEVICE_MODEL_VERSION_NONE)
+                nic->nictype = LIBXL_NIC_TYPE_VIF_IOEMU;
+            else if (libxl__domain_has_device_model(gc, domid))
+                nic->nictype = LIBXL_NIC_TYPE_VIF_IOEMU;
+            else
+                nic->nictype = LIBXL_NIC_TYPE_VIF;
+        }
         break;
     case LIBXL_DOMAIN_TYPE_PV:
         if (nic->nictype == LIBXL_NIC_TYPE_VIF_IOEMU) {
@@ -3290,7 +3297,7 @@ void libxl__device_nic_add(libxl__egc *egc, uint32_t domid,
     libxl_device_nic_init(&nic_saved);
     libxl_device_nic_copy(CTX, &nic_saved, nic);
 
-    rc = libxl__device_nic_setdefault(gc, nic, domid);
+    rc = libxl__device_nic_setdefault(gc, nic, domid, NULL);
     if (rc) goto out;
 
     front = flexarray_make(gc, 16, 1);

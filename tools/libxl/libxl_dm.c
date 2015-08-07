@@ -1501,7 +1501,8 @@ static void spawn_stub_launch_dm(libxl__egc *egc,
          * called libxl_device_nic_add at this point, but qemu needs
          * the nic information to be complete.
          */
-        ret = libxl__device_nic_setdefault(gc, &dm_config->nics[i], dm_domid);
+        ret = libxl__device_nic_setdefault(gc, &dm_config->nics[i], dm_domid,
+                                           &dm_config->b_info);
         if (ret)
             goto out;
     }
@@ -1991,6 +1992,16 @@ int libxl__destroy_qdisk_backend(libxl__gc *gc, uint32_t domid)
 
 out:
     return rc;
+}
+
+bool libxl__domain_has_device_model(libxl__gc *gc, uint32_t domid)
+{
+    char *pid;
+
+    pid = libxl__xs_read(gc, XBT_NULL,
+          GCSPRINTF("/local/domain/%d/image/device-model-pid", domid));
+
+    return (pid != NULL);
 }
 
 int libxl__destroy_device_model(libxl__gc *gc, uint32_t domid)

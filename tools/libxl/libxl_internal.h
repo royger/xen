@@ -1172,7 +1172,8 @@ _hidden int libxl__domain_build_info_setdefault(libxl__gc *gc,
 _hidden int libxl__device_disk_setdefault(libxl__gc *gc,
                                           libxl_device_disk *disk);
 _hidden int libxl__device_nic_setdefault(libxl__gc *gc, libxl_device_nic *nic,
-                                         uint32_t domid);
+                                         uint32_t domid,
+                                         libxl_domain_build_info *info);
 _hidden int libxl__device_vtpm_setdefault(libxl__gc *gc, libxl_device_vtpm *vtpm);
 _hidden int libxl__device_vfb_setdefault(libxl__gc *gc, libxl_device_vfb *vfb);
 _hidden int libxl__device_vkb_setdefault(libxl__gc *gc, libxl_device_vkb *vkb);
@@ -1616,6 +1617,8 @@ _hidden int libxl__wait_for_device_model_deprecated(libxl__gc *gc,
                                 void *check_callback_userdata);
 
 _hidden int libxl__destroy_device_model(libxl__gc *gc, uint32_t domid);
+
+_hidden bool libxl__domain_has_device_model(libxl__gc *gc, uint32_t domid);
 
 _hidden const libxl_vnc_info *libxl__dm_vnc(const libxl_domain_config *g_cfg);
 
