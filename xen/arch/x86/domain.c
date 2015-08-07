@@ -563,7 +563,8 @@ int arch_domain_create(struct domain *d, unsigned int domcr_flags,
                           XEN_X86_EMU_IOAPIC | XEN_X86_EMU_PIC |
                           XEN_X86_EMU_PMU | XEN_X86_EMU_VGA |
                           XEN_X86_EMU_IOMMU);
-        if ( (config->emulation_flags & emulation_mask) != emulation_mask )
+        if ( (config->emulation_flags & emulation_mask) != emulation_mask &&
+             (config->emulation_flags & emulation_mask) != 0 )
         {
             printk(XENLOG_G_ERR "d%d: Xen does not allow HVM creation with the "
                    "current selection of emulators: %#x.\n", d->domain_id,
