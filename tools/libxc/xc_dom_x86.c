@@ -579,6 +579,26 @@ static int alloc_magic_pages_hvm(struct xc_dom_image *dom)
         xc_hvm_param_set(xch, domid, HVM_PARAM_CMDLINE_PFN, cmdline_pfn);
     }
 
+    if ( dom->ramdisk_blob )
+    {
+        xen_pfn_t modlist_pfn = xc_dom_alloc_page(dom, "module list");
+        uint64_t *modlist = xc_map_foreign_range(xch, domid, PAGE_SIZE,
+                                                 PROT_READ | PROT_WRITE,
+                                                 modlist_pfn);
+        if ( modlist == NULL ) {
+            DOMPRINTF("Unable to map module list page");
+            goto error_out;
+        }
+
+        /* This is currently limited to only one module. */
+        modlist[0] = dom->ramdisk_seg.vstart - dom->parms.virt_base;
+        modlist[1] = dom->ramdisk_seg.vend - dom->ramdisk_seg.vstart;
+        modlist[2] = 0;
+        modlist[3] = 0;
+        munmap(modlist, PAGE_SIZE);
+        xc_hvm_param_set(xch, domid, HVM_PARAM_MODLIST_PFN, modlist_pfn);
+    }
+
     if ( dom->emulation )
     {
         /*

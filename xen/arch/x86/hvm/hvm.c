@@ -5867,6 +5867,7 @@ static int hvm_allow_set_param(struct domain *d,
     case HVM_PARAM_STORE_EVTCHN:
     case HVM_PARAM_CONSOLE_EVTCHN:
     case HVM_PARAM_CMDLINE_PFN:
+    case HVM_PARAM_MODLIST_PFN:
         break;
     /*
      * The following parameters must not be set by the guest
@@ -6099,6 +6100,7 @@ static int hvm_allow_get_param(struct domain *d,
     case HVM_PARAM_CONSOLE_EVTCHN:
     case HVM_PARAM_ALTP2M:
     case HVM_PARAM_CMDLINE_PFN:
+    case HVM_PARAM_MODLIST_PFN:
         break;
     /*
      * The following parameters must not be read by the guest

@@ -193,6 +193,27 @@
 /* PFN of the command line. */
 #define HVM_PARAM_CMDLINE_PFN 36
 
-#define HVM_NR_PARAMS          37
+/*
+ * List of modules passed to the kernel.
+ *
+ * The PFN returned by this HVM_PARAM points to a page that contains an
+ * array of unsigned 64bit integers encoded in little endian.
+ *
+ * The first integer contains the address where the module has been loaded,
+ * while the second contains the size of the module in bytes. The last element
+ * in the array is a module with address 0 and length 0:
+ *
+ * module[0] = <address of 1st module>
+ * module[1] = <size of 1st module>
+ * [...]
+ * module[N/2] = <address of module N>
+ * module[N/2+1] = <size of module N>
+ * [...]
+ * module[M] = 0
+ * module[M+1] = 0
+ */
+#define HVM_PARAM_MODLIST_PFN 37
+
+#define HVM_NR_PARAMS          38
 
 #endif /* __XEN_PUBLIC_HVM_PARAMS_H__ */
