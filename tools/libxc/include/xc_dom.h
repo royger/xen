@@ -193,6 +193,10 @@ struct xc_dom_image {
     xen_pfn_t mmio_size;
     xen_pfn_t lowmem_end;
     xen_pfn_t highmem_end;
+    xen_pfn_t vga_hole_size;
+
+    /* If unset disables the setup of the IOREQ pages. */
+    bool device_model;
 
     /* Extra ACPI tables passed to HVMLOADER */
     struct xc_hvm_firmware_module acpi_module;
