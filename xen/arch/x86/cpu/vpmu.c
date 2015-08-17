@@ -439,6 +439,9 @@ void vpmu_initialise(struct vcpu *v)
     int ret;
     bool_t is_priv_vpmu = is_hardware_domain(v->domain);
 
+    if ( !has_vpmu(v->domain) )
+        return;
+
     BUILD_BUG_ON(sizeof(struct xen_pmu_intel_ctxt) > XENPMU_CTXT_PAD_SZ);
     BUILD_BUG_ON(sizeof(struct xen_pmu_amd_ctxt) > XENPMU_CTXT_PAD_SZ);
     BUILD_BUG_ON(sizeof(struct xen_pmu_regs) > XENPMU_REGS_PAD_SZ);
