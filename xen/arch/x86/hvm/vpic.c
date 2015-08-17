@@ -377,6 +377,9 @@ static int vpic_save(struct domain *d, hvm_domain_context_t *h)
     struct hvm_hw_vpic *s;
     int i;
 
+    if ( !has_vpic(d) )
+        return 0;
+
     /* Save the state of both PICs */
     for ( i = 0; i < 2 ; i++ )
     {
@@ -392,7 +395,10 @@ static int vpic_load(struct domain *d, hvm_domain_context_t *h)
 {
     struct hvm_hw_vpic *s;
     uint16_t inst;
-    
+
+    if ( !has_vpic(d) )
+        return 0;
+
     /* Which PIC is this? */
     inst = hvm_load_instance(h);
     if ( inst > 1 )
@@ -425,6 +431,9 @@ void vpic_reset(struct domain *d)
 
 void vpic_init(struct domain *d)
 {
+    if ( !has_vpic(d) )
+        return;
+
     vpic_reset(d);
 
     register_portio_handler(d, 0x20, 2, vpic_intercept_pic_io);
