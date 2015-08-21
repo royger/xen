@@ -119,9 +119,10 @@ static int shared_info_arm(struct xc_dom_image *dom, void *ptr)
 
 /* ------------------------------------------------------------------------ */
 
-static int vcpu_arm32(struct xc_dom_image *dom, void *ptr)
+static int vcpu_arm32(struct xc_dom_image *dom)
 {
-    vcpu_guest_context_t *ctxt = ptr;
+    vcpu_guest_context_any_t any_ctx;
+    vcpu_guest_context_t *ctxt = &any_ctx.c;
 
     DOMPRINTF_CALLED(dom->xch);
 
@@ -154,12 +155,18 @@ static int vcpu_arm32(struct xc_dom_image *dom, void *ptr)
     DOMPRINTF("Initial state CPSR %#"PRIx32" PC %#"PRIx32,
            ctxt->user_regs.cpsr, ctxt->user_regs.pc32);
 
-    return 0;
+    rc = xc_vcpu_setcontext(dom->xch, dom->guest_domid, 0, &any_ctx);
+    if ( rc != 0 )
+        xc_dom_panic(dom->xch, XC_INTERNAL_ERROR,
+                     "%s: SETVCPUCONTEXT failed (rc=%d)", __func__, rc);
+
+    return rc;
 }
 
-static int vcpu_arm64(struct xc_dom_image *dom, void *ptr)
+static int vcpu_arm64(struct xc_dom_image *dom)
 {
-    vcpu_guest_context_t *ctxt = ptr;
+    vcpu_guest_context_any_t any_ctx;
+    vcpu_guest_context_t *ctxt = &any_ctx.c;
 
     DOMPRINTF_CALLED(dom->xch);
     /* clear everything */
@@ -188,6 +195,11 @@ static int vcpu_arm64(struct xc_dom_image *dom, void *ptr)
 
     DOMPRINTF("Initial state CPSR %#"PRIx32" PC %#"PRIx64,
            ctxt->user_regs.cpsr, ctxt->user_regs.pc64);
+
+    rc = xc_vcpu_setcontext(dom->xch, dom->guest_domid, 0, &any_ctx);
+    if ( rc != 0 )
+        xc_dom_panic(dom->xch, XC_INTERNAL_ERROR,
+                     "%s: SETVCPUCONTEXT failed (rc=%d)", __func__, rc);
 
     return 0;
 }
