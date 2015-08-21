@@ -247,7 +247,7 @@ static int setup_pgtables_x86_32_pae(struct xc_dom_image *dom)
     unsigned long l3off, l2off = 0, l1off;
     xen_vaddr_t addr;
     xen_pfn_t pgpfn;
-    xen_pfn_t l3mfn = xc_dom_p2m_guest(dom, l3pfn);
+    xen_pfn_t l3mfn = xc_dom_p2m(dom, l3pfn);
 
     if ( dom->parms.pae == 1 )
     {
@@ -279,7 +279,7 @@ static int setup_pgtables_x86_32_pae(struct xc_dom_image *dom)
                 goto pfn_error;
             l3off = l3_table_offset_pae(addr);
             l3tab[l3off] =
-                pfn_to_paddr(xc_dom_p2m_guest(dom, l2pfn)) | L3_PROT;
+                pfn_to_paddr(xc_dom_p2m(dom, l2pfn)) | L3_PROT;
             l2pfn++;
         }
 
@@ -291,7 +291,7 @@ static int setup_pgtables_x86_32_pae(struct xc_dom_image *dom)
                 goto pfn_error;
             l2off = l2_table_offset_pae(addr);
             l2tab[l2off] =
-                pfn_to_paddr(xc_dom_p2m_guest(dom, l1pfn)) | L2_PROT;
+                pfn_to_paddr(xc_dom_p2m(dom, l1pfn)) | L2_PROT;
             l1pfn++;
         }
 
@@ -299,7 +299,7 @@ static int setup_pgtables_x86_32_pae(struct xc_dom_image *dom)
         l1off = l1_table_offset_pae(addr);
         pgpfn = (addr - dom->parms.virt_base) >> PAGE_SHIFT_X86;
         l1tab[l1off] =
-            pfn_to_paddr(xc_dom_p2m_guest(dom, pgpfn)) | L1_PROT;
+            pfn_to_paddr(xc_dom_p2m(dom, pgpfn)) | L1_PROT;
         if ( (addr >= dom->pgtables_seg.vstart) &&
              (addr < dom->pgtables_seg.vend) )
             l1tab[l1off] &= ~_PAGE_RW; /* page tables are r/o */
@@ -315,7 +315,7 @@ static int setup_pgtables_x86_32_pae(struct xc_dom_image *dom)
     if ( dom->virt_pgtab_end <= 0xc0000000 )
     {
         DOMPRINTF("%s: PAE: extra l2 page table for l3#3", __FUNCTION__);
-        l3tab[3] = pfn_to_paddr(xc_dom_p2m_guest(dom, l2pfn)) | L3_PROT;
+        l3tab[3] = pfn_to_paddr(xc_dom_p2m(dom, l2pfn)) | L3_PROT;
     }
     return 0;
 
@@ -374,7 +374,7 @@ static int setup_pgtables_x86_64(struct xc_dom_image *dom)
                 goto pfn_error;
             l4off = l4_table_offset_x86_64(addr);
             l4tab[l4off] =
-                pfn_to_paddr(xc_dom_p2m_guest(dom, l3pfn)) | L4_PROT;
+                pfn_to_paddr(xc_dom_p2m(dom, l3pfn)) | L4_PROT;
             l3pfn++;
         }
 
@@ -386,7 +386,7 @@ static int setup_pgtables_x86_64(struct xc_dom_image *dom)
                 goto pfn_error;
             l3off = l3_table_offset_x86_64(addr);
             l3tab[l3off] =
-                pfn_to_paddr(xc_dom_p2m_guest(dom, l2pfn)) | L3_PROT;
+                pfn_to_paddr(xc_dom_p2m(dom, l2pfn)) | L3_PROT;
             l2pfn++;
         }
 
@@ -398,7 +398,7 @@ static int setup_pgtables_x86_64(struct xc_dom_image *dom)
                 goto pfn_error;
             l2off = l2_table_offset_x86_64(addr);
             l2tab[l2off] =
-                pfn_to_paddr(xc_dom_p2m_guest(dom, l1pfn)) | L2_PROT;
+                pfn_to_paddr(xc_dom_p2m(dom, l1pfn)) | L2_PROT;
             l1pfn++;
         }
 
@@ -406,7 +406,7 @@ static int setup_pgtables_x86_64(struct xc_dom_image *dom)
         l1off = l1_table_offset_x86_64(addr);
         pgpfn = (addr - dom->parms.virt_base) >> PAGE_SHIFT_X86;
         l1tab[l1off] =
-            pfn_to_paddr(xc_dom_p2m_guest(dom, pgpfn)) | L1_PROT;
+            pfn_to_paddr(xc_dom_p2m(dom, pgpfn)) | L1_PROT;
         if ( (!dom->pvh_enabled)                &&
              (addr >= dom->pgtables_seg.vstart) &&
              (addr < dom->pgtables_seg.vend) )
@@ -489,9 +489,9 @@ static int start_info_x86_32(struct xc_dom_image *dom)
     start_info->mfn_list = dom->p2m_seg.vstart;
 
     start_info->flags = dom->flags;
-    start_info->store_mfn = xc_dom_p2m_guest(dom, dom->xenstore_pfn);
+    start_info->store_mfn = xc_dom_p2m(dom, dom->xenstore_pfn);
     start_info->store_evtchn = dom->xenstore_evtchn;
-    start_info->console.domU.mfn = xc_dom_p2m_guest(dom, dom->console_pfn);
+    start_info->console.domU.mfn = xc_dom_p2m(dom, dom->console_pfn);
     start_info->console.domU.evtchn = dom->console_evtchn;
 
     if ( dom->ramdisk_blob )
@@ -535,9 +535,9 @@ static int start_info_x86_64(struct xc_dom_image *dom)
     start_info->mfn_list = dom->p2m_seg.vstart;
 
     start_info->flags = dom->flags;
-    start_info->store_mfn = xc_dom_p2m_guest(dom, dom->xenstore_pfn);
+    start_info->store_mfn = xc_dom_p2m(dom, dom->xenstore_pfn);
     start_info->store_evtchn = dom->xenstore_evtchn;
-    start_info->console.domU.mfn = xc_dom_p2m_guest(dom, dom->console_pfn);
+    start_info->console.domU.mfn = xc_dom_p2m(dom, dom->console_pfn);
     start_info->console.domU.evtchn = dom->console_evtchn;
 
     if ( dom->ramdisk_blob )
@@ -621,7 +621,7 @@ static int vcpu_x86_32(struct xc_dom_image *dom, void *ptr)
          dom->parms.pae == 3 /* bimodal */ )
         ctxt->vm_assist |= (1UL << VMASST_TYPE_pae_extended_cr3);
 
-    cr3_pfn = xc_dom_p2m_guest(dom, dom->pgtables_seg.pfn);
+    cr3_pfn = xc_dom_p2m(dom, dom->pgtables_seg.pfn);
     ctxt->ctrlreg[3] = xen_pfn_to_cr3_x86_32(cr3_pfn);
     DOMPRINTF("%s: cr3: pfn 0x%" PRIpfn " mfn 0x%" PRIpfn "",
               __FUNCTION__, dom->pgtables_seg.pfn, cr3_pfn);
@@ -647,7 +647,7 @@ static int vcpu_x86_64(struct xc_dom_image *dom, void *ptr)
     ctxt->user_regs.rflags = 1 << 9; /* Interrupt Enable */
 
     ctxt->flags = VGCF_in_kernel_X86_64 | VGCF_online_X86_64;
-    cr3_pfn = xc_dom_p2m_guest(dom, dom->pgtables_seg.pfn);
+    cr3_pfn = xc_dom_p2m(dom, dom->pgtables_seg.pfn);
     ctxt->ctrlreg[3] = xen_pfn_to_cr3_x86_64(cr3_pfn);
     DOMPRINTF("%s: cr3: pfn 0x%" PRIpfn " mfn 0x%" PRIpfn "",
               __FUNCTION__, dom->pgtables_seg.pfn, cr3_pfn);
@@ -1020,7 +1020,7 @@ int arch_setup_bootlate(struct xc_dom_image *dom)
         /* paravirtualized guest */
         xc_dom_unmap_one(dom, dom->pgtables_seg.pfn);
         rc = pin_table(dom->xch, pgd_type,
-                       xc_dom_p2m_host(dom, dom->pgtables_seg.pfn),
+                       xc_dom_p2m(dom, dom->pgtables_seg.pfn),
                        dom->guest_domid);
         if ( rc != 0 )
         {
