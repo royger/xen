@@ -10,6 +10,7 @@
 #include <asm/mce.h>
 #include <public/vcpu.h>
 #include <public/hvm/hvm_info_table.h>
+#include <public/hvm/hvm_vcpu.h>
 
 #define has_32bit_shinfo(d)    ((d)->arch.has_32bit_shinfo)
 #define is_pv_32bit_domain(d)  ((d)->arch.is_32bit_pv)
@@ -598,6 +599,8 @@ static inline void free_vcpu_guest_context(struct vcpu_guest_context *vgc)
 {
     vfree(vgc);
 }
+
+int arch_set_info_hvm_guest(struct vcpu *v, vcpu_hvm_context_t *ctx);
 
 #endif /* __ASM_DOMAIN_H__ */
 
