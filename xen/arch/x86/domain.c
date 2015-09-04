@@ -37,6 +37,7 @@
 #include <xen/wait.h>
 #include <xen/guest_access.h>
 #include <public/sysctl.h>
+#include <public/hvm/hvm_vcpu.h>
 #include <asm/regs.h>
 #include <asm/mc146818rtc.h>
 #include <asm/system.h>
@@ -1138,6 +1139,201 @@ int arch_set_info_guest(
         set_bit(_VPF_down, &v->pause_flags);
     return 0;
 #undef c
+}
+
+/* Called by VCPUOP_initialise for HVM guests. */
+static int arch_set_info_hvm_guest(struct vcpu *v, vcpu_hvm_context_t *ctx)
+{
+    struct cpu_user_regs *uregs = &v->arch.user_regs;
+    struct segment_register cs, ds, ss, tr;
+
+#define SEG(s, r)                                                       \
+    (struct segment_register){ .base = (r)->s ## _base,                 \
+            .limit = (r)->s ## _limit, .attr.bytes = (r)->s ## _ar }
+
+    switch ( ctx->mode )
+    {
+    default:
+        return -EINVAL;
+
+    case VCPU_HVM_MODE_16B:
+    {
+        const struct vcpu_hvm_x86_16 *regs = &ctx->cpu_regs.x86_16;
+
+        uregs->rax    = regs->ax;
+        uregs->rcx    = regs->cx;
+        uregs->rdx    = regs->dx;
+        uregs->rbx    = regs->bx;
+        uregs->rsp    = regs->sp;
+        uregs->rbp    = regs->bp;
+        uregs->rsi    = regs->si;
+        uregs->rdi    = regs->di;
+        uregs->rip    = regs->ip;
+        uregs->rflags = regs->flags;
+
+        v->arch.hvm_vcpu.guest_cr[0] = regs->cr0;
+        v->arch.hvm_vcpu.guest_cr[4] = regs->cr4;
+
+        cs = SEG(cs, regs);
+        ds = SEG(ds, regs);
+        ss = SEG(ss, regs);
+        tr = SEG(tr, regs);
+    }
+    break;
+
+    case VCPU_HVM_MODE_32B:
+    {
+        const struct vcpu_hvm_x86_32 *regs = &ctx->cpu_regs.x86_32;
+
+        uregs->rax    = regs->eax;
+        uregs->rcx    = regs->ecx;
+        uregs->rdx    = regs->edx;
+        uregs->rbx    = regs->ebx;
+        uregs->rsp    = regs->esp;
+        uregs->rbp    = regs->ebp;
+        uregs->rsi    = regs->esi;
+        uregs->rdi    = regs->edi;
+        uregs->rip    = regs->eip;
+        uregs->rflags = regs->eflags;
+
+        v->arch.hvm_vcpu.guest_cr[0] = regs->cr0;
+        v->arch.hvm_vcpu.guest_cr[3] = regs->cr3;
+        v->arch.hvm_vcpu.guest_cr[4] = regs->cr4;
+        v->arch.hvm_vcpu.guest_efer  = regs->efer;
+
+        cs = SEG(cs, regs);
+        ds = SEG(ds, regs);
+        ss = SEG(ss, regs);
+        tr = SEG(tr, regs);
+    }
+    break;
+
+    case VCPU_HVM_MODE_64B:
+    {
+        const struct vcpu_hvm_x86_64 *regs = &ctx->cpu_regs.x86_64;
+
+        uregs->rax    = regs->rax;
+        uregs->rcx    = regs->rcx;
+        uregs->rdx    = regs->rdx;
+        uregs->rbx    = regs->rbx;
+        uregs->rsp    = regs->rsp;
+        uregs->rbp    = regs->rbp;
+        uregs->rsi    = regs->rsi;
+        uregs->rdi    = regs->rdi;
+        uregs->rip    = regs->rip;
+        uregs->rflags = regs->rflags;
+        uregs->r8     = regs->r8;
+        uregs->r9     = regs->r9;
+        uregs->r10    = regs->r10;
+        uregs->r11    = regs->r11;
+        uregs->r12    = regs->r12;
+        uregs->r13    = regs->r13;
+        uregs->r14    = regs->r14;
+        uregs->r15    = regs->r15;
+
+        v->arch.hvm_vcpu.guest_cr[0] = regs->cr0;
+        v->arch.hvm_vcpu.guest_cr[3] = regs->cr3;
+        v->arch.hvm_vcpu.guest_cr[4] = regs->cr4;
+        v->arch.hvm_vcpu.guest_efer  = regs->efer;
+
+        cs = SEG(cs, regs);
+        ds = SEG(ds, regs);
+        ss = SEG(ss, regs);
+        tr = SEG(tr, regs);
+    }
+    break;
+
+    }
+
+    if ( !paging_mode_hap(v->domain) )
+        v->arch.guest_table = pagetable_null();
+
+    hvm_update_guest_cr(v, 0);
+    hvm_update_guest_cr(v, 4);
+
+    if ( (ctx->mode == VCPU_HVM_MODE_32B) ||
+         (ctx->mode == VCPU_HVM_MODE_64B) )
+    {
+        hvm_update_guest_cr(v, 3);
+        hvm_update_guest_efer(v);
+    }
+
+    if ( hvm_paging_enabled(v) && !paging_mode_hap(v->domain) )
+    {
+        /* Shadow-mode CR3 change. Check PDBR and update refcounts. */
+        struct page_info *page = get_page_from_gfn(v->domain,
+                                 v->arch.hvm_vcpu.guest_cr[3] >> PAGE_SHIFT,
+                                 NULL, P2M_ALLOC);
+        if ( !page )
+        {
+            gdprintk(XENLOG_ERR, "Invalid CR3: %#lx\n",
+                     v->arch.hvm_vcpu.guest_cr[3]);
+            domain_crash(v->domain);
+            return -EINVAL;
+        }
+
+        v->arch.guest_table = pagetable_from_page(page);
+    }
+
+    hvm_set_segment_register(v, x86_seg_cs, &cs);
+    hvm_set_segment_register(v, x86_seg_ds, &ds);
+    hvm_set_segment_register(v, x86_seg_ss, &ss);
+    hvm_set_segment_register(v, x86_seg_tr, &tr);
+
+    /* Sync AP's TSC with BSP's. */
+    v->arch.hvm_vcpu.cache_tsc_offset =
+        v->domain->vcpu[0]->arch.hvm_vcpu.cache_tsc_offset;
+    hvm_funcs.set_tsc_offset(v, v->arch.hvm_vcpu.cache_tsc_offset,
+                             v->domain->arch.hvm_domain.sync_tsc);
+
+    v->arch.hvm_vcpu.msr_tsc_adjust = 0;
+
+    paging_update_paging_modes(v);
+
+    v->is_initialised = 1;
+    set_bit(_VPF_down, &v->pause_flags);
+
+    return 0;
+#undef SEG
+}
+
+int arch_initialize_vcpu(struct vcpu *v, XEN_GUEST_HANDLE_PARAM(void) arg)
+{
+    struct domain *d = v->domain;
+    int rc;
+
+    if ( is_hvm_vcpu(v) )
+    {
+        struct vcpu_hvm_context hvm_ctx;
+
+        if ( copy_from_guest(&hvm_ctx, arg, 1) )
+            return -EFAULT;
+
+        domain_lock(d);
+        rc = v->is_initialised ? -EEXIST : arch_set_info_hvm_guest(v, &hvm_ctx);
+        domain_unlock(d);
+    }
+    else
+    {
+        struct vcpu_guest_context *ctxt;
+
+        if ( (ctxt = alloc_vcpu_guest_context()) == NULL )
+            return -ENOMEM;
+
+        if ( copy_from_guest(ctxt, arg, 1) )
+        {
+            free_vcpu_guest_context(ctxt);
+            return -EFAULT;
+        }
+
+        domain_lock(d);
+        rc = v->is_initialised ? -EEXIST : arch_set_info_guest(v, ctxt);
+        domain_unlock(d);
+
+        free_vcpu_guest_context(ctxt);
+    }
+
+    return rc;
 }
 
 int arch_vcpu_reset(struct vcpu *v)

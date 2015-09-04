@@ -68,6 +68,8 @@ void arch_domain_unpause(struct domain *d);
 int arch_set_info_guest(struct vcpu *, vcpu_guest_context_u);
 void arch_get_info_guest(struct vcpu *, vcpu_guest_context_u);
 
+int arch_initialize_vcpu(struct vcpu *v, XEN_GUEST_HANDLE_PARAM(void) arg);
+
 int domain_relinquish_resources(struct domain *d);
 
 void dump_pageframe_info(struct domain *d);
