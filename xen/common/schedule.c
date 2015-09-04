@@ -1428,6 +1428,9 @@ static struct notifier_block cpu_schedule_nfb = {
 /* Initialise the data structures. */
 void __init scheduler_init(void)
 {
+#ifdef CONFIG_X86
+    struct xen_arch_domainconfig config = { .emulation_flags = 0 };
+#endif
     struct domain *idle_domain;
     int i;
 
@@ -1474,8 +1477,11 @@ void __init scheduler_init(void)
         sched_ratelimit_us = SCHED_DEFAULT_RATELIMIT_US;
     }
 
-    /* There is no need of arch-specific configuration for an idle domain */
+#ifdef CONFIG_X86
+    idle_domain = domain_create(DOMID_IDLE, 0, 0, &config);
+#else
     idle_domain = domain_create(DOMID_IDLE, 0, 0, NULL);
+#endif
     BUG_ON(IS_ERR(idle_domain));
     idle_domain->vcpu = idle_vcpu;
     idle_domain->max_vcpus = nr_cpu_ids;
