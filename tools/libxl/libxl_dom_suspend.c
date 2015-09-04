@@ -43,6 +43,8 @@ int libxl__domain_suspend_device_model(libxl__gc *gc,
         if (ret)
             unlink(filename);
         break;
+    case LIBXL_DEVICE_MODEL_VERSION_NONE:
+        break;
     default:
         return ERROR_INVAL;
     }
@@ -393,6 +395,8 @@ int libxl__domain_resume_device_model(libxl__gc *gc, uint32_t domid)
     case LIBXL_DEVICE_MODEL_VERSION_QEMU_XEN:
         if (libxl__qmp_resume(gc, domid))
             return ERROR_FAIL;
+        break;
+    case LIBXL_DEVICE_MODEL_VERSION_NONE:
         break;
     default:
         return ERROR_INVAL;

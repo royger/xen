@@ -46,6 +46,7 @@ typedef struct libxl__sr_emulator_hdr
 #define EMULATOR_UNKNOWN             0x00000000U
 #define EMULATOR_QEMU_TRADITIONAL    0x00000001U
 #define EMULATOR_QEMU_UPSTREAM       0x00000002U
+#define EMULATOR_NONE                0x00000003U
 
 #endif /* LIBXL__SR_STREAM_FORMAT_H */
 

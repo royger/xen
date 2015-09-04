@@ -232,6 +232,10 @@ void libxl__stream_write_start(libxl__egc *egc,
             stream->emu_sub_hdr.id = EMULATOR_QEMU_UPSTREAM;
             break;
 
+        case LIBXL_DEVICE_MODEL_VERSION_NONE:
+            stream->emu_sub_hdr.id = EMULATOR_NONE;
+            break;
+
         default:
             rc = ERROR_FAIL;
             LOG(ERROR, "Unknown emulator for HVM domain");
@@ -387,8 +391,11 @@ static void emulator_xenstore_record_done(libxl__egc *egc,
                                           libxl__stream_write_state *stream)
 {
     libxl__domain_suspend_state *dss = stream->dss;
+    STATE_AO_GC(stream->ao);
 
-    if (dss->type == LIBXL_DOMAIN_TYPE_HVM)
+    if (dss->type == LIBXL_DOMAIN_TYPE_HVM &&
+        libxl__device_model_version_running(gc, dss->domid) !=
+        LIBXL_DEVICE_MODEL_VERSION_NONE)
         write_emulator_context_record(egc, stream);
     else {
         if (stream->in_checkpoint)
