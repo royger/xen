@@ -7,7 +7,9 @@ int libxl__arch_domain_prepare_config(libxl__gc *gc,
                                       libxl_domain_config *d_config,
                                       xc_domain_configuration_t *xc_config)
 {
-    if (d_config->c_info.type == LIBXL_DOMAIN_TYPE_HVM)
+    if (d_config->c_info.type == LIBXL_DOMAIN_TYPE_HVM &&
+        d_config->b_info.device_model_version !=
+        LIBXL_DEVICE_MODEL_VERSION_NONE)
         xc_config->emulation_flags = (XEN_X86_EMU_LAPIC | XEN_X86_EMU_HPET |
                                       XEN_X86_EMU_PMTIMER | XEN_X86_EMU_RTC |
                                       XEN_X86_EMU_IOAPIC | XEN_X86_EMU_PIC |
@@ -488,6 +490,7 @@ int libxl__arch_domain_construct_memmap(libxl__gc *gc,
     struct e820entry *e820 = NULL;
     uint64_t highmem_size =
                     dom->highmem_end ? dom->highmem_end - (1ull << 32) : 0;
+    uint32_t lowmem_start = dom->device_model ? GUEST_LOW_MEM_START_DEFAULT : 0;
 
     /* Add all rdm entries. */
     for (i = 0; i < d_config->num_rdms; i++)
@@ -508,8 +511,8 @@ int libxl__arch_domain_construct_memmap(libxl__gc *gc,
     e820 = libxl__malloc(gc, sizeof(struct e820entry) * e820_entries);
 
     /* Low memory */
-    e820[nr].addr = GUEST_LOW_MEM_START_DEFAULT;
-    e820[nr].size = dom->lowmem_end - GUEST_LOW_MEM_START_DEFAULT;
+    e820[nr].addr = lowmem_start;
+    e820[nr].size = dom->lowmem_end - lowmem_start;
     e820[nr].type = E820_RAM;
     nr++;
 
