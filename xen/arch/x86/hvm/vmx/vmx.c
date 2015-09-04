@@ -89,6 +89,9 @@ static int vmx_domain_initialise(struct domain *d)
 {
     int rc;
 
+    if ( !has_vlapic(d) )
+        return 0;
+
     if ( (rc = vmx_alloc_vlapic_mapping(d)) != 0 )
         return rc;
 
@@ -97,6 +100,9 @@ static int vmx_domain_initialise(struct domain *d)
 
 static void vmx_domain_destroy(struct domain *d)
 {
+    if ( !has_vlapic(d) )
+        return;
+
     vmx_free_vlapic_mapping(d);
 }
 
@@ -2393,7 +2399,8 @@ static void vmx_install_vlapic_mapping(struct vcpu *v)
 {
     paddr_t virt_page_ma, apic_page_ma;
 
-    if ( !cpu_has_vmx_virtualize_apic_accesses )
+    if ( !cpu_has_vmx_virtualize_apic_accesses ||
+         v->domain->arch.hvm_domain.vmx.apic_access_mfn == 0 )
         return;
 
     virt_page_ma = page_to_maddr(vcpu_vlapic(v)->regs_page);
