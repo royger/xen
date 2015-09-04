@@ -754,6 +754,30 @@ int arch_set_info_guest(
     return 0;
 }
 
+int arch_initialize_vcpu(struct vcpu *v, XEN_GUEST_HANDLE_PARAM(void) arg)
+{
+    struct vcpu_guest_context *ctxt;
+    struct domain *d = v->domain;
+    int rc;
+
+    if ( (ctxt = alloc_vcpu_guest_context()) == NULL )
+        return -ENOMEM;
+
+    if ( copy_from_guest(ctxt, arg, 1) )
+    {
+        free_vcpu_guest_context(ctxt);
+        return -EFAULT;
+    }
+
+    domain_lock(d);
+    rc = v->is_initialised ? -EEXIST : arch_set_info_guest(v, ctxt);
+    domain_unlock(d);
+
+    free_vcpu_guest_context(ctxt);
+
+    return rc;
+}
+
 int arch_vcpu_reset(struct vcpu *v)
 {
     vcpu_end_shutdown_deferral(v);
