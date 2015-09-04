@@ -555,6 +555,29 @@ int arch_domain_create(struct domain *d, unsigned int domcr_flags,
                d->domain_id);
     }
 
+    if ( is_hvm_domain(d) )
+    {
+        uint32_t emulation_mask = (XEN_X86_EMU_LAPIC | XEN_X86_EMU_HPET |
+                                   XEN_X86_EMU_PMTIMER | XEN_X86_EMU_RTC |
+                                   XEN_X86_EMU_IOAPIC | XEN_X86_EMU_PIC |
+                                   XEN_X86_EMU_PMU | XEN_X86_EMU_VGA |
+                                   XEN_X86_EMU_IOMMU);
+        if ( (config->emulation_flags & ~emulation_mask) != 0 )
+        {
+            printk(XENLOG_G_ERR "d%d: Invalid emulation bitmap: %#x.\n",
+                   d->domain_id, config->emulation_flags);
+            return -EINVAL;
+        }
+        if ( config->emulation_flags != emulation_mask )
+        {
+            printk(XENLOG_G_ERR "d%d: Xen does not allow HVM creation with the "
+                   "current selection of emulators: %#x.\n", d->domain_id,
+                   config->emulation_flags);
+            return -EOPNOTSUPP;
+        }
+        d->arch.emulation_flags = config->emulation_flags;
+    }
+
     if ( has_hvm_container_domain(d) )
     {
         d->arch.hvm_domain.hap_enabled =
