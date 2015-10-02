@@ -23,6 +23,8 @@ CHECK_SIZE_(struct, vcpu_info);
 CHECK_vcpu_register_vcpu_info;
 #undef xen_vcpu_register_vcpu_info
 
+extern vcpu_info_t dummy_vcpu_info;
+
 int compat_vcpu_op(int cmd, unsigned int vcpuid, XEN_GUEST_HANDLE_PARAM(void) arg)
 {
     struct domain *d = current->domain;
@@ -37,6 +39,9 @@ int compat_vcpu_op(int cmd, unsigned int vcpuid, XEN_GUEST_HANDLE_PARAM(void) ar
     case VCPUOP_initialise:
     {
         struct compat_vcpu_guest_context *cmp_ctxt;
+
+        if ( v->vcpu_info == &dummy_vcpu_info )
+            return -EINVAL;
 
         if ( (cmp_ctxt = xmalloc(struct compat_vcpu_guest_context)) == NULL )
         {
