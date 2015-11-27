@@ -3036,6 +3036,9 @@ struct libxl__stream_write_state {
     libxl__datacopier_state dc;
     sws_record_done_cb record_done_callback;
 
+    /* Cache device model version. */
+    int device_model_version;
+
     /* Only used when constructing EMULATOR records. */
     libxl__datacopier_state emu_dc;
     libxl__carefd *emu_carefd;
