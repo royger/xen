@@ -1833,8 +1833,8 @@ static int hvm_save_cpu_ctxt(struct domain *d, hvm_domain_context_t *h)
 }
 
 /* Return a string indicating the error, or NULL for valid. */
-static const char * hvm_efer_valid(const struct vcpu *v, uint64_t value,
-                                   signed int cr0_pg)
+const char *hvm_efer_valid(const struct vcpu *v, uint64_t value,
+                           signed int cr0_pg)
 {
     unsigned int ext1_ecx = 0, ext1_edx = 0;
 
@@ -1902,8 +1902,7 @@ static const char * hvm_efer_valid(const struct vcpu *v, uint64_t value,
         X86_CR0_CD | X86_CR0_PG)))
 
 /* These bits in CR4 cannot be set by the guest. */
-static unsigned long hvm_cr4_guest_reserved_bits(const struct vcpu *v,
-                                                 bool_t restore)
+unsigned long hvm_cr4_guest_reserved_bits(const struct vcpu *v,bool_t restore)
 {
     unsigned int leaf1_ecx = 0, leaf1_edx = 0;
     unsigned int leaf7_0_ebx = 0, leaf7_0_ecx = 0;
@@ -5130,6 +5129,10 @@ static long hvm_vcpu_op(
     case VCPUOP_stop_singleshot_timer:
     case VCPUOP_register_vcpu_info:
     case VCPUOP_register_vcpu_time_memory_area:
+    case VCPUOP_initialise:
+    case VCPUOP_up:
+    case VCPUOP_down:
+    case VCPUOP_is_up:
         rc = do_vcpu_op(cmd, vcpuid, arg);
         break;
     default:
@@ -5188,6 +5191,10 @@ static long hvm_vcpu_op_compat32(
     case VCPUOP_stop_singleshot_timer:
     case VCPUOP_register_vcpu_info:
     case VCPUOP_register_vcpu_time_memory_area:
+    case VCPUOP_initialise:
+    case VCPUOP_up:
+    case VCPUOP_down:
+    case VCPUOP_is_up:
         rc = compat_vcpu_op(cmd, vcpuid, arg);
         break;
     default:

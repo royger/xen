@@ -756,6 +756,11 @@ int arch_set_info_guest(
     return 0;
 }
 
+int arch_initialize_vcpu(struct vcpu *v, XEN_GUEST_HANDLE_PARAM(void) arg)
+{
+    return default_initalize_vcpu(v, arg);
+}
+
 int arch_vcpu_reset(struct vcpu *v)
 {
     vcpu_end_shutdown_deferral(v);
