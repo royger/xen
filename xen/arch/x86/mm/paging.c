@@ -953,6 +953,22 @@ void paging_write_p2m_entry(struct p2m_domain *p2m, unsigned long gfn,
         safe_write_pte(p, new);
 }
 
+int paging_set_allocation(struct domain *d, unsigned long pages)
+{
+    int rc;
+
+    ASSERT(paging_mode_enabled(d));
+
+    paging_lock(d);
+    if ( hap_enabled(d) )
+        rc = hap_set_allocation(d, pages, NULL);
+    else
+        rc = sh_set_allocation(d, pages, NULL);
+    paging_unlock(d);
+
+    return rc;
+}
+
 /*
  * Local variables:
  * mode: C

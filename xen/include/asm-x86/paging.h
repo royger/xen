@@ -347,6 +347,9 @@ void pagetable_dying(struct domain *d, paddr_t gpa);
 void paging_dump_domain_info(struct domain *d);
 void paging_dump_vcpu_info(struct vcpu *v);
 
+/* Set pool of pages for paging. */
+int paging_set_allocation(struct domain *d, unsigned long pages);
+
 #endif /* XEN_PAGING_H */
 
 /*
