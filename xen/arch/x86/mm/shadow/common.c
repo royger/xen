@@ -1600,12 +1600,7 @@ shadow_free_p2m_page(struct domain *d, struct page_info *pg)
     paging_unlock(d);
 }
 
-/* Set the pool of shadow pages to the required number of pages.
- * Input will be rounded up to at least shadow_min_acceptable_pages(),
- * plus space for the p2m table.
- * Returns 0 for success, non-zero for failure. */
-static int sh_set_allocation(struct domain *d, unsigned long pages,
-                             int *preempted)
+int sh_set_allocation(struct domain *d, unsigned long pages, int *preempted)
 {
     struct page_info *sp;
     unsigned int lower_bound;
