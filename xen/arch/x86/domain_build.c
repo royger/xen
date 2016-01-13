@@ -35,7 +35,6 @@
 #include <asm/setup.h>
 #include <asm/bzimage.h> /* for bzimage_parse */
 #include <asm/io_apic.h>
-#include <asm/hap.h>
 #include <asm/hpet.h>
 
 #include <public/version.h>
@@ -1384,7 +1383,7 @@ int __init construct_dom0(
     }
 
     if ( is_pvh_domain(d) )
-        hap_set_alloc_for_pvh_dom0(d, dom0_paging_pages(d, nr_pages));
+        paging_set_allocation(d, dom0_paging_pages(d, nr_pages));
 
     /*
      * We enable paging mode again so guest_physmap_add_page will do the

@@ -1605,9 +1605,8 @@ shadow_free_p2m_page(struct domain *d, struct page_info *pg)
  * Input will be rounded up to at least shadow_min_acceptable_pages(),
  * plus space for the p2m table.
  * Returns 0 for success, non-zero for failure. */
-static unsigned int sh_set_allocation(struct domain *d,
-                                      unsigned int pages,
-                                      int *preempted)
+unsigned int sh_set_allocation(struct domain *d, unsigned int pages,
+                               int *preempted)
 {
     struct page_info *sp;
     unsigned int lower_bound;

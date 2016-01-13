@@ -83,6 +83,10 @@ void sh_remove_shadows(struct domain *d, mfn_t gmfn, int fast, int all);
 /* Discard _all_ mappings from the domain's shadows. */
 void shadow_blow_tables_per_domain(struct domain *d);
 
+/* Set the pool of shadow pages to the required number of pages. */
+unsigned int sh_set_allocation(struct domain *d, unsigned int pages,
+                               int *preempted);
+
 #else /* !CONFIG_SHADOW_PAGING */
 
 #define shadow_teardown(d, p) ASSERT(is_pv_domain(d))
@@ -90,6 +94,8 @@ void shadow_blow_tables_per_domain(struct domain *d);
 #define shadow_enable(d, mode) \
     ({ ASSERT(is_pv_domain(d)); -EOPNOTSUPP; })
 #define shadow_track_dirty_vram(d, begin_pfn, nr, bitmap) \
+    ({ ASSERT_UNREACHABLE(); -EOPNOTSUPP; })
+#define sh_set_allocation(d, pages, preempted) \
     ({ ASSERT_UNREACHABLE(); -EOPNOTSUPP; })
 
 static inline void sh_remove_shadows(struct domain *d, mfn_t gmfn,
