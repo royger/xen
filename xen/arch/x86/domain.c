@@ -558,11 +558,12 @@ int arch_domain_create(struct domain *d, unsigned int domcr_flags,
             return -EINVAL;
         }
 
-        /* PVH guests can request emulated APIC */
-        if ( emflags &&
-            (is_hvm_domain(d) ? ((emflags != XEN_X86_EMU_ALL) &&
-                                 (emflags != XEN_X86_EMU_LAPIC)) :
-                                (emflags != XEN_X86_EMU_PIT)) )
+        if ( (is_hardware_domain(d) ?
+              (is_hvm_domain(d) && emflags !=
+              (XEN_X86_EMU_PIT|XEN_X86_EMU_LAPIC|XEN_X86_EMU_IOAPIC)) :
+              (emflags && (is_hvm_domain(d) ? ((emflags != XEN_X86_EMU_ALL) &&
+                                               (emflags != XEN_X86_EMU_LAPIC)) :
+                                              (emflags != XEN_X86_EMU_PIT)))) )
         {
             printk(XENLOG_G_ERR "d%d: Xen does not allow %s domain creation "
                    "with the current selection of emulators: %#x\n",

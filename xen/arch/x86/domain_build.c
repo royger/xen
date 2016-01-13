@@ -22,6 +22,7 @@
 #include <xen/compat.h>
 #include <xen/libelf.h>
 #include <xen/pfn.h>
+#include <xen/guest_access.h>
 #include <asm/regs.h>
 #include <asm/system.h>
 #include <asm/io.h>
@@ -37,11 +38,47 @@
 #include <asm/io_apic.h>
 #include <asm/hpet.h>
 
+#include <public/xen.h>
 #include <public/version.h>
+#include <public/hvm/hvm_vcpu.h>
+
+/* GFN of the identity map for EPT. */
+#define HVM_IDENT_PT_GFN  0xfeffeu
+
+/* C representation of the x86/HVM start info layout.
+ *
+ * The canonical definition of this layout resides in public/xen.h, this
+ * is just a way to represent the layout described there using C types.
+ *
+ * NB: the packed attribute is not really needed, but it helps us enforce
+ * the fact this this is just a representation, and it might indeed
+ * be required in the future if there are alignment changes.
+ */
+struct hvm_start_info {
+    uint32_t magic;             /* Contains the magic value 0x336ec578       */
+                                /* ("xEn3" with the 0x80 bit of the "E" set).*/
+    uint32_t version;           /* Version of this structure.                */
+    uint32_t flags;             /* SIF_xxx flags.                            */
+    uint32_t nr_modules;        /* Number of modules passed to the kernel.   */
+    uint64_t modlist_paddr;     /* Physical address of an array of           */
+                                /* hvm_modlist_entry.                        */
+    uint64_t cmdline_paddr;     /* Physical address of the command line.     */
+    uint64_t rsdp_paddr;        /* Physical address of the RSDP ACPI data    */
+                                /* structure.                                */
+} __attribute__((packed));
+
+struct hvm_modlist_entry {
+    uint64_t paddr;             /* Physical address of the module.           */
+    uint64_t size;              /* Size of the module in bytes.              */
+    uint64_t cmdline_paddr;     /* Physical address of the command line.     */
+    uint64_t reserved;
+} __attribute__((packed));
 
 static long __initdata dom0_nrpages;
 static long __initdata dom0_min_nrpages;
 static long __initdata dom0_max_nrpages = LONG_MAX;
+
+static unsigned int __initdata mem_stats[MAX_ORDER + 1];
 
 /*
  * dom0_mem=[min:<min_amt>,][max:<max_amt>,][<amt>]
@@ -304,7 +341,8 @@ static unsigned long __init compute_dom0_nr_pages(
             avail -= max_pdx >> s;
     }
 
-    need_paging = opt_dom0_shadow || (is_pvh_domain(d) && !iommu_hap_pt_share);
+    need_paging = opt_dom0_shadow || (has_hvm_container_domain(d) &&
+                  (!iommu_hap_pt_share || !paging_mode_hap(d)));
     for ( ; ; need_paging = 0 )
     {
         nr_pages = dom0_nrpages;
@@ -336,7 +374,8 @@ static unsigned long __init compute_dom0_nr_pages(
         avail -= dom0_paging_pages(d, nr_pages);
     }
 
-    if ( (parms->p2m_base == UNSET_ADDR) && (dom0_nrpages <= 0) &&
+    if ( is_pv_domain(d) &&
+         (parms->p2m_base == UNSET_ADDR) && (dom0_nrpages <= 0) &&
          ((dom0_min_nrpages <= 0) || (nr_pages > min_pages)) )
     {
         /*
@@ -552,6 +591,7 @@ static __init void pvh_setup_e820(struct domain *d, unsigned long nr_pages)
     struct e820entry *entry, *entry_guest;
     unsigned int i;
     unsigned long pages, cur_pages = 0;
+    uint64_t start, end;
 
     /*
      * Craft the e820 memory map for Dom0 based on the hardware e820 map.
@@ -579,8 +619,19 @@ static __init void pvh_setup_e820(struct domain *d, unsigned long nr_pages)
             continue;
         }
 
-        *entry_guest = *entry;
-        pages = PFN_UP(entry_guest->size);
+        /*
+         * Make sure the start and length are aligned to PAGE_SIZE, because
+         * that's the minimum granularity of the 2nd stage translation.
+         */
+        start = ROUNDUP(entry->addr, PAGE_SIZE);
+        end = (entry->addr + entry->size) & PAGE_MASK;
+        if ( start >= end )
+            continue;
+
+        entry_guest->type = E820_RAM;
+        entry_guest->addr = start;
+        entry_guest->size = end - start;
+        pages = PFN_DOWN(entry_guest->size);
         if ( (cur_pages + pages) > nr_pages )
         {
             /* Truncate region */
@@ -591,6 +642,8 @@ static __init void pvh_setup_e820(struct domain *d, unsigned long nr_pages)
         {
             cur_pages += pages;
         }
+        ASSERT((entry_guest->addr & ~PAGE_MASK) == 0 &&
+               (entry_guest->size & ~PAGE_MASK) == 0);
  next:
         d->arch.nr_e820++;
         entry_guest++;
@@ -869,7 +922,90 @@ static __init void setup_pv_physmap(struct domain *d, unsigned long pgtbl_pfn,
     unmap_domain_page(l4start);
 }
 
-int __init construct_dom0(
+static int __init setup_permissions(struct domain *d)
+{
+    unsigned long mfn;
+    int i, rc = 0;
+
+    /* The hardware domain is initially permitted full I/O capabilities. */
+    rc |= ioports_permit_access(d, 0, 0xFFFF);
+    rc |= iomem_permit_access(d, 0UL, (1UL << (paddr_bits - PAGE_SHIFT)) - 1);
+    rc |= irqs_permit_access(d, 1, nr_irqs_gsi - 1);
+
+    /*
+     * Modify I/O port access permissions.
+     */
+    /* Master Interrupt Controller (PIC). */
+    rc |= ioports_deny_access(d, 0x20, 0x21);
+    /* Slave Interrupt Controller (PIC). */
+    rc |= ioports_deny_access(d, 0xA0, 0xA1);
+    /* Interval Timer (PIT). */
+    rc |= ioports_deny_access(d, 0x40, 0x43);
+    /* PIT Channel 2 / PC Speaker Control. */
+    rc |= ioports_deny_access(d, 0x61, 0x61);
+    /* ACPI PM Timer. */
+    if ( pmtmr_ioport )
+        rc |= ioports_deny_access(d, pmtmr_ioport, pmtmr_ioport + 3);
+    /* PCI configuration space (NB. 0xcf8 has special treatment). */
+    rc |= ioports_deny_access(d, 0xcfc, 0xcff);
+    /* Command-line I/O ranges. */
+    process_dom0_ioports_disable(d);
+
+    /*
+     * Modify I/O memory access permissions.
+     */
+    /* Local APIC. */
+    if ( mp_lapic_addr != 0 )
+    {
+        mfn = paddr_to_pfn(mp_lapic_addr);
+        rc |= iomem_deny_access(d, mfn, mfn);
+    }
+    /* I/O APICs. */
+    for ( i = 0; i < nr_ioapics; i++ )
+    {
+        mfn = paddr_to_pfn(mp_ioapics[i].mpc_apicaddr);
+        if ( !rangeset_contains_singleton(mmio_ro_ranges, mfn) )
+            rc |= iomem_deny_access(d, mfn, mfn);
+    }
+    /* MSI range. */
+    rc |= iomem_deny_access(d, paddr_to_pfn(MSI_ADDR_BASE_LO),
+                            paddr_to_pfn(MSI_ADDR_BASE_LO +
+                                         MSI_ADDR_DEST_ID_MASK));
+    /* HyperTransport range. */
+    if ( boot_cpu_data.x86_vendor == X86_VENDOR_AMD )
+        rc |= iomem_deny_access(d, paddr_to_pfn(0xfdULL << 32),
+                                paddr_to_pfn((1ULL << 40) - 1));
+
+    /* Remove access to E820_UNUSABLE I/O regions above 1MB. */
+    for ( i = 0; i < e820.nr_map; i++ )
+    {
+        unsigned long sfn, efn;
+        sfn = max_t(unsigned long, paddr_to_pfn(e820.map[i].addr), 0x100ul);
+        efn = paddr_to_pfn(e820.map[i].addr + e820.map[i].size - 1);
+        if ( (e820.map[i].type == E820_UNUSABLE) &&
+             (e820.map[i].size != 0) &&
+             (sfn <= efn) )
+            rc |= iomem_deny_access(d, sfn, efn);
+    }
+
+    /* Prevent access to HPET */
+    if ( hpet_address )
+    {
+        u8 prot_flags = hpet_flags & ACPI_HPET_PAGE_PROTECT_MASK;
+
+        mfn = paddr_to_pfn(hpet_address);
+        if ( prot_flags == ACPI_HPET_PAGE_PROTECT4 )
+            rc |= iomem_deny_access(d, mfn, mfn);
+        else if ( prot_flags == ACPI_HPET_PAGE_PROTECT64 )
+            rc |= iomem_deny_access(d, mfn, mfn + 15);
+        else if ( ro_hpet )
+            rc |= rangeset_add_singleton(mmio_ro_ranges, mfn);
+    }
+
+    return rc;
+}
+
+static int __init construct_dom0_pv(
     struct domain *d,
     const module_t *image, unsigned long image_headroom,
     module_t *initrd,
@@ -1529,84 +1665,9 @@ int __init construct_dom0(
     if ( test_bit(XENFEAT_supervisor_mode_kernel, parms.f_required) )
         panic("Dom0 requires supervisor-mode execution");
 
-    rc = 0;
-
-    /* The hardware domain is initially permitted full I/O capabilities. */
-    rc |= ioports_permit_access(d, 0, 0xFFFF);
-    rc |= iomem_permit_access(d, 0UL, (1UL << (paddr_bits - PAGE_SHIFT)) - 1);
-    rc |= irqs_permit_access(d, 1, nr_irqs_gsi - 1);
-
-    /*
-     * Modify I/O port access permissions.
-     */
-    /* Master Interrupt Controller (PIC). */
-    rc |= ioports_deny_access(d, 0x20, 0x21);
-    /* Slave Interrupt Controller (PIC). */
-    rc |= ioports_deny_access(d, 0xA0, 0xA1);
-    /* Interval Timer (PIT). */
-    rc |= ioports_deny_access(d, 0x40, 0x43);
-    /* PIT Channel 2 / PC Speaker Control. */
-    rc |= ioports_deny_access(d, 0x61, 0x61);
-    /* ACPI PM Timer. */
-    if ( pmtmr_ioport )
-        rc |= ioports_deny_access(d, pmtmr_ioport, pmtmr_ioport + 3);
-    /* PCI configuration space (NB. 0xcf8 has special treatment). */
-    rc |= ioports_deny_access(d, 0xcfc, 0xcff);
-    /* Command-line I/O ranges. */
-    process_dom0_ioports_disable(d);
-
-    /*
-     * Modify I/O memory access permissions.
-     */
-    /* Local APIC. */
-    if ( mp_lapic_addr != 0 )
-    {
-        mfn = paddr_to_pfn(mp_lapic_addr);
-        rc |= iomem_deny_access(d, mfn, mfn);
-    }
-    /* I/O APICs. */
-    for ( i = 0; i < nr_ioapics; i++ )
-    {
-        mfn = paddr_to_pfn(mp_ioapics[i].mpc_apicaddr);
-        if ( !rangeset_contains_singleton(mmio_ro_ranges, mfn) )
-            rc |= iomem_deny_access(d, mfn, mfn);
-    }
-    /* MSI range. */
-    rc |= iomem_deny_access(d, paddr_to_pfn(MSI_ADDR_BASE_LO),
-                            paddr_to_pfn(MSI_ADDR_BASE_LO +
-                                         MSI_ADDR_DEST_ID_MASK));
-    /* HyperTransport range. */
-    if ( boot_cpu_data.x86_vendor == X86_VENDOR_AMD )
-        rc |= iomem_deny_access(d, paddr_to_pfn(0xfdULL << 32),
-                                paddr_to_pfn((1ULL << 40) - 1));
-
-    /* Remove access to E820_UNUSABLE I/O regions above 1MB. */
-    for ( i = 0; i < e820.nr_map; i++ )
-    {
-        unsigned long sfn, efn;
-        sfn = max_t(unsigned long, paddr_to_pfn(e820.map[i].addr), 0x100ul);
-        efn = paddr_to_pfn(e820.map[i].addr + e820.map[i].size - 1);
-        if ( (e820.map[i].type == E820_UNUSABLE) &&
-             (e820.map[i].size != 0) &&
-             (sfn <= efn) )
-            rc |= iomem_deny_access(d, sfn, efn);
-    }
-
-    /* Prevent access to HPET */
-    if ( hpet_address )
-    {
-        u8 prot_flags = hpet_flags & ACPI_HPET_PAGE_PROTECT_MASK;
-
-        mfn = paddr_to_pfn(hpet_address);
-        if ( prot_flags == ACPI_HPET_PAGE_PROTECT4 )
-            rc |= iomem_deny_access(d, mfn, mfn);
-        else if ( prot_flags == ACPI_HPET_PAGE_PROTECT64 )
-            rc |= iomem_deny_access(d, mfn, mfn + 15);
-        else if ( ro_hpet )
-            rc |= rangeset_add_singleton(mmio_ro_ranges, mfn);
-    }
-
-    BUG_ON(rc != 0);
+    rc = setup_permissions(d);
+    if ( rc != 0 )
+        panic("Failed to setup Dom0 permissions");
 
     if ( elf_check_broken(&elf) )
         printk(" Xen warning: dom0 kernel broken ELF: %s\n",
@@ -1637,6 +1698,330 @@ out:
                elf_check_broken(&elf));
 
     return rc;
+}
+
+static void __init pretty_print_bytes(uint64_t size)
+{
+    const char* units[] = {"B", "KB", "MB", "GB", "TB"};
+    int i = 0;
+
+    while ( ++i < sizeof(units) && size >= 1024 )
+        size >>= 10; /* size /= 1024 */
+
+    printk("%4" PRIu64 "%2s", size, units[i-1]);
+}
+
+static inline unsigned int get_order(uint64_t size)
+{
+    unsigned int order;
+    uint64_t pg;
+
+    ASSERT((size & ~PAGE_MASK) == 0);
+    pg = PFN_DOWN(size);
+    for ( order = 0; pg >= (1 << (order + 1)); order++ );
+
+    return order;
+}
+
+/* Populate an HVM memory range using the biggest possible order. */
+static void __init populate_memory_range(struct domain *d, uint64_t start,
+                                         uint64_t size)
+{
+    static unsigned int __initdata memflags = MEMF_no_dma|MEMF_exact_node;
+    unsigned int order;
+    struct page_info *page;
+    int rc;
+
+    ASSERT((size & ~PAGE_MASK) == 0 && (start & ~PAGE_MASK) == 0);
+
+    order = MAX_ORDER;
+    while ( size != 0 )
+    {
+        order = min(get_order(size), order);
+        page = alloc_domheap_pages(d, order, memflags);
+        if ( page == NULL )
+        {
+            if ( order == 0 && memflags )
+            {
+                /* Try again without any memflags. */
+                memflags = 0;
+                order = MAX_ORDER;
+                continue;
+            }
+            if ( order == 0 )
+                panic("Unable to allocate memory with order 0!\n");
+            order--;
+            continue;
+        }
+
+        mem_stats[order]++;
+        rc = guest_physmap_add_page(d, PFN_DOWN(start), page_to_mfn(page),
+                                    order);
+        if ( rc != 0 )
+            panic("Failed to populate memory: [%" PRIx64 " - %" PRIx64 "] %d\n",
+                  start, start + (((uint64_t)1) << (order + PAGE_SHIFT)), rc);
+        start += ((uint64_t)1) << (order + PAGE_SHIFT);
+        size -= ((uint64_t)1) << (order + PAGE_SHIFT);
+        if ( (size & 0xffffffff) == 0 )
+            process_pending_softirqs();
+    }
+
+}
+
+static int __init construct_dom0_hvm(struct domain *d, const module_t *image,
+                                     unsigned long image_headroom,
+                                     module_t *initrd,
+                                     void *(*bootstrap_map)(const module_t *),
+                                     char *cmdline)
+{
+    char *image_base = bootstrap_map(image);
+    struct vcpu *saved_current;
+    unsigned long nr_pages, image_len = image->mod_end;
+    char *image_start = image_base + image_headroom;
+    struct hvm_start_info start_info;
+    struct hvm_modlist_entry mod;
+    vcpu_hvm_context_t cpu_ctx;
+    struct vcpu *v = d->vcpu[0];
+    struct elf_binary elf;
+    struct elf_dom_parms parms;
+    struct page_info *page;
+    uint32_t *ident_pt;
+    paddr_t last_addr;
+    int rc, i, cpu;
+
+    /* Sanity! */
+    BUG_ON(d->domain_id != 0);
+    BUG_ON(d->vcpu[0] == NULL);
+    BUG_ON(v->is_initialised);
+
+    process_pending_softirqs();
+
+    printk("*** Building a HVM Dom0 ***\n");
+
+    iommu_hwdom_init(d);
+
+    printk("** Parsing Dom0 kernel **\n");
+
+    if ( (rc = bzimage_parse(image_base, &image_start, &image_len)) != 0 )
+    {
+        printk("Error trying to detect bz compressed kernel\n");
+        return rc;
+    }
+
+    if ( (rc = elf_init(&elf, image_start, image_len)) != 0 )
+    {
+        printk("Unable to init ELF\n");
+        return rc;
+    }
+#ifdef VERBOSE
+    elf_set_verbose(&elf);
+#endif
+    elf_parse_binary(&elf);
+    if ( (rc = elf_xen_parse(&elf, &parms)) != 0 )
+    {
+        printk("Unable to parse kernel for ELFNOTES\n");
+        return rc;
+    }
+
+    if ( parms.phys_entry == UNSET_ADDR32 ) {
+        printk("Unable to find kernel entry point, aborting\n");
+        return -EINVAL;
+    }
+
+    printk("Dom0 kernel - OS: %s version: %s loader: %s\n", parms.guest_os,
+           parms.guest_ver, parms.loader);
+    printk("ELF format: %s ELF machine: %s\n",
+           elf_64bit(&elf) ? "64-bit" : "32-bit",
+           elf_uval(&elf, elf.ehdr, e_machine) == EM_386 ? "x86" : "x86-64");
+
+    /*
+     * XXX: additional checks for features? XENFEAT_dom0,
+     * XENFEAT_hvm_callback_vector...?
+     */
+
+    printk("** Preparing memory map **\n");
+
+    /* subtract one page to store the EPT identity page table. */
+    nr_pages = compute_dom0_nr_pages(d, NULL, 0) - 1;
+
+    /* XXX: rename to hvm_setup_e820 once PVH is removed. */
+    pvh_setup_e820(d, nr_pages);
+    paging_set_allocation(d, dom0_paging_pages(d, nr_pages + 1));
+
+    printk("Dom0 memory map:\n");
+    print_e820_memory_map(d->arch.e820, d->arch.nr_e820);
+
+    printk("** Populating memory map **\n");
+    /* Populate memory map. */
+    for ( i = 0; i < d->arch.nr_e820; i++ )
+    {
+        if ( d->arch.e820[i].type != E820_RAM )
+            continue;
+
+        populate_memory_range(d, d->arch.e820[i].addr, d->arch.e820[i].size);
+    }
+
+    printk("Memory allocation stats:\n");
+    for ( i = 0; i <= MAX_ORDER; i++ )
+    {
+        if ( mem_stats[MAX_ORDER - i] != 0 )
+        {
+            printk("Order %2u: ", MAX_ORDER - i);
+            pretty_print_bytes(((uint64_t)1 << (MAX_ORDER - i + PAGE_SHIFT)) *
+                               mem_stats[MAX_ORDER - i]);
+            printk("\n");
+        }
+    }
+
+    saved_current = current;
+    set_current(v);
+
+    if ( !paging_mode_hap(d) || !cpu_has_vmx )
+    {
+        /*
+         * Identity-map page table is required for running with CR0.PG=0
+         * when using Intel EPT. Create a 32-bit non-PAE page directory of
+         * superpages.
+         */
+        page = alloc_domheap_pages(d, 0, 0);
+        if ( unlikely(!page) )
+        {
+            printk("Unable to allocate page for identity map\n");
+            return -ENOMEM;
+        }
+        ident_pt = __map_domain_page(page);
+        for ( i = 0; i < PAGE_SIZE / sizeof(*ident_pt); i++ )
+            ident_pt[i] = ((i << 22) | _PAGE_PRESENT | _PAGE_RW | _PAGE_USER |
+                           _PAGE_ACCESSED | _PAGE_DIRTY | _PAGE_PSE);
+        unmap_domain_page(ident_pt);
+
+        guest_physmap_add_page(d, HVM_IDENT_PT_GFN, page_to_mfn(page), 0);
+        d->arch.hvm_domain.params[HVM_PARAM_IDENT_PT] =
+                                 HVM_IDENT_PT_GFN << PAGE_SHIFT;
+    }
+
+    printk("** Loading kernel **\n");
+    /* Copy the OS image and free temporary buffer. */
+    elf.dest_base = (void *)(parms.virt_kstart - parms.virt_base);
+    elf.dest_size = parms.virt_kend - parms.virt_kstart;
+    rc = elf_load_binary(&elf);
+    if ( rc < 0 )
+    {
+        printk("Failed to load kernel: %d\n", rc);
+        printk("Xen dom0 kernel broken ELF: %s\n", elf_check_broken(&elf));
+        return rc;
+    }
+    printk("Kernel loaded from %p - %p virt base: %p virt offset: %p\n",
+           _p(parms.virt_kstart), _p(parms.virt_kend), _p(parms.virt_base),
+           _p(parms.virt_offset));
+
+    last_addr = ROUNDUP(parms.virt_kend - parms.virt_base, PAGE_SIZE);
+    printk("** Copying modules **\n");
+
+    printk("last_addr: %#lx size: %d\n", last_addr,
+           initrd->mod_end - initrd->mod_start);
+    rc = hvm_copy_to_guest_phys(last_addr, mfn_to_virt(initrd->mod_start),
+                                initrd->mod_end - initrd->mod_start);
+    if ( rc != HVMCOPY_okay )
+    {
+        printk("Unable to copy initrd to guest: %d\n", rc);
+        return -EFAULT;
+    }
+
+    printk("Copied initrd to gfn %#lx\n", last_addr);
+    mod.paddr = last_addr;
+    mod.size = initrd->mod_end - initrd->mod_start;
+    last_addr += ROUNDUP(initrd->mod_end - initrd->mod_start, PAGE_SIZE);
+
+    /* Free temporary buffers. */
+    discard_initial_images();
+
+    printk("** Setting up start-of-day info **\n");
+
+    memset(&start_info, 0, sizeof(start_info));
+    if ( cmdline != NULL )
+    {
+        rc = hvm_copy_to_guest_phys(last_addr, cmdline, strlen(cmdline) + 1);
+        if ( rc != HVMCOPY_okay )
+            return -EFAULT;
+        start_info.cmdline_paddr = last_addr;
+        last_addr += ROUNDUP(strlen(cmdline) + 1, 8);
+    }
+    rc = hvm_copy_to_guest_phys(last_addr, &mod, sizeof(mod));
+    if ( rc != HVMCOPY_okay )
+        return -EFAULT;
+    start_info.modlist_paddr = last_addr;
+    start_info.nr_modules = 1;
+    last_addr += sizeof(mod);
+    start_info.magic = XEN_HVM_START_MAGIC_VALUE;
+    start_info.flags = SIF_PRIVILEGED | SIF_INITDOMAIN;
+    rc = hvm_copy_to_guest_phys(last_addr, &start_info, sizeof(start_info));
+    if ( rc != HVMCOPY_okay )
+        return -EFAULT;
+
+    set_current(saved_current);
+
+    update_domain_wallclock_time(d);
+
+    printk("** Setting up BSP/APs **\n");
+
+    cpu = v->processor;
+    for ( i = 1; i < d->max_vcpus; i++ )
+    {
+        cpu = cpumask_cycle(cpu, &dom0_cpus);
+        setup_dom0_vcpu(d, i, cpu);
+    }
+
+    memset(&cpu_ctx, 0, sizeof(cpu_ctx));
+
+    cpu_ctx.mode = VCPU_HVM_MODE_32B;
+
+    cpu_ctx.cpu_regs.x86_32.ebx = last_addr;
+    cpu_ctx.cpu_regs.x86_32.eip = parms.phys_entry;
+    cpu_ctx.cpu_regs.x86_32.cr0 = X86_CR0_PE | X86_CR0_ET;
+
+    cpu_ctx.cpu_regs.x86_32.cs_limit = ~0u;
+    cpu_ctx.cpu_regs.x86_32.ds_limit = ~0u;
+    cpu_ctx.cpu_regs.x86_32.ss_limit = ~0u;
+    cpu_ctx.cpu_regs.x86_32.tr_limit = 0x67;
+    cpu_ctx.cpu_regs.x86_32.cs_ar = 0xc9b;
+    cpu_ctx.cpu_regs.x86_32.ds_ar = 0xc93;
+    cpu_ctx.cpu_regs.x86_32.ss_ar = 0xc93;
+    cpu_ctx.cpu_regs.x86_32.tr_ar = 0x8b;
+
+    rc = arch_set_info_hvm_guest(v, &cpu_ctx);
+    if ( rc != 0 )
+    {
+        printk("Unable to setup Dom0 BSP context: %d\n", rc);
+        return rc;
+    }
+
+    rc = setup_permissions(d);
+    if ( rc != 0 )
+        panic("Failed to setup Dom0 permissions");
+
+    clear_bit(_VPF_down, &v->pause_flags);
+
+    printk("** Building Dom0 done **\n");
+
+    return 0;
+}
+
+int __init construct_dom0(struct domain *d, const module_t *image,
+                          unsigned long image_headroom, module_t *initrd,
+                          void *(*bootstrap_map)(const module_t *),
+                          char *cmdline)
+{
+
+    if ( is_hvm_domain(d) ) {
+        printk("Dom0 is HVM\n");
+        return construct_dom0_hvm(d, image, image_headroom, initrd,
+                                  bootstrap_map, cmdline);
+    }
+
+    printk("Dom0 is PV\n");
+    return construct_dom0_pv(d, image, image_headroom, initrd, bootstrap_map,
+                             cmdline);
 }
 
 /*
