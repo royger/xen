@@ -1609,12 +1609,7 @@ shadow_free_p2m_page(struct domain *d, struct page_info *pg)
     paging_unlock(d);
 }
 
-/* Set the pool of shadow pages to the required number of pages.
- * Input will be rounded up to at least shadow_min_acceptable_pages(),
- * plus space for the p2m table.
- * Returns 0 for success, non-zero for failure. */
-static int sh_set_allocation(struct domain *d, unsigned long pages,
-                             int *preempted)
+int sh_set_allocation(struct domain *d, unsigned long pages, bool *preempted)
 {
     struct page_info *sp;
     unsigned int lower_bound;
@@ -1682,7 +1677,7 @@ static int sh_set_allocation(struct domain *d, unsigned long pages,
              (is_idle_vcpu(current) ? softirq_pending(smp_processor_id()) :
                                       hypercall_preempt_check()) )
         {
-            *preempted = 1;
+            *preempted = true;
             return 0;
         }
     }
@@ -3238,7 +3233,7 @@ int shadow_enable(struct domain *d, u32 mode)
     return rv;
 }
 
-void shadow_teardown(struct domain *d, int *preempted)
+void shadow_teardown(struct domain *d, bool *preempted)
 /* Destroy the shadow pagetables of this domain and free its shadow memory.
  * Should only be called for dying domains. */
 {
@@ -3875,7 +3870,8 @@ int shadow_domctl(struct domain *d,
                   xen_domctl_shadow_op_t *sc,
                   XEN_GUEST_HANDLE_PARAM(void) u_domctl)
 {
-    int rc, preempted = 0;
+    int rc;
+    bool preempted = false;
 
     switch ( sc->op )
     {
