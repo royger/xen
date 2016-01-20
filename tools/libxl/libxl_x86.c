@@ -7,15 +7,38 @@ int libxl__arch_domain_prepare_config(libxl__gc *gc,
                                       libxl_domain_config *d_config,
                                       xc_domain_configuration_t *xc_config)
 {
+    struct libxl_domain_build_info *info = &d_config->b_info;
 
-    if (d_config->c_info.type == LIBXL_DOMAIN_TYPE_HVM &&
-        d_config->b_info.device_model_version !=
-        LIBXL_DEVICE_MODEL_VERSION_NONE) {
-        /* HVM domains with a device model. */
+    if (d_config->c_info.type == LIBXL_DOMAIN_TYPE_PV) {
+        /* PV guests. */
+        xc_config->emulation_flags = XEN_X86_EMU_PIT;
+    } else if (info->device_model_version != LIBXL_DEVICE_MODEL_VERSION_NONE) {
+        /* HVM guests with a device model. */
         xc_config->emulation_flags = XEN_X86_EMU_ALL;
     } else {
-        /* PV or HVM domains without a device model. */
+        /* HVM guests without a device model. */
         xc_config->emulation_flags = 0;
+
+        if (libxl_defbool_val(info->u.hvm.lapic))
+            xc_config->emulation_flags |= XEN_X86_EMU_LAPIC;
+        if (libxl_defbool_val(info->u.hvm.ioapic))
+            xc_config->emulation_flags |= XEN_X86_EMU_IOAPIC;
+        if (libxl_defbool_val(info->u.hvm.rtc))
+            xc_config->emulation_flags |= XEN_X86_EMU_RTC;
+        if (libxl_defbool_val(info->u.hvm.power_management))
+            xc_config->emulation_flags |= XEN_X86_EMU_PM;
+        if (libxl_defbool_val(info->u.hvm.pic))
+            xc_config->emulation_flags |= XEN_X86_EMU_PIC;
+        if (libxl_defbool_val(info->u.hvm.pit))
+            xc_config->emulation_flags |= XEN_X86_EMU_PIT;
+        if (libxl_defbool_val(info->u.hvm.hpet))
+            xc_config->emulation_flags |= XEN_X86_EMU_HPET;
+
+        if (info->u.hvm.vga.kind != LIBXL_VGA_INTERFACE_TYPE_NONE)
+            xc_config->emulation_flags |= XEN_X86_EMU_VGA;
+
+        if (d_config->num_pcidevs != 0)
+            xc_config->emulation_flags |= XEN_X86_EMU_IOMMU;
     }
 
     return 0;

@@ -876,6 +876,17 @@ void libxl_mac_copy(libxl_ctx *ctx, libxl_mac *dst, libxl_mac *src);
  */
 #define LIBXL_HAVE_DEVICE_MODEL_VERSION_NONE 1
 
+/*
+ * LIBXL_HAVE_EMULATED_DEVS_OPTIONS
+ *
+ * In the case that LIBXL_HAVE_EMULATED_DEVS_OPTIONS is set libxl
+ * allows enabling or disabling emulated devices for HVM guests
+ * without a device model. The following fields are added to the
+ * hvm structure inside of libxl_domain_build_info: lapic, ioapic,
+ * rtc, power_management, pic, pit.
+ */
+#define LIBXL_HAVE_EMULATED_DEVS_OPTIONS 1
+
 typedef char **libxl_string_list;
 void libxl_string_list_dispose(libxl_string_list *sl);
 int libxl_string_list_length(const libxl_string_list *sl);

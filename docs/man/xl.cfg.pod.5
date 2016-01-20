@@ -1762,6 +1762,45 @@ See F<docs/misc/pci-device-reservations.txt> for more information.
 
 =back
 
+=head3 HVM without a device model options
+
+This options can be used to change the set of emulated devices provided
+to guests without a device model. Note that Xen might not support all
+possible combinations. By default HVM guests without a device model
+don't have any of them enabled.
+
+=over 4
+
+=item B<lapic=BOOLEAN>
+
+Enables or disables the Local APIC.
+
+=item B<ioapic=BOOLEAN>
+
+Enables or disables the IO APIC.
+
+=item B<rtc=BOOLEAN>
+
+Enables or disables the RTC.
+
+=item B<power_management=BOOLEAN>
+
+Enables or disables the ACPI power management timer and control interfaces.
+
+=item B<pic=BOOLEAN>
+
+Enables or disables the PIC.
+
+=item B<pit=BOOLEAN>
+
+Enables or disables the PIT.
+
+=item B<hpet=BOOLEAN>
+
+Enables or disables the HPET.
+
+=back
+
 =head2 Device-Model Options
 
 The following options control the selection of the device-model.  This

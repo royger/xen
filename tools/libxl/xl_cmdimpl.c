@@ -1514,6 +1514,13 @@ static void parse_config_data(const char *config_source,
         xlu_cfg_get_defbool(config, "acpi_s4", &b_info->u.hvm.acpi_s4, 0);
         xlu_cfg_get_defbool(config, "nx", &b_info->u.hvm.nx, 0);
         xlu_cfg_get_defbool(config, "hpet", &b_info->u.hvm.hpet, 0);
+        xlu_cfg_get_defbool(config, "lapic", &b_info->u.hvm.lapic, 0);
+        xlu_cfg_get_defbool(config, "ioapic", &b_info->u.hvm.ioapic, 0);
+        xlu_cfg_get_defbool(config, "rtc", &b_info->u.hvm.rtc, 0);
+        xlu_cfg_get_defbool(config, "power_management",
+                            &b_info->u.hvm.power_management, 0);
+        xlu_cfg_get_defbool(config, "pic", &b_info->u.hvm.pic, 0);
+        xlu_cfg_get_defbool(config, "pit", &b_info->u.hvm.pit, 0);
         xlu_cfg_get_defbool(config, "vpt_align", &b_info->u.hvm.vpt_align, 0);
 
         switch (xlu_cfg_get_list(config, "viridian",
