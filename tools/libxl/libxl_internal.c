@@ -551,6 +551,31 @@ void libxl__update_domain_configuration(libxl__gc *gc,
 
     /* video ram */
     dst->b_info.video_memkb = src->b_info.video_memkb;
+
+    if (src->b_info.type == LIBXL_DOMAIN_TYPE_HVM) {
+#define check_and_save_hvm_field(src, dst, field)                           \
+    if (!libxl_defbool_is_default((src)->u.hvm.field))                      \
+        libxl_defbool_setdefault(&(dst)->u.hvm.field,                       \
+                                 libxl_defbool_val((src)->u.hvm.field))
+
+        /*
+         * Save the status of emulated devices.
+         *
+         * For HVMlite guests all those fields are forced to a specific
+         * value, so they are always saved. For HVM guests only the HPET
+         * one is used and thus set.
+         */
+        check_and_save_hvm_field(&src->b_info, &dst->b_info, hpet);
+        check_and_save_hvm_field(&src->b_info, &dst->b_info, lapic);
+        check_and_save_hvm_field(&src->b_info, &dst->b_info, ioapic);
+        check_and_save_hvm_field(&src->b_info, &dst->b_info, rtc);
+        check_and_save_hvm_field(&src->b_info, &dst->b_info, power_management);
+        check_and_save_hvm_field(&src->b_info, &dst->b_info, pic);
+        check_and_save_hvm_field(&src->b_info, &dst->b_info, pit);
+#undef check_and_save_hvm_field
+
+        dst->b_info.u.hvm.vga.kind = src->b_info.u.hvm.vga.kind;
+    }
 }
 
 char *libxl__device_model_xs_path(libxl__gc *gc, uint32_t dm_domid,

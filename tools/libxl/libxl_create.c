@@ -295,12 +295,36 @@ int libxl__domain_build_info_setdefault(libxl__gc *gc,
         libxl_defbool_setdefault(&b_info->u.hvm.acpi_s4,            true);
         libxl_defbool_setdefault(&b_info->u.hvm.nx,                 true);
         libxl_defbool_setdefault(&b_info->u.hvm.viridian,           false);
-        libxl_defbool_setdefault(&b_info->u.hvm.hpet,               true);
         libxl_defbool_setdefault(&b_info->u.hvm.vpt_align,          true);
         libxl_defbool_setdefault(&b_info->u.hvm.nested_hvm,         false);
         libxl_defbool_setdefault(&b_info->u.hvm.altp2m,             false);
         libxl_defbool_setdefault(&b_info->u.hvm.usb,                false);
         libxl_defbool_setdefault(&b_info->u.hvm.xen_platform_pci,   true);
+
+        if (b_info->device_model_version == LIBXL_DEVICE_MODEL_VERSION_NONE)
+        {
+            libxl_defbool_setdefault(&b_info->u.hvm.hpet,               false);
+            libxl_defbool_setdefault(&b_info->u.hvm.lapic,              false);
+            libxl_defbool_setdefault(&b_info->u.hvm.ioapic,             false);
+            libxl_defbool_setdefault(&b_info->u.hvm.rtc,                false);
+            libxl_defbool_setdefault(&b_info->u.hvm.power_management,   false);
+            libxl_defbool_setdefault(&b_info->u.hvm.pic,                false);
+            libxl_defbool_setdefault(&b_info->u.hvm.pit,                false);
+        } else {
+            libxl_defbool_setdefault(&b_info->u.hvm.hpet,               true);
+
+            if (!libxl_defbool_is_default(b_info->u.hvm.lapic) ||
+                !libxl_defbool_is_default(b_info->u.hvm.ioapic) ||
+                !libxl_defbool_is_default(b_info->u.hvm.rtc) ||
+                !libxl_defbool_is_default(b_info->u.hvm.power_management) ||
+                !libxl_defbool_is_default(b_info->u.hvm.pic) ||
+                !libxl_defbool_is_default(b_info->u.hvm.pit)) {
+                LOG(ERROR, "the lapic, ioapic, rtc, power_management, pic and "
+                           "pit options are only available to HVM guests "
+                           "without a device model");
+                return ERROR_INVAL;
+            }
+        }
 
         libxl_defbool_setdefault(&b_info->u.hvm.spice.enable, false);
         if (!libxl_defbool_val(b_info->u.hvm.spice.enable) &&
