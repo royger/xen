@@ -78,12 +78,17 @@
  * HVM-specific features
  * EAX: Features
  * EBX: vcpu id (iff EAX has XEN_HVM_CPUID_VCPU_ID_PRESENT flag)
+ * ECX: bitmap of enabled devices, according to the bit fields defined in
+ *      arch-x86/xen.h. All unused bits have undefined values. The contents
+ *      of this register is only valid if EAX has the
+ *      XEN_HVM_CPUID_DEVICES_BITMAP flag set.
  */
 #define XEN_HVM_CPUID_APIC_ACCESS_VIRT (1u << 0) /* Virtualized APIC registers */
 #define XEN_HVM_CPUID_X2APIC_VIRT      (1u << 1) /* Virtualized x2APIC accesses */
 /* Memory mapped from other domains has valid IOMMU entries */
 #define XEN_HVM_CPUID_IOMMU_MAPPINGS   (1u << 2)
 #define XEN_HVM_CPUID_VCPU_ID_PRESENT  (1u << 3) /* vcpu id is present in EBX */
+#define XEN_HVM_CPUID_DEVICES_BITMAP   (1u << 4) /* device bitmap in ECX */
 
 #define XEN_CPUID_MAX_NUM_LEAVES 4
 
