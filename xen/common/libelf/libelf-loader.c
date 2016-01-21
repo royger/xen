@@ -153,7 +153,7 @@ void elf_parse_bsdsyms(struct elf_binary *elf, uint64_t pstart)
 {
     uint64_t sz;
     ELF_HANDLE_DECL(elf_shdr) shdr;
-    unsigned i, type;
+    unsigned int i;
 
     if ( !ELF_HANDLE_VALID(elf->sym_tab) )
         return;
@@ -164,20 +164,33 @@ void elf_parse_bsdsyms(struct elf_binary *elf, uint64_t pstart)
     sz = sizeof(uint32_t);
 
     /* Space for the elf and elf section headers */
-    sz += (elf_uval(elf, elf->ehdr, e_ehsize) +
-           elf_shdr_count(elf) * elf_uval(elf, elf->ehdr, e_shentsize));
+    sz += elf_uval(elf, elf->ehdr, e_ehsize) +
+          3 * elf_uval(elf, elf->ehdr, e_shentsize);
     sz = elf_round_up(elf, sz);
 
-    /* Space for the symbol and string tables. */
+    /* Space for the symbol and string table. */
     for ( i = 0; i < elf_shdr_count(elf); i++ )
     {
         shdr = elf_shdr_by_index(elf, i);
         if ( !elf_access_ok(elf, ELF_HANDLE_PTRVAL(shdr), 1) )
             /* input has an insane section header count field */
             break;
-        type = elf_uval(elf, shdr, sh_type);
-        if ( (type == SHT_STRTAB) || (type == SHT_SYMTAB) )
-            sz = elf_round_up(elf, sz + elf_uval(elf, shdr, sh_size));
+
+        if ( elf_uval(elf, shdr, sh_type) != SHT_SYMTAB )
+            continue;
+
+        sz = elf_round_up(elf, sz + elf_uval(elf, shdr, sh_size));
+        shdr = elf_shdr_by_index(elf, elf_uval(elf, shdr, sh_link));
+
+        if ( !elf_access_ok(elf, ELF_HANDLE_PTRVAL(shdr), 1) )
+            /* input has an insane section header count field */
+            break;
+
+        if ( elf_uval(elf, shdr, sh_type) != SHT_STRTAB )
+            /* Invalid symtab -> strtab link */
+            break;
+
+        sz = elf_round_up(elf, sz + elf_uval(elf, shdr, sh_size));
     }
 
     elf->bsd_symtab_pstart = pstart;
@@ -186,13 +199,31 @@ void elf_parse_bsdsyms(struct elf_binary *elf, uint64_t pstart)
 
 static void elf_load_bsdsyms(struct elf_binary *elf)
 {
-    ELF_HANDLE_DECL(elf_ehdr) sym_ehdr;
-    unsigned long sz;
-    elf_ptrval maxva;
-    elf_ptrval symbase;
-    elf_ptrval symtab_addr;
-    ELF_HANDLE_DECL(elf_shdr) shdr;
-    unsigned i, type;
+    /*
+     * Header that is placed at the end of the kernel and allows
+     * the OS to find where the symtab and strtab have been loaded.
+     * It mimics a valid ELF file header, although it only contains
+     * a symtab and a strtab section.
+     *
+     * NB: according to the ELF spec there's only ONE symtab per ELF
+     * file, and accordingly we will only load the corresponding
+     * strtab, so we only need three section headers in our fake ELF
+     * header (first section header is always a dummy).
+     */
+    struct __packed {
+        elf_ehdr header;
+        elf_shdr section[3];
+    } symbol_header;
+
+    ELF_HANDLE_DECL(elf_ehdr) header_handle;
+    unsigned long shdr_size;
+    uint32_t symsize;
+    ELF_HANDLE_DECL(elf_shdr) section_handle;
+    ELF_HANDLE_DECL(elf_shdr) image_handle;
+    unsigned int i, link;
+    elf_ptrval header_base;
+    elf_ptrval symtab_base;
+    elf_ptrval strtab_base;
 
     if ( !elf->bsd_symtab_pstart )
         return;
@@ -200,64 +231,136 @@ static void elf_load_bsdsyms(struct elf_binary *elf)
 #define elf_hdr_elm(_elf, _hdr, _elm, _val)     \
 do {                                            \
     if ( elf_64bit(_elf) )                      \
-        elf_store_field(_elf, _hdr, e64._elm, _val);  \
+        (_hdr).e64._elm = _val;                 \
     else                                        \
-        elf_store_field(_elf, _hdr, e32._elm, _val);  \
+        (_hdr).e32._elm = _val;                 \
 } while ( 0 )
 
-    symbase = elf_get_ptr(elf, elf->bsd_symtab_pstart);
-    symtab_addr = maxva = symbase + sizeof(uint32_t);
+#define SYMTAB_INDEX    1
+#define STRTAB_INDEX    2
 
-    /* Set up Elf header. */
-    sym_ehdr = ELF_MAKE_HANDLE(elf_ehdr, symtab_addr);
-    sz = elf_uval(elf, elf->ehdr, e_ehsize);
-    elf_memcpy_safe(elf, ELF_HANDLE_PTRVAL(sym_ehdr), ELF_HANDLE_PTRVAL(elf->ehdr), sz);
-    maxva += sz; /* no round up */
+    /* Allow elf_memcpy_safe to write to symbol_header. */
+    elf->caller_xdest_base = &symbol_header;
+    elf->caller_xdest_size = sizeof(symbol_header);
 
-    elf_hdr_elm(elf, sym_ehdr, e_phoff, 0);
-    elf_hdr_elm(elf, sym_ehdr, e_shoff, elf_uval(elf, elf->ehdr, e_ehsize));
-    elf_hdr_elm(elf, sym_ehdr, e_phentsize, 0);
-    elf_hdr_elm(elf, sym_ehdr, e_phnum, 0);
+    /*
+     * Calculate the position of the various elements in GUEST MEMORY SPACE.
+     * This addresses MUST only be used with elf_load_image.
+     *
+     * NB: strtab_base cannot be calculated at this point because we don't
+     * know the size of the symtab yet, and the strtab will be placed after it.
+     */
+    header_base = elf_get_ptr(elf, elf->bsd_symtab_pstart) + sizeof(uint32_t);
+    symtab_base = elf_round_up(elf, header_base + sizeof(symbol_header));
 
-    /* Copy Elf section headers. */
-    shdr = ELF_MAKE_HANDLE(elf_shdr, maxva);
-    sz = elf_shdr_count(elf) * elf_uval(elf, elf->ehdr, e_shentsize);
-    elf_memcpy_safe(elf, ELF_HANDLE_PTRVAL(shdr),
-                    ELF_IMAGE_BASE(elf) + elf_uval(elf, elf->ehdr, e_shoff),
-                    sz);
-    maxva = elf_round_up(elf, (unsigned long)maxva + sz);
+    /* Fill the ELF header, copied from the original ELF header. */
+    header_handle = ELF_MAKE_HANDLE(elf_ehdr,
+                                    ELF_REALPTR2PTRVAL(&symbol_header.header));
+    elf_memcpy_safe(elf, ELF_HANDLE_PTRVAL(header_handle),
+                    ELF_HANDLE_PTRVAL(elf->ehdr),
+                    elf_uval(elf, elf->ehdr, e_ehsize));
 
+    /* Set the offset to the shdr array. */
+    elf_hdr_elm(elf, symbol_header.header, e_shoff,
+                offsetof(typeof(symbol_header), section));
+
+    /* Set the right number of section headers. */
+    elf_hdr_elm(elf, symbol_header.header, e_shnum, 3);
+
+    /* Clear a couple of fields we don't use. */
+    elf_hdr_elm(elf, symbol_header.header, e_phoff, 0);
+    elf_hdr_elm(elf, symbol_header.header, e_phentsize, 0);
+    elf_hdr_elm(elf, symbol_header.header, e_phnum, 0);
+
+    /* Zero the dummy section. */
+    section_handle = ELF_MAKE_HANDLE(elf_shdr,
+                     ELF_REALPTR2PTRVAL(&symbol_header.section[SHN_UNDEF]));
+    shdr_size = elf_uval(elf, elf->ehdr, e_shentsize);
+    elf_memset_safe(elf, ELF_HANDLE_PTRVAL(section_handle), 0, shdr_size);
+
+    /*
+     * Find the actual symtab and strtab in the ELF.
+     *
+     * The symtab section header is going to reside in section[SYMTAB_INDEX],
+     * while the corresponding strtab is going to be placed in
+     * section[STRTAB_INDEX]. sh_offset is mangled so it points to the offset
+     * where the sections are actually loaded (relative to the ELF header
+     * location).
+     */
+    section_handle = ELF_MAKE_HANDLE(elf_shdr,
+                     ELF_REALPTR2PTRVAL(&symbol_header.section[SYMTAB_INDEX]));
     for ( i = 0; i < elf_shdr_count(elf); i++ )
     {
-        elf_ptrval old_shdr_p;
-        elf_ptrval new_shdr_p;
 
-        type = elf_uval(elf, shdr, sh_type);
-        if ( (type == SHT_STRTAB) || (type == SHT_SYMTAB) )
+        image_handle = elf_shdr_by_index(elf, i);
+        if ( elf_uval(elf, image_handle, sh_type) != SHT_SYMTAB )
+            continue;
+
+        elf_memcpy_safe(elf, ELF_HANDLE_PTRVAL(section_handle),
+                        ELF_HANDLE_PTRVAL(image_handle),
+                        shdr_size);
+
+        link = elf_uval(elf, section_handle, sh_link);
+        if ( link == SHN_UNDEF )
         {
-             elf_msg(elf, "%s: shdr %i at 0x%"ELF_PRPTRVAL" -> 0x%"ELF_PRPTRVAL"\n", __func__, i,
-                     elf_section_start(elf, shdr), maxva);
-             sz = elf_uval(elf, shdr, sh_size);
-             elf_memcpy_safe(elf, maxva, elf_section_start(elf, shdr), sz);
-             /* Mangled to be based on ELF header location. */
-             elf_hdr_elm(elf, shdr, sh_offset, maxva - symtab_addr);
-             maxva = elf_round_up(elf, (unsigned long)maxva + sz);
-        }
-        old_shdr_p = ELF_HANDLE_PTRVAL(shdr);
-        new_shdr_p = old_shdr_p + elf_uval(elf, elf->ehdr, e_shentsize);
-        if ( new_shdr_p <= old_shdr_p ) /* wrapped or stuck */
-        {
-            elf_mark_broken(elf, "bad section header length");
+            elf_mark_broken(elf, "bad link in symtab");
             break;
         }
-        if ( !elf_access_ok(elf, new_shdr_p, 1) ) /* outside image */
+
+        /* Load symtab into guest memory. */
+        elf_load_image(elf, symtab_base, elf_section_start(elf, section_handle),
+                       elf_uval(elf, section_handle, sh_size),
+                       elf_uval(elf, section_handle, sh_size));
+        elf_hdr_elm(elf, symbol_header.section[SYMTAB_INDEX], sh_offset,
+                    symtab_base - header_base);
+        elf_hdr_elm(elf, symbol_header.section[SYMTAB_INDEX], sh_link,
+                    STRTAB_INDEX);
+
+        /* Calculate the guest address where strtab is loaded. */
+        strtab_base = elf_round_up(elf, symtab_base +
+                                   elf_uval(elf, section_handle, sh_size));
+
+        /* Load strtab section header. */
+        section_handle = ELF_MAKE_HANDLE(elf_shdr,
+                    ELF_REALPTR2PTRVAL(&symbol_header.section[STRTAB_INDEX]));
+        elf_memcpy_safe(elf, ELF_HANDLE_PTRVAL(section_handle),
+                        ELF_HANDLE_PTRVAL(elf_shdr_by_index(elf, link)),
+                        shdr_size);
+
+        if ( elf_uval(elf, section_handle, sh_type) != SHT_STRTAB )
+        {
+            elf_mark_broken(elf, "strtab not found");
             break;
-        shdr = ELF_MAKE_HANDLE(elf_shdr, new_shdr_p);
+        }
+
+        /* Load strtab into guest memory. */
+        elf_load_image(elf, strtab_base, elf_section_start(elf, section_handle),
+                       elf_uval(elf, section_handle, sh_size),
+                       elf_uval(elf, section_handle, sh_size));
+        elf_hdr_elm(elf, symbol_header.section[STRTAB_INDEX], sh_offset,
+                    strtab_base - header_base);
+
+        /* Store the whole size (including headers and loaded sections). */
+        symsize = strtab_base + elf_uval(elf, section_handle, sh_size) -
+                  header_base;
+        break;
     }
 
-    /* Write down the actual sym size. */
-    elf_store_val(elf, uint32_t, symbase, maxva - symtab_addr);
+    /* Load the total size at symtab_pstart. */
+    elf_load_image(elf, elf_get_ptr(elf, elf->bsd_symtab_pstart),
+                   ELF_REALPTR2PTRVAL(&symsize), sizeof(symsize),
+                   sizeof(symsize));
 
+    /* Load the headers. */
+    elf_load_image(elf, header_base, ELF_REALPTR2PTRVAL(&symbol_header),
+                   sizeof(symbol_header), sizeof(symbol_header));
+
+    /* Remove permissions from elf_memcpy_safe. */
+    elf->caller_xdest_base = NULL;
+    elf->caller_xdest_size = 0;
+
+#undef SYMTAB_INDEX
+#undef STRTAB_INDEX
 #undef elf_ehdr_elm
 }
 
