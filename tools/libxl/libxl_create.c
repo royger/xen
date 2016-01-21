@@ -892,6 +892,12 @@ static void initiate_domain_create(libxl__egc *egc,
         goto error_out;
     }
 
+    ret = libxl__domain_build_info_setdefault(gc, &d_config->b_info);
+    if (ret) {
+        LOG(ERROR, "Unable to set domain build info defaults");
+        goto error_out;
+    }
+
     ret = libxl__domain_make(gc, d_config, &domid, &state->config);
     if (ret) {
         LOG(ERROR, "cannot make domain: %d", ret);
@@ -902,12 +908,6 @@ static void initiate_domain_create(libxl__egc *egc,
 
     dcs->guest_domid = domid;
     dcs->dmss.dm.guest_domid = 0; /* means we haven't spawned */
-
-    ret = libxl__domain_build_info_setdefault(gc, &d_config->b_info);
-    if (ret) {
-        LOG(ERROR, "Unable to set domain build info defaults");
-        goto error_out;
-    }
 
     if (d_config->c_info.type == LIBXL_DOMAIN_TYPE_HVM &&
         (libxl_defbool_val(d_config->b_info.u.hvm.nested_hvm) &&
