@@ -876,6 +876,16 @@ void libxl_mac_copy(libxl_ctx *ctx, libxl_mac *dst, libxl_mac *src);
  */
 #define LIBXL_HAVE_DEVICE_MODEL_VERSION_NONE 1
 
+/*
+ * LIBXL_HAVE_VGA_INTERFACE_TYPE_UNKNOWN
+ *
+ * In the case that LIBXL_HAVE_VGA_INTERFACE_TYPE_UNKNOWN is set the
+ * libxl_vga_interface_type enumeration type contains a
+ * LIBXL_VGA_INTERFACE_TYPE_UNKNOWN identifier. This is used to signal
+ * that a libxl_vga_interface_type type has not been initialized yet.
+ */
+#define LIBXL_HAVE_VGA_INTERFACE_TYPE_UNKNOWN 1
+
 typedef char **libxl_string_list;
 void libxl_string_list_dispose(libxl_string_list *sl);
 int libxl_string_list_length(const libxl_string_list *sl);
