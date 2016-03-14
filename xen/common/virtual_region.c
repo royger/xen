@@ -33,7 +33,6 @@ static struct virtual_region core_init __initdata = {
  * on deletion.
  *
  * All readers of virtual_region_list MUST use list list_for_each_entry_rcu.
- *
  */
 static LIST_HEAD(virtual_region_list);
 static DEFINE_SPINLOCK(virtual_region_lock);
