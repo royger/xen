@@ -1167,9 +1167,9 @@ static int libxl__build_device_model_args_new(libxl__gc *gc,
             int disk, part;
             int dev_number =
                 libxl__device_disk_dev_number(disks[i].vdev, &disk, &part);
-            const char *format = qemu_disk_format_string(disks[i].format);
+            const char *format;
             char *drive;
-            const char *pdev_path;
+            const char *target_path;
 
             if (dev_number == -1) {
                 LOG(WARN, "unable to determine"" disk number for %s",
@@ -1177,22 +1177,22 @@ static int libxl__build_device_model_args_new(libxl__gc *gc,
                 continue;
             }
 
-            if (disks[i].is_cdrom) {
-                if (disks[i].format == LIBXL_DISK_FORMAT_EMPTY)
-                    drive = libxl__sprintf
-                        (gc, "if=ide,index=%d,readonly=%s,media=cdrom,cache=writeback,id=ide-%i",
-                         disk, disks[i].readwrite ? "off" : "on", dev_number);
-                else
-                    drive = libxl__sprintf
-                        (gc, "file=%s,if=ide,index=%d,readonly=%s,media=cdrom,format=%s,cache=writeback,id=ide-%i",
-                         disks[i].pdev_path, disk, disks[i].readwrite ? "off" : "on", format, dev_number);
-            } else {
-                if (disks[i].format == LIBXL_DISK_FORMAT_EMPTY) {
+            /* 
+             * If qemu isn't doing the interpreting, the parameter is
+             * always raw
+             */
+            if (disks[i].backend == LIBXL_DISK_BACKEND_QDISK)
+                format = qemu_disk_format_string(disks[i].format);
+            else
+                format = qemu_disk_format_string(LIBXL_DISK_FORMAT_RAW);
+
+            if (disks[i].format == LIBXL_DISK_FORMAT_EMPTY) {
+                if (!disks[i].is_cdrom) {
                     LOG(WARN, "cannot support"" empty disk format for %s",
                         disks[i].vdev);
                     continue;
                 }
-
+            } else {
                 if (format == NULL) {
                     LOG(WARN,
                         "unable to determine"" disk image format %s",
@@ -1200,14 +1200,22 @@ static int libxl__build_device_model_args_new(libxl__gc *gc,
                     continue;
                 }
 
-                if (disks[i].backend == LIBXL_DISK_BACKEND_TAP) {
-                    format = qemu_disk_format_string(LIBXL_DISK_FORMAT_RAW);
-                    pdev_path = libxl__blktap_devpath(gc, disks[i].pdev_path,
-                                                      disks[i].format);
-                } else {
-                    pdev_path = disks[i].pdev_path;
-                }
+                if (disks[i].backend == LIBXL_DISK_BACKEND_TAP)
+                    target_path = libxl__blktap_devpath(gc, disks[i].pdev_path,
+                                                        disks[i].format);
+                else     
+                    target_path = disks[i].pdev_path;
+            }
 
+            if (disks[i].is_cdrom) {
+                drive = libxl__sprintf(gc,
+                         "if=ide,index=%d,readonly=%s,media=cdrom,cache=writeback,id=ide-%i",
+                         disk, disks[i].readwrite ? "off" : "on", dev_number);
+
+                if (target_path)
+                    drive = libxl__sprintf(gc, "%s,file=%s,format=%s",
+                                           drive, target_path, format);
+            } else {
                 /*
                  * Explicit sd disks are passed through as is.
                  *
@@ -1215,9 +1223,10 @@ static int libxl__build_device_model_args_new(libxl__gc *gc,
                  * hd[a-d] and ignore the rest.
                  */
                 if (strncmp(disks[i].vdev, "sd", 2) == 0) {
-                    drive = libxl__sprintf
-                        (gc, "file=%s,if=scsi,bus=0,unit=%d,format=%s,readonly=%s,cache=writeback",
-                         pdev_path, disk, format, disks[i].readwrite ? "off" : "on");
+                    drive = libxl__sprintf(gc,
+                             "file=%s,if=scsi,bus=0,unit=%d,format=%s,readonly=%s,cache=writeback",
+                             target_path, disk, format,
+                             disks[i].readwrite ? "off" : "on");
                 } else if (strncmp(disks[i].vdev, "xvd", 3) == 0) {
                     /*
                      * Do not add any emulated disk when PV disk are
@@ -1231,7 +1240,7 @@ static int libxl__build_device_model_args_new(libxl__gc *gc,
                     }
                     flexarray_vappend(dm_args, "-drive",
                         GCSPRINTF("file=%s,if=none,id=ahcidisk-%d,format=%s,cache=writeback",
-                        pdev_path, disk, format),
+                        target_path, disk, format),
                         "-device", GCSPRINTF("ide-hd,bus=ahci0.%d,unit=0,drive=ahcidisk-%d",
                         disk, disk), NULL);
                     continue;
@@ -1242,7 +1251,7 @@ static int libxl__build_device_model_args_new(libxl__gc *gc,
                     }
                     drive = libxl__sprintf
                         (gc, "file=%s,if=ide,index=%d,media=disk,format=%s,cache=writeback",
-                         pdev_path, disk, format);
+                         target_path, disk, format);
                 } else {
                     continue; /* Do not emulate this disk */
                 }
