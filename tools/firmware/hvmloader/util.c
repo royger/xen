@@ -911,7 +911,7 @@ void hvmloader_acpi_build_tables(struct acpi_config *config,
     if ( !strncmp(xenstore_read("platform/acpi_s4", "1"), "1", 1)  )
         config->table_flags |= ACPI_BUILD_SSDT_S4;
 
-    config->table_flags |= ACPI_BUILD_TCPA;
+    config->table_flags |= (ACPI_BUILD_TCPA | ACPI_BUILD_IOAPIC);
 
     config->nr_vcpus = hvm_info->nr_vcpus;
     config->vcpu_online = hvm_info->vcpu_online;
