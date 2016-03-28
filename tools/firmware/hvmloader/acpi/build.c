@@ -319,7 +319,6 @@ static int construct_secondary_tables(unsigned long *table_ptrs,
     struct acpi_20_tcpa *tcpa;
     unsigned char *ssdt;
     static const uint16_t tis_signature[] = {0x0001, 0x0001, 0x0001};
-    uint16_t *tis_hdr;
     void *lasa;
 
     /* MADT. */
@@ -371,41 +370,43 @@ static int construct_secondary_tables(unsigned long *table_ptrs,
         printf("S4 disabled\n");
     }
 
-    /* TPM TCPA and SSDT. */
-    tis_hdr = (uint16_t *)0xFED40F00;
-    if ( (tis_hdr[0] == tis_signature[0]) &&
-         (tis_hdr[1] == tis_signature[1]) &&
-         (tis_hdr[2] == tis_signature[2]) )
+    if ( config->table_flags & ACPI_BUILD_TCPA )
     {
-        ssdt = mem_alloc(sizeof(ssdt_tpm), 16);
-        if (!ssdt) return -1;
-        memcpy(ssdt, ssdt_tpm, sizeof(ssdt_tpm));
-        table_ptrs[nr_tables++] = (unsigned long)ssdt;
-
-        tcpa = mem_alloc(sizeof(struct acpi_20_tcpa), 16);
-        if (!tcpa) return -1;
-        memset(tcpa, 0, sizeof(*tcpa));
-        table_ptrs[nr_tables++] = (unsigned long)tcpa;
-
-        tcpa->header.signature = ACPI_2_0_TCPA_SIGNATURE;
-        tcpa->header.length    = sizeof(*tcpa);
-        tcpa->header.revision  = ACPI_2_0_TCPA_REVISION;
-        fixed_strcpy(tcpa->header.oem_id, ACPI_OEM_ID);
-        fixed_strcpy(tcpa->header.oem_table_id, ACPI_OEM_TABLE_ID);
-        tcpa->header.oem_revision = ACPI_OEM_REVISION;
-        tcpa->header.creator_id   = ACPI_CREATOR_ID;
-        tcpa->header.creator_revision = ACPI_CREATOR_REVISION;
-        if ( (lasa = mem_alloc(ACPI_2_0_TCPA_LAML_SIZE, 16)) != NULL )
+        /* TPM TCPA and SSDT. */
+        if ( (config->tis_hdr[0] == tis_signature[0]) &&
+             (config->tis_hdr[1] == tis_signature[1]) &&
+             (config->tis_hdr[2] == tis_signature[2]) )
         {
-            tcpa->lasa = virt_to_phys(lasa);
-            tcpa->laml = ACPI_2_0_TCPA_LAML_SIZE;
-            memset(lasa, 0, tcpa->laml);
-            set_checksum(tcpa,
-                         offsetof(struct acpi_header, checksum),
-                         tcpa->header.length);
+            ssdt = mem_alloc(sizeof(ssdt_tpm), 16);
+            if (!ssdt) return -1;
+            memcpy(ssdt, ssdt_tpm, sizeof(ssdt_tpm));
+            table_ptrs[nr_tables++] = (unsigned long)ssdt;
+
+            tcpa = mem_alloc(sizeof(struct acpi_20_tcpa), 16);
+            if (!tcpa) return -1;
+            memset(tcpa, 0, sizeof(*tcpa));
+            table_ptrs[nr_tables++] = (unsigned long)tcpa;
+
+            tcpa->header.signature = ACPI_2_0_TCPA_SIGNATURE;
+            tcpa->header.length    = sizeof(*tcpa);
+            tcpa->header.revision  = ACPI_2_0_TCPA_REVISION;
+            fixed_strcpy(tcpa->header.oem_id, ACPI_OEM_ID);
+            fixed_strcpy(tcpa->header.oem_table_id, ACPI_OEM_TABLE_ID);
+            tcpa->header.oem_revision = ACPI_OEM_REVISION;
+            tcpa->header.creator_id   = ACPI_CREATOR_ID;
+            tcpa->header.creator_revision = ACPI_CREATOR_REVISION;
+            if ( (lasa = mem_alloc(ACPI_2_0_TCPA_LAML_SIZE, 16)) != NULL )
+            {
+                tcpa->lasa = virt_to_phys(lasa);
+                tcpa->laml = ACPI_2_0_TCPA_LAML_SIZE;
+                memset(lasa, 0, tcpa->laml);
+                set_checksum(tcpa,
+                             offsetof(struct acpi_header, checksum),
+                             tcpa->header.length);
+            }
         }
     }
-
+    
     /* SRAT and SLIT */
     if ( config->numa.nr_vnodes > 0 )
     {

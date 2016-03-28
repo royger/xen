@@ -304,6 +304,8 @@ struct acpi_20_waet {
     uint32_t           flags;
 };
 
+#define ACPI_TIS_HDR_ADDRESS 0xFED40F00UL
+
 /*
  * Multiple APIC Flags.
  */
@@ -456,6 +458,7 @@ struct acpi_20_slit {
 #define ACPI_BUILD_SSDT_PM        (1<<0)
 #define ACPI_BUILD_SSDT_S3        (1<<1)
 #define ACPI_BUILD_SSDT_S4        (1<<2)
+#define ACPI_BUILD_TCPA           (1<<3)
 
 /*
  * Located at ACPI_INFO_PHYSICAL_ADDRESS.
@@ -498,6 +501,7 @@ struct acpi_config {
     uint8_t  *vcpu_online;
     int apic_mode;
     struct acpi_numa numa;
+    uint16_t *tis_hdr;
 };
 
 void acpi_build_tables(struct acpi_config *config, unsigned int physical);
