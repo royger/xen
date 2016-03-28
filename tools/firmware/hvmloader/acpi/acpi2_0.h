@@ -460,6 +460,7 @@ struct acpi_20_slit {
 #define ACPI_BUILD_SSDT_S4        (1<<2)
 #define ACPI_BUILD_TCPA           (1<<3)
 #define ACPI_BUILD_IOAPIC         (1<<4)
+#define ACPI_BUILD_WAET           (1<<5)
 
 /*
  * Located at ACPI_INFO_PHYSICAL_ADDRESS.

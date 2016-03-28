@@ -344,9 +344,12 @@ static int construct_secondary_tables(unsigned long *table_ptrs,
     }
 
     /* WAET. */
-    waet = construct_waet();
-    if (!waet) return -1;
-    table_ptrs[nr_tables++] = (unsigned long)waet;
+    if ( config->table_flags & ACPI_BUILD_WAET )
+    {
+        waet = construct_waet();
+        if (!waet) return -1;
+        table_ptrs[nr_tables++] = (unsigned long)waet;
+    }
 
     if ( config->table_flags & ACPI_BUILD_SSDT_PM )
     {
