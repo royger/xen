@@ -474,6 +474,7 @@ struct acpi_config {
     unsigned char *dsdt_15cpu;
     int dsdt_15cpu_len;
     struct acpi_info acpi_info;
+    uint64_t vm_gid[2];
 };
 
 void acpi_build_tables(struct acpi_config *config, unsigned int physical);
