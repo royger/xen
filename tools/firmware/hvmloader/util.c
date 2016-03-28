@@ -925,6 +925,7 @@ void hvmloader_acpi_build_tables(struct acpi_config *config,
     config->numa.vmemrange = vmemrange;
 
     config->tis_hdr = (uint16_t *)ACPI_TIS_HDR_ADDRESS;
+    config->acpi_info_page = (void *)ACPI_INFO_PHYSICAL_ADDRESS;
 
     acpi_build_tables(config, physical);
 

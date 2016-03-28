@@ -65,8 +65,7 @@ extern uint64_t pci_hi_mem_start, pci_hi_mem_end;
 #define HVMLOADER_PHYSICAL_ADDRESS    0x00100000
 /* Special BIOS mappings, etc. are allocated from here upwards... */
 #define RESERVED_MEMBASE              0xFC000000
-/* NB. ACPI_INFO_PHYSICAL_ADDRESS *MUST* match definition in acpi/dsdt.asl! */
-#define ACPI_INFO_PHYSICAL_ADDRESS    0xFC000000
+
 #define RESERVED_MEMORY_DYNAMIC_START 0xFC001000
 #define RESERVED_MEMORY_DYNAMIC_END   0xFE000000
 /*

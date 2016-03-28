@@ -589,8 +589,7 @@ void acpi_build_tables(struct acpi_config *config, unsigned int physical)
     if ( !new_vm_gid(config) )
         goto oom;
 
-    memcpy((struct acpi_info *)ACPI_INFO_PHYSICAL_ADDRESS,
-           &config->acpi_info,
+    memcpy(config->acpi_info_page, &config->acpi_info,
            sizeof(config->acpi_info));
 
     return;

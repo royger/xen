@@ -306,6 +306,9 @@ struct acpi_20_waet {
 
 #define ACPI_TIS_HDR_ADDRESS 0xFED40F00UL
 
+/* NB. ACPI_INFO_PHYSICAL_ADDRESS *MUST* match definition in acpi/dsdt.asl! */
+#define ACPI_INFO_PHYSICAL_ADDRESS    0xFC000000UL
+
 /*
  * Multiple APIC Flags.
  */
@@ -504,6 +507,7 @@ struct acpi_config {
     int apic_mode;
     struct acpi_numa numa;
     uint16_t *tis_hdr;
+    void *acpi_info_page;
 };
 
 void acpi_build_tables(struct acpi_config *config, unsigned int physical);
