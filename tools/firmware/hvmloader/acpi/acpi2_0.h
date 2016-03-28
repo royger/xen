@@ -451,11 +451,29 @@ struct acpi_20_slit {
 
 #pragma pack ()
 
+/*
+ * Located at ACPI_INFO_PHYSICAL_ADDRESS.
+ *
+ * This must match the Field("BIOS"....) definition in the DSDT.
+ */
+struct acpi_info {
+    uint8_t  com1_present:1;    /* 0[0] - System has COM1? */
+    uint8_t  com2_present:1;    /* 0[1] - System has COM2? */
+    uint8_t  lpt1_present:1;    /* 0[2] - System has LPT1? */
+    uint8_t  hpet_present:1;    /* 0[3] - System has HPET? */
+    uint32_t pci_min, pci_len;  /* 4, 8 - PCI I/O hole boundaries */
+    uint32_t madt_csum_addr;    /* 12   - Address of MADT checksum */
+    uint32_t madt_lapic0_addr;  /* 16   - Address of first MADT LAPIC struct */
+    uint32_t vm_gid_addr;       /* 20   - Address of VM generation id buffer */
+    uint64_t pci_hi_min, pci_hi_len; /* 24, 32 - PCI I/O hole boundaries */
+};
+
 struct acpi_config {
     unsigned char *dsdt_anycpu;
     int dsdt_anycpu_len;
     unsigned char *dsdt_15cpu;
     int dsdt_15cpu_len;
+    struct acpi_info acpi_info;
 };
 
 void acpi_build_tables(struct acpi_config *config, unsigned int physical);

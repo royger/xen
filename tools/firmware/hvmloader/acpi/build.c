@@ -38,23 +38,6 @@ extern struct acpi_20_fadt Fadt;
 extern struct acpi_20_facs Facs;
 extern struct acpi_20_waet Waet;
 
-/*
- * Located at ACPI_INFO_PHYSICAL_ADDRESS.
- *
- * This must match the Field("BIOS"....) definition in the DSDT.
- */
-struct acpi_info {
-    uint8_t  com1_present:1;    /* 0[0] - System has COM1? */
-    uint8_t  com2_present:1;    /* 0[1] - System has COM2? */
-    uint8_t  lpt1_present:1;    /* 0[2] - System has LPT1? */
-    uint8_t  hpet_present:1;    /* 0[3] - System has HPET? */
-    uint32_t pci_min, pci_len;  /* 4, 8 - PCI I/O hole boundaries */
-    uint32_t madt_csum_addr;    /* 12   - Address of MADT checksum */
-    uint32_t madt_lapic0_addr;  /* 16   - Address of first MADT LAPIC struct */
-    uint32_t vm_gid_addr;       /* 20   - Address of VM generation id buffer */
-    uint64_t pci_hi_min, pci_hi_len; /* 24, 32 - PCI I/O hole boundaries */
-};
-
 /* Number of processor objects in the chosen DSDT. */
 static unsigned int nr_processor_objects;
 
@@ -360,7 +343,7 @@ static int construct_secondary_tables(unsigned long *table_ptrs,
     }
 
     /* HPET. */
-    if ( hpet_exists(ACPI_HPET_ADDRESS) )
+    if ( info->hpet_present )
     {
         hpet = construct_hpet();
         if (!hpet) return -1;
@@ -497,7 +480,6 @@ static int new_vm_gid(struct acpi_info *acpi_info)
 
 void acpi_build_tables(struct acpi_config *config, unsigned int physical)
 {
-    struct acpi_info *acpi_info;
     struct acpi_20_rsdp *rsdp;
     struct acpi_20_rsdt *rsdt;
     struct acpi_20_xsdt *xsdt;
@@ -507,11 +489,6 @@ void acpi_build_tables(struct acpi_config *config, unsigned int physical)
     unsigned char       *dsdt;
     unsigned long        secondary_tables[ACPI_MAX_SECONDARY_TABLES];
     int                  nr_secondaries, i;
-
-    /* Allocate and initialise the acpi info area. */
-    mem_hole_populate_ram(ACPI_INFO_PHYSICAL_ADDRESS >> PAGE_SHIFT, 1);
-    acpi_info = (struct acpi_info *)ACPI_INFO_PHYSICAL_ADDRESS;
-    memset(acpi_info, 0, sizeof(*acpi_info));
 
     /*
      * Fill in high-memory data structures, starting at @buf.
@@ -574,7 +551,8 @@ void acpi_build_tables(struct acpi_config *config, unsigned int physical)
                  offsetof(struct acpi_header, checksum),
                  sizeof(struct acpi_20_fadt));
 
-    nr_secondaries = construct_secondary_tables(secondary_tables, acpi_info);
+    nr_secondaries = construct_secondary_tables(secondary_tables,
+                                                &config->acpi_info);
     if ( nr_secondaries < 0 )
         goto oom;
 
@@ -619,20 +597,12 @@ void acpi_build_tables(struct acpi_config *config, unsigned int physical)
                  offsetof(struct acpi_20_rsdp, extended_checksum),
                  sizeof(struct acpi_20_rsdp));
 
-    if ( !new_vm_gid(acpi_info) )
+    if ( !new_vm_gid(&config->acpi_info) )
         goto oom;
 
-    acpi_info->com1_present = uart_exists(0x3f8);
-    acpi_info->com2_present = uart_exists(0x2f8);
-    acpi_info->lpt1_present = lpt_exists(0x378);
-    acpi_info->hpet_present = hpet_exists(ACPI_HPET_ADDRESS);
-    acpi_info->pci_min = pci_mem_start;
-    acpi_info->pci_len = pci_mem_end - pci_mem_start;
-    if ( pci_hi_mem_end > pci_hi_mem_start )
-    {
-        acpi_info->pci_hi_min = pci_hi_mem_start;
-        acpi_info->pci_hi_len = pci_hi_mem_end - pci_hi_mem_start;
-    }
+    memcpy((struct acpi_info *)ACPI_INFO_PHYSICAL_ADDRESS,
+           &config->acpi_info,
+           sizeof(config->acpi_info));
 
     return;
 

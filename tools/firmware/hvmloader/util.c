@@ -860,6 +860,21 @@ int hpet_exists(unsigned long hpet_base)
 void hvmloader_acpi_build_tables(struct acpi_config *config,
                                  unsigned int physical)
 {
+    /* Allocate and initialise the acpi info area. */
+    mem_hole_populate_ram(ACPI_INFO_PHYSICAL_ADDRESS >> PAGE_SHIFT, 1);
+
+    config->acpi_info.com1_present = uart_exists(0x3f8);
+    config->acpi_info.com2_present = uart_exists(0x2f8);
+    config->acpi_info.lpt1_present = lpt_exists(0x378);
+    config->acpi_info.hpet_present = hpet_exists(ACPI_HPET_ADDRESS);
+    config->acpi_info.pci_min = pci_mem_start;
+    config->acpi_info.pci_len = pci_mem_end - pci_mem_start;
+    if ( pci_hi_mem_end > pci_hi_mem_start )
+    {
+        config->acpi_info.pci_hi_min = pci_hi_mem_start;
+        config->acpi_info.pci_hi_len = pci_hi_mem_end - pci_hi_mem_start;
+    }
+
     acpi_build_tables(config, physical);
 }
 
