@@ -481,6 +481,10 @@ struct acpi_config {
     struct acpi_info acpi_info;
     uint64_t vm_gid[2];
     uint32_t table_flags;
+    struct {
+        unsigned long acpi_pt_addr;
+        uint32_t acpi_pt_length;
+    } pt;
 };
 
 void acpi_build_tables(struct acpi_config *config, unsigned int physical);

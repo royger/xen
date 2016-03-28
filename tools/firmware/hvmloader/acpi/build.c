@@ -271,10 +271,10 @@ static struct acpi_20_slit *construct_slit(void)
 }
 
 static int construct_passthrough_tables(unsigned long *table_ptrs,
-                                        int nr_tables)
+                                        int nr_tables,
+                                        struct acpi_config *config)
 {
-    const char *s;
-    uint8_t *acpi_pt_addr;
+    unsigned long acpi_pt_addr;
     uint32_t acpi_pt_length;
     struct acpi_header *header;
     int nr_added;
@@ -282,19 +282,11 @@ static int construct_passthrough_tables(unsigned long *table_ptrs,
     uint32_t total = 0;
     uint8_t *buffer;
 
-    s = xenstore_read(HVM_XS_ACPI_PT_ADDRESS, NULL);
-    if ( s == NULL )
-        return 0;    
-
-    acpi_pt_addr = (uint8_t*)(uint32_t)strtoll(s, NULL, 0);
-    if ( acpi_pt_addr == NULL )
+    if ( config->pt.acpi_pt_addr == 0 )
         return 0;
 
-    s = xenstore_read(HVM_XS_ACPI_PT_LENGTH, NULL);
-    if ( s == NULL )
-        return 0;
-
-    acpi_pt_length = (uint32_t)strtoll(s, NULL, 0);
+    acpi_pt_addr = config->pt.acpi_pt_addr;
+    acpi_pt_length = config->pt.acpi_pt_length;
 
     for ( nr_added = 0; nr_added < nr_max; nr_added++ )
     {        
@@ -430,7 +422,7 @@ static int construct_secondary_tables(unsigned long *table_ptrs,
     }
 
     /* Load any additional tables passed through. */
-    nr_tables += construct_passthrough_tables(table_ptrs, nr_tables);
+    nr_tables += construct_passthrough_tables(table_ptrs, nr_tables, config);
 
     table_ptrs[nr_tables] = 0;
     return nr_tables;
