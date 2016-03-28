@@ -20,6 +20,7 @@
 #include <stdint.h>
 #include <xen/xen.h>
 #include <xen/hvm/ioreq.h>
+#include <xen/memory.h>
 
 #define ASCII32(a,b,c,d)         \
     (((a) <<  0) | ((b) <<  8) | ((c) << 16) | ((d) << 24))
@@ -473,6 +474,14 @@ struct acpi_info {
     uint64_t pci_hi_min, pci_hi_len; /* 24, 32 - PCI I/O hole boundaries */
 };
 
+struct acpi_numa {
+    uint32_t nr_vmemranges;
+    uint32_t nr_vnodes;
+    unsigned int *vcpu_to_vnode;
+    unsigned int *vdistance;
+    xen_vmemrange_t *vmemrange;
+};
+
 struct acpi_config {
     unsigned char *dsdt_anycpu;
     int dsdt_anycpu_len;
@@ -485,6 +494,10 @@ struct acpi_config {
         unsigned long acpi_pt_addr;
         uint32_t acpi_pt_length;
     } pt;
+    uint32_t nr_vcpus;
+    uint8_t  *vcpu_online;
+    int apic_mode;
+    struct acpi_numa numa;
 };
 
 void acpi_build_tables(struct acpi_config *config, unsigned int physical);

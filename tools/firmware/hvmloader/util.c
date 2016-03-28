@@ -21,6 +21,7 @@
 #include "config.h"
 #include "hypercall.h"
 #include "ctype.h"
+#include "vnuma.h"
 #include "acpi/acpi2_0.h"
 #include <stdint.h>
 #include <xen/xen.h>
@@ -909,6 +910,16 @@ void hvmloader_acpi_build_tables(struct acpi_config *config,
         config->table_flags |= ACPI_BUILD_SSDT_S3;
     if ( !strncmp(xenstore_read("platform/acpi_s4", "1"), "1", 1)  )
         config->table_flags |= ACPI_BUILD_SSDT_S4;
+
+    config->nr_vcpus = hvm_info->nr_vcpus;
+    config->vcpu_online = hvm_info->vcpu_online;
+    config->apic_mode = 1;
+
+    config->numa.nr_vmemranges = nr_vmemranges;
+    config->numa.nr_vnodes = nr_vnodes;
+    config->numa.vcpu_to_vnode = vcpu_to_vnode;
+    config->numa.vdistance = vdistance;
+    config->numa.vmemrange = vmemrange;
 
     acpi_build_tables(config, physical);
 
