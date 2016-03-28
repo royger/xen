@@ -451,6 +451,11 @@ struct acpi_20_slit {
 
 #pragma pack ()
 
+/* Flags indicating which tables to build */
+#define ACPI_BUILD_SSDT_PM        (1<<0)
+#define ACPI_BUILD_SSDT_S3        (1<<1)
+#define ACPI_BUILD_SSDT_S4        (1<<2)
+
 /*
  * Located at ACPI_INFO_PHYSICAL_ADDRESS.
  *
@@ -475,6 +480,7 @@ struct acpi_config {
     int dsdt_15cpu_len;
     struct acpi_info acpi_info;
     uint64_t vm_gid[2];
+    uint32_t table_flags;
 };
 
 void acpi_build_tables(struct acpi_config *config, unsigned int physical);

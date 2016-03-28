@@ -56,11 +56,6 @@ static void set_checksum(
     p[checksum_offset] = -sum;
 }
 
-static uint8_t battery_port_exists(void)
-{
-    return (inb(0x88) == 0x1F);
-}
-
 static struct acpi_20_madt *construct_madt(struct acpi_info *info)
 {
     struct acpi_20_madt           *madt;
@@ -322,7 +317,7 @@ static int construct_passthrough_tables(unsigned long *table_ptrs,
 }
 
 static int construct_secondary_tables(unsigned long *table_ptrs,
-                                      struct acpi_info *info)
+                                      struct acpi_config *config)
 {
     int nr_tables = 0;
     struct acpi_20_madt *madt;
@@ -337,13 +332,13 @@ static int construct_secondary_tables(unsigned long *table_ptrs,
     /* MADT. */
     if ( (hvm_info->nr_vcpus > 1) || hvm_info->apic_mode )
     {
-        madt = construct_madt(info);
+        madt = construct_madt(&config->acpi_info);
         if (!madt) return -1;
         table_ptrs[nr_tables++] = (unsigned long)madt;
     }
 
     /* HPET. */
-    if ( info->hpet_present )
+    if ( config->acpi_info.hpet_present )
     {
         hpet = construct_hpet();
         if (!hpet) return -1;
@@ -355,7 +350,7 @@ static int construct_secondary_tables(unsigned long *table_ptrs,
     if (!waet) return -1;
     table_ptrs[nr_tables++] = (unsigned long)waet;
 
-    if ( battery_port_exists() )
+    if ( config->table_flags & ACPI_BUILD_SSDT_PM )
     {
         ssdt = mem_alloc(sizeof(ssdt_pm), 16);
         if (!ssdt) return -1;
@@ -363,7 +358,7 @@ static int construct_secondary_tables(unsigned long *table_ptrs,
         table_ptrs[nr_tables++] = (unsigned long)ssdt;
     }
 
-    if ( !strncmp(xenstore_read("platform/acpi_s3", "1"), "1", 1) )
+    if ( config->table_flags & ACPI_BUILD_SSDT_S3 )
     {
         ssdt = mem_alloc(sizeof(ssdt_s3), 16);
         if (!ssdt) return -1;
@@ -373,7 +368,7 @@ static int construct_secondary_tables(unsigned long *table_ptrs,
         printf("S3 disabled\n");
     }
 
-    if ( !strncmp(xenstore_read("platform/acpi_s4", "1"), "1", 1) )
+    if ( config->table_flags & ACPI_BUILD_SSDT_S4 )
     {
         ssdt = mem_alloc(sizeof(ssdt_s4), 16);
         if (!ssdt) return -1;
@@ -543,8 +538,7 @@ void acpi_build_tables(struct acpi_config *config, unsigned int physical)
                  offsetof(struct acpi_header, checksum),
                  sizeof(struct acpi_20_fadt));
 
-    nr_secondaries = construct_secondary_tables(secondary_tables,
-                                                &config->acpi_info);
+    nr_secondaries = construct_secondary_tables(secondary_tables, config);
     if ( nr_secondaries < 0 )
         goto oom;
 
