@@ -79,6 +79,26 @@ GUEST_SRCS-y += $(ELF_SRCS-y)
 $(patsubst %.c,%.o,$(ELF_SRCS-y)): CFLAGS += -Wno-pointer-sign
 $(patsubst %.c,%.opic,$(ELF_SRCS-y)): CFLAGS += -Wno-pointer-sign
 
+ACPI_PATH = $(XEN_ROOT)/xen/common/libacpi
+vpath %.c $(ACPI_PATH)
+ACPI_FILES  = dsdt_anycpu.c dsdt_15cpu.c static_tables.c
+ACPI_FILES += dsdt_anycpu_qemu_xen.c dsdt_empty.c build.c
+ACPI_SRCS = $(patsubst %.c,$(ACPI_PATH)/%.c,$(ACPI_FILES))
+
+.NOTPARALLEL: $(ACPI_SRCS)
+$(ACPI_SRCS):
+	make -C $(ACPI_PATH)
+
+$(patsubst %.c,%.o,$(ACPI_SRCS)): CFLAGS += -I$(ACPI_PATH)
+$(patsubst %.c,%.opic,$(ACPI_SRCS)): CFLAGS += -I$(ACPI_PATH)
+xc_acpi.o: CFLAGS += -I$(ACPI_PATH)
+xc_acpi.opic: CFLAGS += -I$(ACPI_PATH)
+
+GUEST_SRCS-y += $(ACPI_FILES)
+
+$(patsubst %.c,%.o,$(ELF_SRCS-y)): CFLAGS += -Wno-pointer-sign
+$(patsubst %.c,%.opic,$(ELF_SRCS-y)): CFLAGS += -Wno-pointer-sign
+
 # new domain builder
 GUEST_SRCS-y                 += xc_dom_core.c xc_dom_boot.c
 GUEST_SRCS-y                 += xc_dom_elfloader.c
@@ -89,7 +109,7 @@ GUEST_SRCS-$(CONFIG_ARM)     += xc_dom_armzimageloader.c
 GUEST_SRCS-y                 += xc_dom_binloader.c
 GUEST_SRCS-y                 += xc_dom_compat_linux.c
 
-GUEST_SRCS-$(CONFIG_X86)     += xc_dom_x86.c
+GUEST_SRCS-$(CONFIG_X86)     += xc_dom_x86.c xc_acpi.c
 GUEST_SRCS-$(CONFIG_X86)     += xc_cpuid_x86.c
 GUEST_SRCS-$(CONFIG_ARM)     += xc_dom_arm.c
 

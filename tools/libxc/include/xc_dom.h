@@ -407,6 +407,7 @@ void *xc_dom_pfn_to_ptr_retcount(struct xc_dom_image *dom, xen_pfn_t first,
                                  xen_pfn_t count, xen_pfn_t *count_out);
 void xc_dom_unmap_one(struct xc_dom_image *dom, xen_pfn_t pfn);
 void xc_dom_unmap_all(struct xc_dom_image *dom);
+int xc_dom_build_acpi(struct xc_dom_image *dom);
 
 static inline void *xc_dom_seg_to_ptr_pages(struct xc_dom_image *dom,
                                       struct xc_dom_seg *seg,

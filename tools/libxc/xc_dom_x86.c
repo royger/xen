@@ -643,6 +643,13 @@ static int alloc_magic_pages_hvm(struct xc_dom_image *dom)
             DOMPRINTF("Unable to reserve memory for the start info");
             goto out;
         }
+
+        rc = xc_dom_build_acpi(dom);
+        if ( rc != 0 )
+        {
+            DOMPRINTF("Unable to build ACPI tables");
+            goto out;
+        }
     }
     else
     {

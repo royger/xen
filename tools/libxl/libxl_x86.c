@@ -8,15 +8,18 @@ int libxl__arch_domain_prepare_config(libxl__gc *gc,
                                       xc_domain_configuration_t *xc_config)
 {
 
-    if (d_config->c_info.type == LIBXL_DOMAIN_TYPE_HVM &&
-        d_config->b_info.device_model_version !=
-        LIBXL_DEVICE_MODEL_VERSION_NONE) {
-        /* HVM domains with a device model. */
-        xc_config->emulation_flags = XEN_X86_EMU_ALL;
-    } else {
-        /* PV or HVM domains without a device model. */
+    if (d_config->c_info.type == LIBXL_DOMAIN_TYPE_HVM) {
+        if (d_config->b_info.device_model_version !=
+            LIBXL_DEVICE_MODEL_VERSION_NONE)
+            xc_config->emulation_flags = XEN_X86_EMU_ALL;
+        else
+            /*
+             * HVM guests without device model will want
+             * to have LAPIC emulation.
+             */
+            xc_config->emulation_flags = XEN_X86_EMU_LAPIC;
+    } else 
         xc_config->emulation_flags = 0;
-    }
 
     return 0;
 }

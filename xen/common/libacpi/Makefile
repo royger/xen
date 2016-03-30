@@ -17,7 +17,8 @@
 XEN_ROOT = $(CURDIR)/../../..
 include $(XEN_ROOT)/Config.mk
 
-C_SRC = build.c dsdt_anycpu.c dsdt_15cpu.c static_tables.c dsdt_anycpu_qemu_xen.c
+C_SRC  = build.c dsdt_anycpu.c dsdt_15cpu.c static_tables.c
+C_SRC += dsdt_anycpu_qemu_xen.c dsdt_empty.c
 OBJS  = $(patsubst %.c,%.o,$(C_SRC))
 
 CFLAGS_xeninclude = -I$(XEN_ROOT)/tools/include
@@ -58,7 +59,7 @@ iasl:
 
 clean:
 	rm -rf *.o $(IASL_VER) $(IASL_VER).tar.gz $(DEPS)
-	rm -rf ssdt_*.h dsdt*.c *~ *.aml *.hex mk_dsdt dsdt_*.asl
+	rm -rf ssdt_*.h dsdt*.c *~ *.aml *.hex mk_dsdt dsdt_*cpu*.asl
 
 distclean: clean
 

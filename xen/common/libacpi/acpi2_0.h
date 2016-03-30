@@ -516,7 +516,7 @@ struct acpi_config {
     struct acpi_mem_ops mem_ops;
 };
 
-void acpi_build_tables(struct acpi_config *config, unsigned int physical);
+void acpi_build_tables(struct acpi_config *config, unsigned long physical);
 
 #endif /* _ACPI_2_0_H_ */
 
