@@ -555,6 +555,8 @@ void acpi_build_tables(struct acpi_config *config, unsigned long physical)
     fadt->x_dsdt = config->mem_ops.v2p(dsdt);
     fadt->firmware_ctrl   = config->mem_ops.v2p(facs);
     fadt->x_firmware_ctrl = config->mem_ops.v2p(facs);
+    if ( !(config->table_flags & ACPI_BUILD_IOAPIC) )
+        fadt->flags |= (1<<20); /* HW_REDUCED_ACPI */
     set_checksum(fadt,
                  offsetof(struct acpi_header, checksum),
                  sizeof(struct acpi_20_fadt));
