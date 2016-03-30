@@ -15,14 +15,16 @@
  * this program; If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <stdio.h>
+#include <string.h>
+
 #include "acpi2_0.h"
 #include "ssdt_s3.h"
 #include "ssdt_s4.h"
 #include "ssdt_tpm.h"
 #include "ssdt_pm.h"
-#include "../config.h"
-#include "../util.h"
-#include "../vnuma.h"
+#include "x86.h"
+#include <xen/hvm/hvm_info_table.h>
 #include <xen/hvm/hvm_xs_strings.h>
 #include <xen/hvm/params.h>
 
@@ -30,6 +32,12 @@
 
 #define align16(sz)        (((sz) + 15) & ~15)
 #define fixed_strcpy(d, s) strncpy((d), (s), sizeof(d))
+#ifndef offsetof
+#define offsetof(t, m) ((unsigned long)&((t *)0)->m)
+#endif
+#ifndef NULL
+#define NULL ((void *)0)
+#endif
 
 extern struct acpi_20_rsdp Rsdp;
 extern struct acpi_20_rsdt Rsdt;
@@ -40,6 +48,11 @@ extern struct acpi_20_waet Waet;
 
 /* Number of processor objects in the chosen DSDT. */
 static unsigned int nr_processor_objects;
+
+static inline int __test_bit(unsigned int b, void *p)
+{
+    return !!(((uint8_t *)p)[b>>3] & (1u<<(b&7)));
+}
 
 static void set_checksum(
     void *table, uint32_t checksum_offset, uint32_t length)
@@ -136,7 +149,7 @@ static struct acpi_20_madt *construct_madt(struct acpi_config *config)
         lapic->acpi_processor_id = i;
         lapic->apic_id = LAPIC_ID(i);
         lapic->flags = ((i < config->nr_vcpus) &&
-                        test_bit(i, config->vcpu_online)
+                        __test_bit(i, config->vcpu_online)
                         ? ACPI_LOCAL_APIC_ENABLED : 0);
         lapic++;
     }
@@ -237,8 +250,6 @@ static struct acpi_20_srat *construct_srat(struct acpi_config *config)
             config->numa.vmemrange[i].start;
         memory++;
     }
-
-    ASSERT(((unsigned long)memory) - ((unsigned long)p) == size);
 
     srat->header.length = size;
     set_checksum(srat, offsetof(struct acpi_header, checksum), size);

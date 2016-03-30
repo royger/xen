@@ -29,6 +29,7 @@
 
 #include <stdint.h>
 #include "config.h"
+#include "x86.h"
 
 /* number of non-processor MP table entries */
 #define NR_NONPROC_ENTRIES     18

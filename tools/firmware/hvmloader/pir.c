@@ -14,6 +14,7 @@
  */
 
 #include "config.h"
+#include "x86.h"
 #include "pir_types.h"
 #include "util.h"
 

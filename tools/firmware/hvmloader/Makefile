@@ -36,7 +36,7 @@ ACPI_PATH = $(XEN_ROOT)/tools/firmware/hvmloader/acpi
 vpath %.c $(ACPI_PATH)
 ACPI_FILES = dsdt_anycpu.c dsdt_15cpu.c static_tables.c dsdt_anycpu_qemu_xen.c build.c
 ACPI_SRC = $(patsubst %.c,$(ACPI_PATH)/%.c,$(ACPI_FILES))
-CFLAGS += -I$(ACPI_PATH)
+CFLAGS += -I$(ACPI_PATH) -I.
 
 OBJS  = hvmloader.o mp_tables.o util.o smbios.o 
 OBJS += smp.o cacheattr.o xenbus.o vnuma.o

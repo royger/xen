@@ -22,6 +22,7 @@
 #include "util.h"
 #include "hypercall.h"
 #include "config.h"
+#include "x86.h"
 #include "pci_regs.h"
 
 #include <xen/memory.h>

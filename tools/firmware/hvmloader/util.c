@@ -22,6 +22,7 @@
 #include "hypercall.h"
 #include "ctype.h"
 #include "vnuma.h"
+#include "x86.h"
 #include "acpi2_0.h"
 #include <stdint.h>
 #include <xen/xen.h>

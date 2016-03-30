@@ -21,6 +21,7 @@
 
 #include "util.h"
 #include "config.h"
+#include "x86.h"
 #include "apic_regs.h"
 
 #define AP_BOOT_EIP 0x1000
