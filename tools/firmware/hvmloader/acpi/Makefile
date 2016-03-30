@@ -23,7 +23,7 @@ OBJS  = $(patsubst %.c,%.o,$(C_SRC))
 CFLAGS += $(CFLAGS_xeninclude)
 
 vpath iasl $(PATH)
-all: acpi.a
+all: $(C_SRC) ssdt_s3.h ssdt_s4.h ssdt_pm.h ssdt_tpm.h
 
 ssdt_s3.h ssdt_s4.h ssdt_pm.h ssdt_tpm.h: %.h: %.asl iasl
 	iasl -vs -p $* -tc $<
@@ -56,13 +56,8 @@ iasl:
 	@echo 
 	@exit 1
 
-build.o: ssdt_s3.h ssdt_s4.h ssdt_pm.h ssdt_tpm.h
-
-acpi.a: $(OBJS)
-	$(AR) rc $@ $(OBJS)
-
 clean:
-	rm -rf *.a *.o $(IASL_VER) $(IASL_VER).tar.gz $(DEPS)
+	rm -rf *.o $(IASL_VER) $(IASL_VER).tar.gz $(DEPS)
 	rm -rf ssdt_*.h dsdt*.c *~ *.aml *.hex mk_dsdt dsdt_*.asl
 
 distclean: clean

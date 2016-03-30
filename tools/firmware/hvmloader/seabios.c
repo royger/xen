@@ -25,7 +25,7 @@
 #include "util.h"
 
 #include "smbios_types.h"
-#include "acpi/acpi2_0.h"
+#include "acpi2_0.h"
 
 #define ROM_INCLUDE_SEABIOS
 #include "roms.inc"

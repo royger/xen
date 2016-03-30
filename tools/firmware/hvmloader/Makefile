@@ -20,8 +20,6 @@
 XEN_ROOT = $(CURDIR)/../../..
 include $(XEN_ROOT)/tools/firmware/Rules.mk
 
-SUBDIRS := acpi
-
 # The HVM loader is started in 32-bit mode at the address below:
 LOADADDR = 0x100000
 
@@ -33,10 +31,18 @@ CFLAGS += $(CFLAGS_xeninclude)
 # We mustn't use tools-only public interfaces.
 CFLAGS += -D__XEN_INTERFACE_VERSION__=__XEN_LATEST_INTERFACE_VERSION__
 
+# ACPI table builder
+ACPI_PATH = $(XEN_ROOT)/tools/firmware/hvmloader/acpi
+vpath %.c $(ACPI_PATH)
+ACPI_FILES = dsdt_anycpu.c dsdt_15cpu.c static_tables.c dsdt_anycpu_qemu_xen.c build.c
+ACPI_SRC = $(patsubst %.c,$(ACPI_PATH)/%.c,$(ACPI_FILES))
+CFLAGS += -I$(ACPI_PATH)
+
 OBJS  = hvmloader.o mp_tables.o util.o smbios.o 
 OBJS += smp.o cacheattr.o xenbus.o vnuma.o
 OBJS += e820.o pci.o pir.o ctype.o
 OBJS += hvm_param.o
+OBJS += $(patsubst %.c,%.o,$(ACPI_FILES))
 ifeq ($(debug),y)
 OBJS += tests.o
 endif
@@ -95,7 +101,11 @@ all: subdirs-all
 ovmf.o rombios.o seabios.o hvmloader.o: roms.inc
 smbios.o: CFLAGS += -D__SMBIOS_DATE__="\"$(SMBIOS_REL_DATE)\""
 
-hvmloader: $(OBJS) acpi/acpi.a
+.NOTPARALLEL: $(ACPI_SRC)
+$(ACPI_SRC):
+	$(MAKE) -C $(ACPI_PATH)
+
+hvmloader: $(OBJS)
 	$(LD) $(LDFLAGS_DIRECT) -N -Ttext $(LOADADDR) -o hvmloader.tmp $^
 	$(OBJCOPY) hvmloader.tmp hvmloader
 	rm -f hvmloader.tmp
@@ -143,6 +153,7 @@ endif
 clean: subdirs-clean
 	rm -f roms.inc roms.inc.new acpi.h
 	rm -f hvmloader hvmloader.tmp *.o $(DEPS)
+	$(MAKE) -C $(ACPI_PATH) clean
 
 .PHONY: distclean
 distclean: clean
