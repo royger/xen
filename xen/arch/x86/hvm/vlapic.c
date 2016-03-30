@@ -1146,6 +1146,9 @@ void vlapic_adjust_i8259_target(struct domain *d)
 {
     struct vcpu *v;
 
+    if ( !has_vpic(d) )
+       return;
+
     for_each_vcpu ( d, v )
         if ( __vlapic_accept_pic_intr(v) )
             goto found;
