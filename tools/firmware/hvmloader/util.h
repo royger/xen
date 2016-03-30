@@ -196,7 +196,7 @@ xen_pfn_t mem_hole_alloc(uint32_t nr_mfns);
 
 /* Allocate memory in a reserved region below 4GB. */
 void *mem_alloc(uint32_t size, uint32_t align);
-#define virt_to_phys(v) ((unsigned long)(v))
+unsigned long virt_to_phys(void *v);
 
 /* Allocate memory in a scratch region */
 void *scratch_alloc(uint32_t size, uint32_t align);

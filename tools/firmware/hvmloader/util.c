@@ -866,6 +866,11 @@ static uint8_t battery_port_exists(void)
     return (inb(0x88) == 0x1F);
 }
 
+unsigned long virt_to_phys(void *v)
+{
+    return (unsigned long)v;
+}
+
 void hvmloader_acpi_build_tables(struct acpi_config *config,
                                  unsigned int physical)
 {
@@ -927,6 +932,9 @@ void hvmloader_acpi_build_tables(struct acpi_config *config,
 
     config->tis_hdr = (uint16_t *)ACPI_TIS_HDR_ADDRESS;
     config->acpi_info_page = (void *)ACPI_INFO_PHYSICAL_ADDRESS;
+
+    config->mem_ops.alloc = mem_alloc;
+    config->mem_ops.v2p = virt_to_phys;
 
     acpi_build_tables(config, physical);
 

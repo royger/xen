@@ -490,6 +490,11 @@ struct acpi_numa {
     xen_vmemrange_t *vmemrange;
 };
 
+struct acpi_mem_ops {
+    void *(*alloc)(uint32_t size, uint32_t align);
+    unsigned long (*v2p)(void *v);
+};
+
 struct acpi_config {
     unsigned char *dsdt_anycpu;
     int dsdt_anycpu_len;
@@ -508,6 +513,7 @@ struct acpi_config {
     struct acpi_numa numa;
     uint16_t *tis_hdr;
     void *acpi_info_page;
+    struct acpi_mem_ops mem_ops;
 };
 
 void acpi_build_tables(struct acpi_config *config, unsigned int physical);
