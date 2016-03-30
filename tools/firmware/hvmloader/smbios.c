@@ -24,6 +24,7 @@
 #include <xen/version.h>
 #include "smbios_types.h"
 #include "util.h"
+#include "acpi2_0.h"
 #include "hypercall.h"
 #include <xen/hvm/hvm_xs_strings.h>
 

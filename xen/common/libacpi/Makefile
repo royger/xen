@@ -14,13 +14,13 @@
 # this program; If not, see <http://www.gnu.org/licenses/>.
 #
 
-XEN_ROOT = $(CURDIR)/../../../..
-include $(XEN_ROOT)/tools/firmware/Rules.mk
+XEN_ROOT = $(CURDIR)/../../..
+include $(XEN_ROOT)/Config.mk
 
 C_SRC = build.c dsdt_anycpu.c dsdt_15cpu.c static_tables.c dsdt_anycpu_qemu_xen.c
 OBJS  = $(patsubst %.c,%.o,$(C_SRC))
 
-CFLAGS += $(CFLAGS_xeninclude)
+CFLAGS_xeninclude = -I$(XEN_ROOT)/tools/include
 
 vpath iasl $(PATH)
 all: $(C_SRC) ssdt_s3.h ssdt_s4.h ssdt_pm.h ssdt_tpm.h

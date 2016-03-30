@@ -123,10 +123,6 @@ tools/firmware/*bios/*bios*.txt
 tools/firmware/etherboot/gpxe/*
 tools/firmware/extboot/extboot.img
 tools/firmware/extboot/signrom
-tools/firmware/hvmloader/acpi/mk_dsdt
-tools/firmware/hvmloader/acpi/dsdt*.c
-tools/firmware/hvmloader/acpi/dsdt_*.asl
-tools/firmware/hvmloader/acpi/ssdt_*.h
 tools/firmware/hvmloader/hvmloader
 tools/firmware/hvmloader/roms.h
 tools/firmware/hvmloader/roms.inc
@@ -266,6 +262,10 @@ xen/include/public/public
 xen/include/xen/*.new
 xen/include/xen/acm_policy.h
 xen/include/xen/compile.h
+xen/common/libacpi/mk_dsdt
+xen/common/libacpi/dsdt*.c
+xen/common/libacpi/dsdt_*cpu*.asl
+xen/common/libacpi/ssdt_*.h
 xen/tools/kconfig/.tmp_gtkcheck
 xen/tools/kconfig/.tmp_qtcheck
 xen/tools/symbols

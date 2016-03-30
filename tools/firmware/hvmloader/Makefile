@@ -32,7 +32,7 @@ CFLAGS += $(CFLAGS_xeninclude)
 CFLAGS += -D__XEN_INTERFACE_VERSION__=__XEN_LATEST_INTERFACE_VERSION__
 
 # ACPI table builder
-ACPI_PATH = $(XEN_ROOT)/tools/firmware/hvmloader/acpi
+ACPI_PATH = $(XEN_ROOT)/xen/common/libacpi
 vpath %.c $(ACPI_PATH)
 ACPI_FILES = dsdt_anycpu.c dsdt_15cpu.c static_tables.c dsdt_anycpu_qemu_xen.c build.c
 ACPI_SRC = $(patsubst %.c,$(ACPI_PATH)/%.c,$(ACPI_FILES))
@@ -153,7 +153,6 @@ endif
 clean: subdirs-clean
 	rm -f roms.inc roms.inc.new acpi.h
 	rm -f hvmloader hvmloader.tmp *.o $(DEPS)
-	$(MAKE) -C $(ACPI_PATH) clean
 
 .PHONY: distclean
 distclean: clean
