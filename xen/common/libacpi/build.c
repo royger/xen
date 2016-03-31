@@ -15,8 +15,13 @@
  * this program; If not, see <http://www.gnu.org/licenses/>.
  */
 
+#ifndef __XEN__
 #include <stdio.h>
 #include <string.h>
+#else
+#include <xen/lib.h>
+#define printf printk
+#endif
 
 #include "acpi2_0.h"
 #include "ssdt_s3.h"
@@ -24,14 +29,24 @@
 #include "ssdt_tpm.h"
 #include "ssdt_pm.h"
 #include "x86.h"
+#ifndef __XEN__
 #include <xen/hvm/hvm_info_table.h>
 #include <xen/hvm/hvm_xs_strings.h>
 #include <xen/hvm/params.h>
+#else
+#include <hvm/hvm_info_table.h>
+#include <hvm/hvm_xs_strings.h>
+#include <hvm/params.h>
+#endif
 
 #define ACPI_MAX_SECONDARY_TABLES 16
 
 #define align16(sz)        (((sz) + 15) & ~15)
+#ifndef __XEN__
 #define fixed_strcpy(d, s) strncpy((d), (s), sizeof(d))
+#else
+#define fixed_strcpy(d, s) strlcpy((d), (s), sizeof(d))
+#endif
 #ifndef offsetof
 #define offsetof(t, m) ((unsigned long)&((t *)0)->m)
 #endif

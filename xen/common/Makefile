@@ -76,5 +76,5 @@ subdir-$(CONFIG_X86) += hvm
 
 subdir-$(coverage) += gcov
 
-subdir-y += libelf
+subdir-y += libelf libacpi
 subdir-$(CONFIG_HAS_DEVICE_TREE) += libfdt

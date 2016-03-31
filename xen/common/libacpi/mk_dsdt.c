@@ -5,7 +5,11 @@
 #include <getopt.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#ifndef __XEN__
 #include <xen/hvm/hvm_info_table.h>
+#else
+#include <hvm_info_table.h>
+#endif
 
 static unsigned int indent_level;
 static bool debug = false;

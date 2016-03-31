@@ -17,10 +17,16 @@
 #ifndef _ACPI_2_0_H_
 #define _ACPI_2_0_H_
 
+#ifndef __XEN__
 #include <stdint.h>
 #include <xen/xen.h>
 #include <xen/hvm/ioreq.h>
 #include <xen/memory.h>
+#else
+#include <xen/lib.h>
+#include <memory.h>
+#include <hvm/ioreq.h>
+#endif
 
 #define ASCII32(a,b,c,d)         \
     (((a) <<  0) | ((b) <<  8) | ((c) << 16) | ((d) << 24))

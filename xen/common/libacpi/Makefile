@@ -21,7 +21,16 @@ C_SRC  = build.c dsdt_anycpu.c dsdt_15cpu.c static_tables.c
 C_SRC += dsdt_anycpu_qemu_xen.c dsdt_empty.c
 OBJS  = $(patsubst %.c,%.o,$(C_SRC))
 
-CFLAGS_xeninclude = -I$(XEN_ROOT)/tools/include
+ifneq (,$(findstring -D__XEN__,$(CFLAGS)))
+# Hypervisor
+obj-y	= $(OBJS)
+$(OBJS): all
+CFLAGS  += -I$(XEN_ROOT)/xen/include/public
+CFLAGS_MKDSDT = -I$(XEN_ROOT)/xen/include/public/hvm -D__XEN__
+else
+# Toolstack
+CFLAGS_MKDSDT = -I$(XEN_ROOT)/tools/include
+endif
 
 vpath iasl $(PATH)
 all: $(C_SRC) ssdt_s3.h ssdt_s4.h ssdt_pm.h ssdt_tpm.h
@@ -32,7 +41,7 @@ ssdt_s3.h ssdt_s4.h ssdt_pm.h ssdt_tpm.h: %.h: %.asl iasl
 	rm -f $*.hex $*.aml
 
 mk_dsdt: mk_dsdt.c
-	$(HOSTCC) $(HOSTCFLAGS) $(CFLAGS_xeninclude) -o $@ mk_dsdt.c
+	$(HOSTCC) $(HOSTCFLAGS) $(CFLAGS_MKDSDT) -o $@ mk_dsdt.c
 
 dsdt_anycpu_qemu_xen.asl: dsdt.asl mk_dsdt
 	awk 'NR > 1 {print s} {s=$$0}' $< > $@
@@ -57,7 +66,7 @@ iasl:
 	@echo 
 	@exit 1
 
-clean:
+clean::
 	rm -rf *.o $(IASL_VER) $(IASL_VER).tar.gz $(DEPS)
 	rm -rf ssdt_*.h dsdt*.c *~ *.aml *.hex mk_dsdt dsdt_*cpu*.asl
 
