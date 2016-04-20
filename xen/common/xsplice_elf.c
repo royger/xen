@@ -4,6 +4,7 @@
 
 #include <xen/errno.h>
 #include <xen/lib.h>
+#include <xen/symbols.h>
 #include <xen/xsplice_elf.h>
 #include <xen/xsplice.h>
 
@@ -273,9 +274,22 @@ int xsplice_elf_resolve_symbols(struct xsplice_elf *elf)
             break;
 
         case SHN_UNDEF:
-            dprintk(XENLOG_ERR, XSPLICE "%s: Unknown symbol: %s\n",
-                    elf->name, elf->sym[i].name);
-            rc = -ENOENT;
+            sym->st_value = (unsigned long)
+                    symbols_lookup_by_name(elf->sym[i].name);
+            if ( !sym->st_value )
+            {
+                sym->st_value = (unsigned long)
+                        xsplice_symbols_lookup_by_name(elf->sym[i].name);
+                if ( !sym->st_value )
+                {
+                    dprintk(XENLOG_ERR, XSPLICE "%s: Unknown symbol: %s\n",
+                            elf->name, elf->sym[i].name);
+                    rc = -ENOENT;
+                    break;
+                }
+            }
+            dprintk(XENLOG_DEBUG, XSPLICE "%s: Undefined symbol resolved: %s => %#"PRIxElfAddr"\n",
+                    elf->name, elf->sym[i].name, sym->st_value);
             break;
 
         case SHN_ABS:
