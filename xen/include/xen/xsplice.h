@@ -22,6 +22,7 @@ struct xen_sysctl_xsplice_op;
 struct xsplice_symbol {
     const char *name;
     void *value;
+    unsigned int size;
     bool_t new_symbol;
 };
 
