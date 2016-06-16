@@ -720,6 +720,115 @@ int pci_add_device(u16 seg, u8 bus, u8 devfn,
     else
         iommu_enable_device(pdev);
 
+    if ( is_hvm_domain(current->domain) )
+    {
+        int i, num_bars;
+        u8 htype;
+
+        ASSERT(is_hardware_domain(current->domain));
+
+        htype = pci_conf_read8(seg, bus, slot, func, PCI_HEADER_TYPE);
+
+        /* Size the BARs and map them 1:1 to the domain. */
+        printk(XENLOG_DEBUG "PCI %04x:%02x:%02x.%u: fetching BARs htype: %u\n",
+               seg, bus, slot, func, htype);
+
+        switch ( htype )
+        {
+            case PCI_HEADER_TYPE_NORMAL:
+                num_bars = 6;
+                break;
+            case PCI_HEADER_TYPE_BRIDGE:
+                num_bars = 2;
+                break;
+            default:
+                printk(XENLOG_DEBUG "PCI %04x:%02x:%02x.%u: htype %u not supported\n",
+                       seg, bus, slot, func, htype);
+                num_bars = 0;
+                break;
+        }
+
+        for ( i = 0; i < num_bars; i++ )
+        {
+            u32 bar, nr_pages, addr, hi = 0;
+            u64 bar_addr, size, bar_mfn;
+
+            addr = PCI_BASE_ADDRESS_0 + i * 4;
+            bar = pci_conf_read32(seg, bus, slot, func, addr);
+
+            if ( (bar & PCI_BASE_ADDRESS_SPACE) == PCI_BASE_ADDRESS_SPACE_IO )
+            {
+                printk(XENLOG_DEBUG "PCI %04x:%02x:%02x.%u: found IO BAR#%u\n",
+                       seg, bus, slot, func, (addr - PCI_BASE_ADDRESS_0) / 4);
+                continue;
+            }
+
+            pci_conf_write32(seg, bus, slot, func, addr, ~0);
+
+            if ( (bar & PCI_BASE_ADDRESS_MEM_TYPE_MASK) ==
+                 PCI_BASE_ADDRESS_MEM_TYPE_64 )
+            {
+                if ( (i + 1) == num_bars )
+                {
+                    printk(XENLOG_WARNING
+                           "PCI device %04x:%02x:%02x.%u with 64-bit"
+                           "BAR in last slot\n", seg, bus, slot, func);
+                    break;
+                }
+                hi = pci_conf_read32(seg, bus, slot, func, addr + 4);
+                pci_conf_write32(seg, bus, slot, func, addr + 4, ~0);
+                i++;
+            }
+
+            size = pci_conf_read32(seg, bus, slot, func, addr) &
+                   PCI_BASE_ADDRESS_MEM_MASK;
+
+            if ( (bar & PCI_BASE_ADDRESS_MEM_TYPE_MASK) ==
+                 PCI_BASE_ADDRESS_MEM_TYPE_64 )
+            {
+                size |= (u64)pci_conf_read32(seg, bus, slot, func, addr + 4)
+                        << 32;
+                pci_conf_write32(seg, bus, slot, func, addr + 4, hi);
+            } else if ( size )
+                size |= (u64)~0 << 32;
+            pci_conf_write32(seg, bus, slot, func, addr, bar);
+            size = -size;
+
+            if ( size == 0 )
+            {
+                printk(XENLOG_DEBUG "PCI %04x:%02x:%02x.%u: BAR#%u with size == 0\n",
+                       seg, bus, slot, func, (addr - PCI_BASE_ADDRESS_0) / 4);
+                continue;
+
+            }
+
+            bar_addr = (bar & PCI_BASE_ADDRESS_MEM_MASK) | ((u64)hi << 32);
+
+            printk(XENLOG_DEBUG "PCI %04x:%02x:%02x.%u: adding BAR#%u addr %#lx size %#lx\n",
+                   seg, bus, slot, func, (addr - PCI_BASE_ADDRESS_0) / 4,
+                   bar_addr, size);
+
+            nr_pages = DIV_ROUND_UP(size, PAGE_SIZE);
+            bar_mfn = bar_addr >> PAGE_SHIFT;
+            while ( nr_pages > 0 )
+            {
+                ret = map_mmio_regions(current->domain, bar_mfn, nr_pages,
+                                       bar_mfn);
+                if ( ret == 0 )
+                    break;
+                if ( ret < 0 )
+                {
+                    printk("Failed to map %#lx - %#lx into Dom0 memory map: %d\n",
+                           bar_mfn, bar_mfn + nr_pages, ret);
+                    return ret;
+                }
+                nr_pages -= ret;
+                bar_mfn += ret;
+                process_pending_softirqs();
+            }
+        }
+    }
+
     pci_enable_acs(pdev);
 
 out:

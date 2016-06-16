@@ -23,6 +23,8 @@
 #include <xen/libelf.h>
 #include <xen/pfn.h>
 #include <xen/guest_access.h>
+#include <xen/acpi.h>
+#include <acpi/actables.h>
 #include <asm/regs.h>
 #include <asm/system.h>
 #include <asm/io.h>
@@ -120,6 +122,8 @@ custom_param("dom0_mem", parse_dom0_mem);
 
 static unsigned int __initdata opt_dom0_max_vcpus_min = 1;
 static unsigned int __initdata opt_dom0_max_vcpus_max = UINT_MAX;
+static unsigned int __initdata dom0_vcpus;
+
 
 static void __init parse_dom0_max_vcpus(const char *s)
 {
@@ -1768,6 +1772,28 @@ static void __init populate_memory_range(struct domain *d, uint64_t start,
 
 }
 
+static int __init acpi_parse_lapic(struct acpi_subtable_header * header,
+                                   const unsigned long end)
+{
+    struct acpi_madt_local_apic *processor =
+        container_of(header, struct acpi_madt_local_apic, header);
+    int vcpus = dom0_max_vcpus();
+
+    if (BAD_MADT_ENTRY(processor, end))
+        return -EINVAL;
+
+    if ( dom0_vcpus == 0 )
+    {
+        processor->lapic_flags &= ~ACPI_MADT_ENABLED;
+        return 0;
+    }
+
+    processor->processor_id = processor->id = (vcpus - dom0_vcpus) * 2;
+    dom0_vcpus--;
+
+    return 0;
+}
+
 static int __init construct_dom0_hvm(struct domain *d, const module_t *image,
                                      unsigned long image_headroom,
                                      module_t *initrd,
@@ -1776,7 +1802,7 @@ static int __init construct_dom0_hvm(struct domain *d, const module_t *image,
 {
     char *image_base = bootstrap_map(image);
     struct vcpu *saved_current;
-    unsigned long nr_pages, image_len = image->mod_end;
+    unsigned long mfn, nr_pages, image_len = image->mod_end;
     char *image_start = image_base + image_headroom;
     struct hvm_start_info start_info;
     struct hvm_modlist_entry mod;
@@ -1788,6 +1814,35 @@ static int __init construct_dom0_hvm(struct domain *d, const module_t *image,
     uint32_t *ident_pt;
     paddr_t last_addr;
     int rc, i, cpu;
+    acpi_status status;
+    struct acpi_table_header *table;
+    struct acpi_table_madt *madt;
+    u8 checksum;
+    struct {
+        uint32_t index;
+        uint32_t count;
+    } cpuid_leaves[] = {
+        {0, XEN_CPUID_INPUT_UNUSED},
+        {1, XEN_CPUID_INPUT_UNUSED},
+        {2, XEN_CPUID_INPUT_UNUSED},
+        {4, 0},
+        {4, 1},
+        {4, 2},
+        {4, 3},
+        {4, 4},
+        {7, 0},
+        {0xa, XEN_CPUID_INPUT_UNUSED},
+        {0xd, 0x0},
+        {0x80000000, XEN_CPUID_INPUT_UNUSED},
+        {0x80000001, XEN_CPUID_INPUT_UNUSED},
+        {0x80000002, XEN_CPUID_INPUT_UNUSED},
+        {0x80000003, XEN_CPUID_INPUT_UNUSED},
+        {0x80000004, XEN_CPUID_INPUT_UNUSED},
+        {0x80000005, XEN_CPUID_INPUT_UNUSED},
+        {0x80000006, XEN_CPUID_INPUT_UNUSED},
+        {0x80000007, XEN_CPUID_INPUT_UNUSED},
+        {0x80000008, XEN_CPUID_INPUT_UNUSED},
+    };
 
     /* Sanity! */
     BUG_ON(d->domain_id != 0);
@@ -1905,7 +1960,7 @@ static int __init construct_dom0_hvm(struct domain *d, const module_t *image,
     elf.dest_base = (void *)(parms.virt_kstart - parms.virt_base);
     elf.dest_size = parms.virt_kend - parms.virt_kstart;
     rc = elf_load_binary(&elf);
-    if ( rc < 0 )
+    if ( rc < 0 || elf_check_broken(&elf) != NULL )
     {
         printk("Failed to load kernel: %d\n", rc);
         printk("Xen dom0 kernel broken ELF: %s\n", elf_check_broken(&elf));
@@ -1921,7 +1976,7 @@ static int __init construct_dom0_hvm(struct domain *d, const module_t *image,
     printk("last_addr: %#lx size: %d\n", last_addr,
            initrd->mod_end - initrd->mod_start);
     rc = hvm_copy_to_guest_phys(last_addr, mfn_to_virt(initrd->mod_start),
-                                initrd->mod_end - initrd->mod_start);
+                                initrd->mod_end);
     if ( rc != HVMCOPY_okay )
     {
         printk("Unable to copy initrd to guest: %d\n", rc);
@@ -1930,8 +1985,8 @@ static int __init construct_dom0_hvm(struct domain *d, const module_t *image,
 
     printk("Copied initrd to gfn %#lx\n", last_addr);
     mod.paddr = last_addr;
-    mod.size = initrd->mod_end - initrd->mod_start;
-    last_addr += ROUNDUP(initrd->mod_end - initrd->mod_start, PAGE_SIZE);
+    mod.size = initrd->mod_end;
+    last_addr += ROUNDUP(initrd->mod_end, PAGE_SIZE);
 
     /* Free temporary buffers. */
     discard_initial_images();
@@ -1955,6 +2010,12 @@ static int __init construct_dom0_hvm(struct domain *d, const module_t *image,
     last_addr += sizeof(mod);
     start_info.magic = XEN_HVM_START_MAGIC_VALUE;
     start_info.flags = SIF_PRIVILEGED | SIF_INITDOMAIN;
+    start_info.rsdp_paddr = acpi_os_get_root_pointer();
+    if ( start_info.rsdp_paddr == 0 )
+    {
+        printk("Failed to get RSDP pointer\n");
+        return -ENXIO;
+    }
     rc = hvm_copy_to_guest_phys(last_addr, &start_info, sizeof(start_info));
     if ( rc != HVMCOPY_okay )
         return -EFAULT;
@@ -2001,6 +2062,100 @@ static int __init construct_dom0_hvm(struct domain *d, const module_t *image,
         panic("Failed to setup Dom0 permissions");
 
     clear_bit(_VPF_down, &v->pause_flags);
+
+    printk("** Setting CPUID **\n");
+
+    for ( i = 0; i < ARRAY_SIZE(cpuid_leaves); i++ )
+    {
+        d->arch.cpuids[i].input[0] = cpuid_leaves[i].index;
+        d->arch.cpuids[i].input[1] = cpuid_leaves[i].count;
+        if ( d->arch.cpuids[i].input[1] == XEN_CPUID_INPUT_UNUSED )
+            cpuid(d->arch.cpuids[i].input[0], &d->arch.cpuids[i].eax,
+                  &d->arch.cpuids[i].ebx, &d->arch.cpuids[i].ecx,
+                  &d->arch.cpuids[i].edx);
+        else
+            cpuid_count(d->arch.cpuids[i].input[0], d->arch.cpuids[i].input[1],
+                        &d->arch.cpuids[i].eax, &d->arch.cpuids[i].ebx,
+                        &d->arch.cpuids[i].ecx, &d->arch.cpuids[i].edx);
+        /* XXX: we need to do much more filtering here. */
+        if ( d->arch.cpuids[i].input[0] == 1 )
+            d->arch.cpuids[i].ecx &= ~X86_FEATURE_VMX;
+    }
+
+    printk("** Modifying MADT **\n");
+
+    dom0_vcpus = d->max_vcpus;
+    acpi_table_parse_madt(ACPI_MADT_TYPE_LOCAL_APIC, acpi_parse_lapic,
+                          MAX_APICS);
+
+    /* Fixup checksum */
+    status = acpi_get_table(ACPI_SIG_MADT, 0, &table);
+    if ( ACPI_FAILURE(status) )
+    {
+        const char *msg = acpi_format_exception(status);
+
+        printk("Failed to get MADT table, %s\n", msg);
+        return -EINVAL;
+    }
+    madt = (struct acpi_table_madt *)table;
+    checksum = acpi_tb_checksum(ACPI_CAST_PTR(u8, madt), madt->header.length);
+    madt->header.checksum -= checksum;
+
+    printk("** Mapping ACPI tables 1:1 **\n");
+
+    for ( i = 0; i < d->arch.nr_e820; i++ )
+    {
+        if ( d->arch.e820[i].type != E820_ACPI &&
+             d->arch.e820[i].type != E820_NVS )
+            continue;
+
+        mfn = d->arch.e820[i].addr >> PAGE_SHIFT;
+        nr_pages = DIV_ROUND_UP(d->arch.e820[i].size, PAGE_SIZE);
+        printk("Mapping %#lx - %#lx\n", mfn, mfn + nr_pages);
+
+        while ( nr_pages > 0 )
+        {
+            rc = map_mmio_regions(d, mfn, nr_pages, mfn);
+            if ( rc == 0 )
+                break;
+            if ( rc < 0 )
+            {
+                printk("Failed to map %#lx - %#lx into Dom0 memory map: %d\n",
+                       mfn, mfn + nr_pages, rc);
+                return rc;
+            }
+            nr_pages -= rc;
+            mfn += rc;
+            process_pending_softirqs();
+        }
+#if 0
+        if ( d->arch.e820[i].type == E820_RAM )
+            continue;
+
+        pvh_add_mem_mapping(d, d->arch.e820[i].addr >> PAGE_SHIFT,
+                            d->arch.e820[i].addr >> PAGE_SHIFT,
+                            DIV_ROUND_UP(d->arch.e820[i].size, PAGE_SIZE));
+#endif
+    }
+
+    /* Map the first 1MB 1:1 also */
+    mfn = 0;
+    nr_pages = 0x100;
+    while ( nr_pages > 0 )
+    {
+        rc = map_mmio_regions(d, mfn, nr_pages, mfn);
+        if ( rc == 0 )
+            break;
+        if ( rc < 0 )
+        {
+            printk("Failed to map %#lx - %#lx into Dom0 memory map: %d\n",
+                   mfn, mfn + nr_pages, rc);
+            return rc;
+        }
+        nr_pages -= rc;
+        mfn += rc;
+        process_pending_softirqs();
+    }
 
     printk("** Building Dom0 done **\n");
 

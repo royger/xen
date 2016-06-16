@@ -1970,8 +1970,8 @@ static bool_t admin_io_okay(unsigned int port, unsigned int bytes,
     return ioports_access_permitted(d, port, port + bytes - 1);
 }
 
-static bool_t pci_cfg_ok(struct domain *currd, unsigned int start,
-                         unsigned int size, uint32_t *write)
+bool_t pci_cfg_ok(struct domain *currd, unsigned int start,
+                  unsigned int size, uint32_t *write)
 {
     uint32_t machine_bdf;
 
