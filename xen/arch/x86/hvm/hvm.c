@@ -4029,6 +4029,12 @@ static long hvm_physdev_op(int cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
         if ( !is_pvh_vcpu(current) || !is_hardware_domain(current->domain) )
             return -ENOSYS;
         /* fall through */
+    case PHYSDEVOP_pci_mmcfg_reserved:
+    case PHYSDEVOP_pci_device_add:
+    case PHYSDEVOP_pci_device_remove:
+        if ( !is_hardware_domain(current->domain) )
+            return -ENOSYS;
+        /* fall through */
     case PHYSDEVOP_map_pirq:
     case PHYSDEVOP_unmap_pirq:
     case PHYSDEVOP_eoi:
