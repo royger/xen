@@ -2085,45 +2085,6 @@ static bool_t admin_io_okay(unsigned int port, unsigned int bytes,
     return ioports_access_permitted(d, port, port + bytes - 1);
 }
 
-static bool_t pci_cfg_ok(struct domain *currd, unsigned int start,
-                         unsigned int size, uint32_t *write)
-{
-    uint32_t machine_bdf;
-
-    if ( !is_hardware_domain(currd) )
-        return 0;
-
-    if ( !CF8_ENABLED(currd->arch.pci_cf8) )
-        return 1;
-
-    machine_bdf = CF8_BDF(currd->arch.pci_cf8);
-    if ( write )
-    {
-        const unsigned long *ro_map = pci_get_ro_map(0);
-
-        if ( ro_map && test_bit(machine_bdf, ro_map) )
-            return 0;
-    }
-    start |= CF8_ADDR_LO(currd->arch.pci_cf8);
-    /* AMD extended configuration space access? */
-    if ( CF8_ADDR_HI(currd->arch.pci_cf8) &&
-         boot_cpu_data.x86_vendor == X86_VENDOR_AMD &&
-         boot_cpu_data.x86 >= 0x10 && boot_cpu_data.x86 <= 0x17 )
-    {
-        uint64_t msr_val;
-
-        if ( rdmsr_safe(MSR_AMD64_NB_CFG, msr_val) )
-            return 0;
-        if ( msr_val & (1ULL << AMD64_NB_CFG_CF8_EXT_ENABLE_BIT) )
-            start |= CF8_ADDR_HI(currd->arch.pci_cf8);
-    }
-
-    return !write ?
-           xsm_pci_config_permission(XSM_HOOK, currd, machine_bdf,
-                                     start, start + size - 1, 0) == 0 :
-           pci_conf_write_intercept(0, machine_bdf, start, size, write) >= 0;
-}
-
 uint32_t guest_io_read(unsigned int port, unsigned int bytes,
                        struct domain *currd)
 {
