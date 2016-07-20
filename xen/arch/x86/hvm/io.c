@@ -247,10 +247,74 @@ static int dpci_portio_write(const struct hvm_io_handler *handler,
     return X86EMUL_OKAY;
 }
 
+static bool_t hw_dpci_portio_accept(const struct hvm_io_handler *handler,
+                                    const ioreq_t *p)
+{
+    return ((p->addr == 0xcf8 && p->size == 4) || (p->addr & 0xfffc) == 0xcfc);
+}
+
+static int hw_dpci_portio_read(const struct hvm_io_handler *handler,
+                            uint64_t addr,
+                            uint32_t size,
+                            uint64_t *data)
+{
+    struct domain *currd = current->domain;
+
+    if ( addr == 0xcf8 )
+    {
+        ASSERT(size == 4);
+        *data = currd->arch.pci_cf8;
+        return X86EMUL_OKAY;
+    }
+
+    ASSERT((addr & 0xfffc) == 0xcfc);
+    addr &= 3;
+    size = min(size, 4 - (uint32_t)addr);
+    if ( size == 3 )
+        size = 2;
+    if ( pci_cfg_ok(currd, addr, size, NULL) )
+        *data = pci_conf_read(currd->arch.pci_cf8, addr, size);
+
+    return X86EMUL_OKAY;
+}
+
+static int hw_dpci_portio_write(const struct hvm_io_handler *handler,
+                                uint64_t addr,
+                                uint32_t size,
+                                uint64_t data)
+{
+    struct domain *currd = current->domain;
+    uint32_t data32;
+
+    if ( addr == 0xcf8 )
+    {
+            ASSERT(size == 4);
+            currd->arch.pci_cf8 = data;
+            return X86EMUL_OKAY;
+    }
+
+    ASSERT((addr & 0xfffc) == 0xcfc);
+    addr &= 3;
+    size = min(size, 4 - (uint32_t)addr);
+    if ( size == 3 )
+        size = 2;
+    data32 = data;
+    if ( pci_cfg_ok(currd, addr, size, &data32) )
+        pci_conf_write(currd->arch.pci_cf8, addr, size, data);
+
+    return X86EMUL_OKAY;
+}
+
 static const struct hvm_io_ops dpci_portio_ops = {
     .accept = dpci_portio_accept,
     .read = dpci_portio_read,
     .write = dpci_portio_write
+};
+
+static const struct hvm_io_ops hw_dpci_portio_ops = {
+    .accept = hw_dpci_portio_accept,
+    .read = hw_dpci_portio_read,
+    .write = hw_dpci_portio_write
 };
 
 void register_dpci_portio_handler(struct domain *d)
@@ -261,7 +325,10 @@ void register_dpci_portio_handler(struct domain *d)
         return;
 
     handler->type = IOREQ_TYPE_PIO;
-    handler->ops = &dpci_portio_ops;
+    if ( is_hardware_domain(d) )
+        handler->ops = &hw_dpci_portio_ops;
+    else
+        handler->ops = &dpci_portio_ops;
 }
 
 /*
