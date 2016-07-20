@@ -88,6 +88,15 @@ void hvm_pci_intx_assert(
     spin_unlock(&d->arch.hvm_domain.irq_lock);
 }
 
+void hvm_hw_gsi_assert(struct domain *d, unsigned int gsi)
+{
+
+    ASSERT(is_hardware_domain(d));
+    spin_lock(&d->arch.hvm_domain.irq_lock);
+    assert_gsi(d, gsi);
+    spin_unlock(&d->arch.hvm_domain.irq_lock);
+}
+
 static void __hvm_pci_intx_deassert(
     struct domain *d, unsigned int device, unsigned int intx)
 {
