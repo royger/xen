@@ -162,6 +162,8 @@ const char *parse_pci(const char *, unsigned int *seg, unsigned int *bus,
 
 bool_t pcie_aer_get_firmware_first(const struct pci_dev *);
 
+bool_t pci_cfg_ok(struct domain *, unsigned int, unsigned int, uint32_t *);
+
 struct pirq;
 int msixtbl_pt_register(struct domain *, struct pirq *, uint64_t gtable);
 void msixtbl_pt_unregister(struct domain *, struct pirq *);
