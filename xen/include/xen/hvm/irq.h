@@ -122,6 +122,9 @@ void hvm_isa_irq_assert(
 void hvm_isa_irq_deassert(
     struct domain *d, unsigned int isa_irq);
 
+/* Modify state of a hardware domain GSI */
+void hvm_hw_gsi_assert(struct domain *d, unsigned int gsi);
+
 void hvm_set_pci_link_route(struct domain *d, u8 link, u8 isa_irq);
 
 int hvm_inject_msi(struct domain *d, uint64_t addr, uint32_t data);
