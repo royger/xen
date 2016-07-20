@@ -201,4 +201,9 @@ bool_t cpu_has_pending_apic_eoi(void);
 
 static inline void arch_move_irqs(struct vcpu *v) { }
 
+struct msi_info;
+int physdev_map_pirq(domid_t, int type, int *index, int *pirq_p,
+                     struct msi_info *);
+int physdev_unmap_pirq(domid_t, int pirq);
+
 #endif /* _ASM_HW_IRQ_H */

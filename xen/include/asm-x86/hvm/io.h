@@ -125,6 +125,8 @@ int handle_pio(uint16_t port, unsigned int size, int dir);
 void hvm_interrupt_post(struct vcpu *v, int vector, int type);
 void hvm_dpci_eoi(struct domain *d, unsigned int guest_irq,
                   const union vioapic_redir_entry *ent);
+void hvm_hw_dpci_eoi(struct domain *d, unsigned int gsi,
+                     const union vioapic_redir_entry *ent);
 void msix_write_completion(struct vcpu *);
 void msixtbl_init(struct domain *d);
 

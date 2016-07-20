@@ -19,10 +19,6 @@
 #include <xsm/xsm.h>
 #include <asm/p2m.h>
 
-int physdev_map_pirq(domid_t, int type, int *index, int *pirq_p,
-                     struct msi_info *);
-int physdev_unmap_pirq(domid_t, int pirq);
-
 #include "x86_64/mmconfig.h"
 
 #ifndef COMPAT
@@ -94,7 +90,7 @@ int physdev_map_pirq(domid_t domid, int type, int *index, int *pirq_p,
     int pirq, irq, ret = 0;
     void *map_data = NULL;
 
-    if ( domid == DOMID_SELF && is_hvm_domain(d) )
+    if ( domid == DOMID_SELF && !is_hardware_domain(d) && is_hvm_domain(d) )
     {
         /*
          * Only makes sense for vector-based callback, else HVM-IRQ logic
