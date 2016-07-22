@@ -2283,7 +2283,11 @@ int hvm_set_cr0(unsigned long value, bool_t may_defer)
         if ( !nestedhvm_vmswitch_in_progress(v) && nestedhvm_vcpu_in_guestmode(v) )
             paging_update_nestedmode(v);
         else
+        {
             paging_update_paging_modes(v);
+            /* Force an update of the memory cache attributes. */
+            memory_type_changed(d);
+        }
     }
 
     return X86EMUL_OKAY;

@@ -814,10 +814,19 @@ int epte_get_entry_emt(struct domain *d, unsigned long gfn, mfn_t mfn,
     if ( gmtrr_mtype == -EADDRNOTAVAIL )
         return -1;
 
-    gmtrr_mtype = is_hvm_domain(d) && v ?
-                  get_mtrr_type(&v->arch.hvm_vcpu.mtrr,
-                                gfn << PAGE_SHIFT, order) :
-                  MTRR_TYPE_WRBACK;
+    if ( !v )
+        gmtrr_mtype = MTRR_TYPE_WRBACK;
+    else if ( v->arch.hvm_vcpu.mtrr.enabled & 0x2 )
+        /* MTRR is enabled, use MTRR. */
+        gmtrr_mtype = get_mtrr_type(&v->arch.hvm_vcpu.mtrr, gfn << PAGE_SHIFT,
+                                    order);
+    else if ( !hvm_paging_enabled(v) )
+        /* MTRR is not enabled and paging is disabled, force UC. */
+        gmtrr_mtype = MTRR_TYPE_UNCACHABLE;
+    else
+        /* MTRR is not enabled and paging is enabled, use PAT. */
+        gmtrr_mtype = MTRR_TYPE_WRBACK;
+
     hmtrr_mtype = get_mtrr_type(&mtrr_state, mfn_x(mfn) << PAGE_SHIFT, order);
     if ( gmtrr_mtype < 0 || hmtrr_mtype < 0 )
         return -1;
