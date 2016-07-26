@@ -9,27 +9,31 @@ lto           ?= n
 
 include $(XEN_ROOT)/Config.mk
 
+error_str = "You must use '$(MAKE) -C xen menuconfig' from the top level directory to enable/disable $(1) now."
+error_msg = $(error $(error_str))
+warning_msg = $(warning $(error_str))
+
 
 ifneq ($(origin crash_debug),undefined)
-$(error "You must use 'make menuconfig' to enable/disable crash_debug now.")
+$(call error_msg,crash_debug)
 endif
 ifeq ($(origin debug),command line)
-$(warning "You must use 'make menuconfig' to enable/disable debug now.")
+$(call warning_msg,debug)
 endif
 ifneq ($(origin frame_pointer),undefined)
-$(error "You must use 'make menuconfig' to enable/disable frame_pointer now.")
+$(call error_msg,frame_pointer)
 endif
 ifneq ($(origin kexec),undefined)
-$(error "You must use 'make menuconfig' to enable/disable kexec now.")
+$(call error_msg,kexec)
 endif
 ifneq ($(origin lock_profile),undefined)
-$(error "You must use 'make menuconfig' to enable/disable lock_profile now.")
+$(call error_msg,lock_profile)
 endif
 ifneq ($(origin perfc),undefined)
-$(error "You must use 'make menuconfig' to enable/disable perfc now.")
+$(call error_msg,perfc)
 endif
 ifneq ($(origin verbose),undefined)
-$(error "You must use 'make menuconfig' to enable/disable verbose now.")
+$(call error_msg,verbose)
 endif
 
 # Set ARCH/SUBARCH appropriately.
