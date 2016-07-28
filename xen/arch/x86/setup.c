@@ -75,6 +75,10 @@ unsigned long __read_mostly cr4_pv32_mask;
 static bool_t __initdata opt_dom0pvh;
 boolean_param("dom0pvh", opt_dom0pvh);
 
+/* Boot dom0 in HVM mode */
+static bool_t __initdata opt_dom0hvm;
+boolean_param("dom0hvm", opt_dom0hvm);
+
 /* **** Linux config option: propagated to domain0. */
 /* "acpi=off":    Sisables both ACPI table parsing and interpreter. */
 /* "acpi=force":  Override the disable blacklist.                   */
@@ -1494,6 +1498,11 @@ void __init noreturn __start_xen(unsigned long mbi_p)
 
     if ( opt_dom0pvh )
         domcr_flags |= DOMCRF_pvh | DOMCRF_hap;
+
+    if ( opt_dom0hvm ) {
+        domcr_flags |= DOMCRF_hvm | (hvm_funcs.hap_supported ? DOMCRF_hap : 0);
+        config.emulation_flags = XEN_X86_EMU_LAPIC|XEN_X86_EMU_IOAPIC;
+    }
 
     /*
      * Create initial domain 0.
