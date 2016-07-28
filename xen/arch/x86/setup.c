@@ -67,6 +67,16 @@ unsigned long __read_mostly cr4_pv32_mask;
 static bool_t __initdata opt_dom0pvh;
 boolean_param("dom0pvh", opt_dom0pvh);
 
+/*
+ * List of parameters that affect Dom0 creation:
+ *
+ *  - hvm               Create a PVHv2 Dom0.
+ *  - shadow            Use shadow paging for Dom0.
+ */
+static void parse_dom0_param(char *s);
+custom_param("dom0", parse_dom0_param);
+static bool __initdata dom0_hvm;
+
 /* **** Linux config option: propagated to domain0. */
 /* "acpi=off":    Sisables both ACPI table parsing and interpreter. */
 /* "acpi=force":  Override the disable blacklist.                   */
@@ -185,6 +195,27 @@ static void __init parse_acpi_param(char *s)
     {
         acpi_noirq_set();
     }
+}
+
+static void __init parse_dom0_param(char *s)
+{
+    char *ss;
+
+    do {
+
+        ss = strchr(s, ',');
+        if ( ss )
+            *ss = '\0';
+
+        if ( !strcmp(s, "hvm") )
+            dom0_hvm = true;
+#ifdef CONFIG_SHADOW_PAGING
+        else if ( !strcmp(s, "shadow") )
+            opt_dom0_shadow = true;
+#endif
+
+        s = ss + 1;
+    } while ( ss );
 }
 
 static const module_t *__initdata initial_images;
@@ -1542,6 +1573,14 @@ void __init noreturn __start_xen(unsigned long mbi_p)
 
     if ( opt_dom0pvh )
         domcr_flags |= DOMCRF_pvh | DOMCRF_hap;
+
+    if ( dom0_hvm )
+    {
+        domcr_flags |= DOMCRF_hvm |
+                       ((hvm_funcs.hap_supported && !opt_dom0_shadow) ?
+                         DOMCRF_hap : 0);
+        config.emulation_flags = XEN_X86_EMU_LAPIC|XEN_X86_EMU_IOAPIC;
+    }
 
     /* Create initial domain 0. */
     dom0 = domain_create(0, domcr_flags, 0, &config);
