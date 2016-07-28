@@ -509,6 +509,27 @@ void vcpu_destroy(struct vcpu *v)
         xfree(v->arch.pv_vcpu.trap_ctxt);
 }
 
+static bool emulation_flags_ok(const struct domain *d, uint32_t emflags)
+{
+
+    if ( is_hvm_domain(d) )
+    {
+        if ( is_hardware_domain(d) &&
+             emflags != (XEN_X86_EMU_PIT|XEN_X86_EMU_LAPIC|XEN_X86_EMU_IOAPIC))
+            return false;
+        if ( !is_hardware_domain(d) &&
+             emflags != XEN_X86_EMU_ALL && emflags != 0 )
+            return false;
+    }
+    else if ( emflags != 0 && emflags != XEN_X86_EMU_PIT )
+    {
+        /* PV or classic PVH. */
+        return false;
+    }
+
+    return true;
+}
+
 int arch_domain_create(struct domain *d, unsigned int domcr_flags,
                        struct xen_arch_domainconfig *config)
 {
@@ -553,9 +574,8 @@ int arch_domain_create(struct domain *d, unsigned int domcr_flags,
         }
         if ( is_hardware_domain(d) )
             config->emulation_flags |= XEN_X86_EMU_PIT;
-        if ( config->emulation_flags != 0 &&
-             (config->emulation_flags !=
-              (is_hvm_domain(d) ? XEN_X86_EMU_ALL : XEN_X86_EMU_PIT)) )
+
+        if ( !emulation_flags_ok(d, config->emulation_flags) )
         {
             printk(XENLOG_G_ERR "d%d: Xen does not allow %s domain creation "
                    "with the current selection of emulators: %#x\n",
