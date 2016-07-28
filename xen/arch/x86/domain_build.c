@@ -952,7 +952,7 @@ static int __init setup_permissions(struct domain *d)
     return rc;
 }
 
-int __init construct_dom0(
+static int __init construct_dom0_pv(
     struct domain *d,
     const module_t *image, unsigned long image_headroom,
     module_t *initrd,
@@ -1645,6 +1645,31 @@ out:
                elf_check_broken(&elf));
 
     return rc;
+}
+
+static int __init construct_dom0_hvm(struct domain *d, const module_t *image,
+                                     unsigned long image_headroom,
+                                     module_t *initrd,
+                                     void *(*bootstrap_map)(const module_t *),
+                                     char *cmdline)
+{
+
+    printk("** Building a PVH Dom0 **\n");
+
+    return 0;
+}
+
+int __init construct_dom0(struct domain *d, const module_t *image,
+                          unsigned long image_headroom, module_t *initrd,
+                          void *(*bootstrap_map)(const module_t *),
+                          char *cmdline)
+{
+
+    return is_hvm_domain(d) ?
+            construct_dom0_hvm(d, image, image_headroom, initrd,
+                               bootstrap_map, cmdline) :
+            construct_dom0_pv(d, image, image_headroom, initrd, bootstrap_map,
+                              cmdline);
 }
 
 /*
