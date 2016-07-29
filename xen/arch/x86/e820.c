@@ -87,7 +87,7 @@ static void __init add_memory_region(unsigned long long start,
     e820.nr_map++;
 }
 
-static void __init print_e820_memory_map(struct e820entry *map, unsigned int entries)
+void __init print_e820_memory_map(struct e820entry *map, unsigned int entries)
 {
     unsigned int i;
 
