@@ -39,6 +39,7 @@
 #include <asm/hpet.h>
 
 #include <public/version.h>
+#include <public/arch-x86/hvm/start_info.h>
 
 static long __initdata dom0_nrpages;
 static long __initdata dom0_min_nrpages;
@@ -1876,12 +1877,141 @@ static int __init hvm_setup_p2m(struct domain *d)
     return 0;
 }
 
+static int __init hvm_load_kernel(struct domain *d, const module_t *image,
+                                  unsigned long image_headroom,
+                                  module_t *initrd, char *image_base,
+                                  char *cmdline, paddr_t *entry,
+                                  paddr_t *start_info_addr)
+{
+    char *image_start = image_base + image_headroom;
+    unsigned long image_len = image->mod_end;
+    struct elf_binary elf;
+    struct elf_dom_parms parms;
+    paddr_t last_addr;
+    struct hvm_start_info start_info;
+    struct hvm_modlist_entry mod;
+    struct vcpu *saved_current, *v = d->vcpu[0];
+    int rc;
+
+    if ( (rc = bzimage_parse(image_base, &image_start, &image_len)) != 0 )
+    {
+        printk("Error trying to detect bz compressed kernel\n");
+        return rc;
+    }
+
+    if ( (rc = elf_init(&elf, image_start, image_len)) != 0 )
+    {
+        printk("Unable to init ELF\n");
+        return rc;
+    }
+#ifdef VERBOSE
+    elf_set_verbose(&elf);
+#endif
+    elf_parse_binary(&elf);
+    if ( (rc = elf_xen_parse(&elf, &parms)) != 0 )
+    {
+        printk("Unable to parse kernel for ELFNOTES\n");
+        return rc;
+    }
+
+    if ( parms.phys_entry == UNSET_ADDR32 ) {
+        printk("Unable to find kernel entry point, aborting\n");
+        return -EINVAL;
+    }
+
+    printk("OS: %s version: %s loader: %s bitness: %s\n", parms.guest_os,
+           parms.guest_ver, parms.loader,
+           elf_64bit(&elf) ? "64-bit" : "32-bit");
+
+    /* Copy the OS image and free temporary buffer. */
+    elf.dest_base = (void *)(parms.virt_kstart - parms.virt_base);
+    elf.dest_size = parms.virt_kend - parms.virt_kstart;
+
+    saved_current = current;
+    set_current(v);
+
+    rc = elf_load_binary(&elf);
+    if ( rc < 0 )
+    {
+        printk("Failed to load kernel: %d\n", rc);
+        printk("Xen dom0 kernel broken ELF: %s\n", elf_check_broken(&elf));
+        goto out;
+    }
+
+    last_addr = ROUNDUP(parms.virt_kend - parms.virt_base, PAGE_SIZE);
+
+    if ( initrd != NULL )
+    {
+        rc = hvm_copy_to_guest_phys(last_addr, mfn_to_virt(initrd->mod_start),
+                                    initrd->mod_end);
+        if ( rc != HVMCOPY_okay )
+        {
+            printk("Unable to copy initrd to guest\n");
+            rc = -EFAULT;
+            goto out;
+        }
+
+        mod.paddr = last_addr;
+        mod.size = initrd->mod_end;
+        last_addr += ROUNDUP(initrd->mod_end, PAGE_SIZE);
+    }
+
+    /* Free temporary buffers. */
+    discard_initial_images();
+
+    memset(&start_info, 0, sizeof(start_info));
+    if ( cmdline != NULL )
+    {
+        rc = hvm_copy_to_guest_phys(last_addr, cmdline, strlen(cmdline) + 1);
+        if ( rc != HVMCOPY_okay )
+        {
+            printk("Unable to copy guest command line\n");
+            rc = -EFAULT;
+            goto out;
+        }
+        start_info.cmdline_paddr = last_addr;
+        last_addr += ROUNDUP(strlen(cmdline) + 1, 8);
+    }
+    if ( initrd != NULL )
+    {
+        rc = hvm_copy_to_guest_phys(last_addr, &mod, sizeof(mod));
+        if ( rc != HVMCOPY_okay )
+        {
+            printk("Unable to copy guest modules\n");
+            rc = -EFAULT;
+            goto out;
+        }
+        start_info.modlist_paddr = last_addr;
+        start_info.nr_modules = 1;
+        last_addr += sizeof(mod);
+    }
+
+    start_info.magic = XEN_HVM_START_MAGIC_VALUE;
+    start_info.flags = SIF_PRIVILEGED | SIF_INITDOMAIN;
+    rc = hvm_copy_to_guest_phys(last_addr, &start_info, sizeof(start_info));
+    if ( rc != HVMCOPY_okay )
+    {
+        printk("Unable to copy start info to guest\n");
+        rc = -EFAULT;
+        goto out;
+    }
+
+    *entry = parms.phys_entry;
+    *start_info_addr = last_addr;
+    rc = 0;
+
+out:
+    set_current(saved_current);
+    return rc;
+}
+
 static int __init construct_dom0_hvm(struct domain *d, const module_t *image,
                                      unsigned long image_headroom,
                                      module_t *initrd,
                                      void *(*bootstrap_map)(const module_t *),
                                      char *cmdline)
 {
+    paddr_t entry, start_info;
     int rc;
 
     printk("** Building a PVH Dom0 **\n");
@@ -1896,6 +2026,14 @@ static int __init construct_dom0_hvm(struct domain *d, const module_t *image,
     if ( rc )
     {
         printk("Failed to setup Dom0 physical memory map\n");
+        return rc;
+    }
+
+    rc = hvm_load_kernel(d, image, image_headroom, initrd, bootstrap_map(image),
+                         cmdline, &entry, &start_info);
+    if ( rc )
+    {
+        printk("Failed to load Dom0 kernel\n");
         return rc;
     }
 
