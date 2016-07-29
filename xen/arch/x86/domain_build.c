@@ -22,6 +22,7 @@
 #include <xen/compat.h>
 #include <xen/libelf.h>
 #include <xen/pfn.h>
+#include <xen/guest_access.h>
 #include <asm/regs.h>
 #include <asm/system.h>
 #include <asm/io.h>
@@ -42,6 +43,9 @@
 static long __initdata dom0_nrpages;
 static long __initdata dom0_min_nrpages;
 static long __initdata dom0_max_nrpages = LONG_MAX;
+
+/* Size of the VM86 TSS for virtual 8086 mode to use. */
+#define HVM_VM86_TSS_SIZE   128
 
 /*
  * dom0_mem=[min:<min_amt>,][max:<max_amt>,][<amt>]
@@ -190,6 +194,14 @@ struct vcpu *__init alloc_dom0_vcpu0(struct domain *dom0)
     return setup_dom0_vcpu(dom0, 0, cpumask_first(&dom0_cpus));
 }
 
+static unsigned int __init get_order_from_bytes_floor(paddr_t size)
+{
+    unsigned int order;
+
+    order = get_order_from_bytes(size + 1);
+    return order > 0 ? order - 1 : order;
+}
+
 #ifdef CONFIG_SHADOW_PAGING
 bool __initdata opt_dom0_shadow;
 boolean_param("dom0_shadow", opt_dom0_shadow);
@@ -213,11 +225,12 @@ boolean_param("ro-hpet", ro_hpet);
 #define round_pgup(_p)    (((_p)+(PAGE_SIZE-1))&PAGE_MASK)
 #define round_pgdown(_p)  ((_p)&PAGE_MASK)
 
+static unsigned int __initdata memflags = MEMF_no_dma|MEMF_exact_node;
+
 static struct page_info * __init alloc_chunk(
     struct domain *d, unsigned long max_pages)
 {
     static unsigned int __initdata last_order = MAX_ORDER;
-    static unsigned int __initdata memflags = MEMF_no_dma|MEMF_exact_node;
     struct page_info *page;
     unsigned int order = get_order_from_pages(max_pages), free_order;
 
@@ -302,7 +315,8 @@ static unsigned long __init compute_dom0_nr_pages(
             avail -= max_pdx >> s;
     }
 
-    need_paging = opt_dom0_shadow || (is_pvh_domain(d) && !iommu_hap_pt_share);
+    need_paging = opt_dom0_shadow || (has_hvm_container_domain(d) &&
+                  (!iommu_hap_pt_share || !paging_mode_hap(d)));
     for ( ; ; need_paging = 0 )
     {
         nr_pages = dom0_nrpages;
@@ -334,7 +348,8 @@ static unsigned long __init compute_dom0_nr_pages(
         avail -= dom0_paging_pages(d, nr_pages);
     }
 
-    if ( (parms->p2m_base == UNSET_ADDR) && (dom0_nrpages <= 0) &&
+    if ( is_pv_domain(d) &&
+         (parms->p2m_base == UNSET_ADDR) && (dom0_nrpages <= 0) &&
          ((dom0_min_nrpages <= 0) || (nr_pages > min_pages)) )
     {
         /*
@@ -545,11 +560,12 @@ static __init void pvh_map_all_iomem(struct domain *d, unsigned long nr_pages)
     ASSERT(nr_holes == 0);
 }
 
-static __init void pvh_setup_e820(struct domain *d, unsigned long nr_pages)
+static __init void hvm_setup_e820(struct domain *d, unsigned long nr_pages)
 {
     struct e820entry *entry, *entry_guest;
     unsigned int i;
     unsigned long pages, cur_pages = 0;
+    uint64_t start, end;
 
     /*
      * Craft the e820 memory map for Dom0 based on the hardware e820 map.
@@ -577,8 +593,19 @@ static __init void pvh_setup_e820(struct domain *d, unsigned long nr_pages)
             continue;
         }
 
-        *entry_guest = *entry;
-        pages = PFN_UP(entry_guest->size);
+        /*
+         * Make sure the start and length are aligned to PAGE_SIZE, because
+         * that's the minimum granularity of the 2nd stage translation.
+         */
+        start = ROUNDUP(entry->addr, PAGE_SIZE);
+        end = (entry->addr + entry->size) & PAGE_MASK;
+        if ( start >= end )
+            continue;
+
+        entry_guest->type = E820_RAM;
+        entry_guest->addr = start;
+        entry_guest->size = end - start;
+        pages = PFN_DOWN(entry_guest->size);
         if ( (cur_pages + pages) > nr_pages )
         {
             /* Truncate region */
@@ -1009,8 +1036,6 @@ static int __init construct_dom0_pv(
     BUG_ON(d->domain_id != 0);
     BUG_ON(d->vcpu[0] == NULL);
     BUG_ON(v->is_initialised);
-
-    process_pending_softirqs();
 
     printk("*** LOADING DOMAIN 0 ***\n");
 
@@ -1637,7 +1662,7 @@ static int __init construct_dom0_pv(
         dom0_update_physmap(d, pfn, mfn, 0);
 
         pvh_map_all_iomem(d, nr_pages);
-        pvh_setup_e820(d, nr_pages);
+        hvm_setup_e820(d, nr_pages);
     }
 
     if ( d->domain_id == hardware_domid )
@@ -1653,14 +1678,245 @@ out:
     return rc;
 }
 
+/* Populate an HVM memory range using the biggest possible order. */
+static int __init hvm_populate_memory_range(struct domain *d, uint64_t start,
+                                             uint64_t size)
+{
+    unsigned int order, i = 0;
+    struct page_info *page;
+    int rc;
+#define MAP_MAX_ITER 64
+
+    ASSERT(IS_ALIGNED(size, PAGE_SIZE) && IS_ALIGNED(start, PAGE_SIZE));
+
+    order = MAX_ORDER;
+    while ( size != 0 )
+    {
+        order = min(get_order_from_bytes_floor(size), order);
+        page = alloc_domheap_pages(d, order, memflags);
+        if ( page == NULL )
+        {
+            if ( order == 0 && memflags )
+            {
+                /* Try again without any memflags. */
+                memflags = 0;
+                order = MAX_ORDER;
+                continue;
+            }
+            if ( order == 0 )
+            {
+                printk("Unable to allocate memory with order 0!\n");
+                return -ENOMEM;
+            }
+            order--;
+            continue;
+        }
+
+        rc = guest_physmap_add_page(d, _gfn(PFN_DOWN(start)),
+                                    _mfn(page_to_mfn(page)), order);
+        if ( rc != 0 )
+        {
+            printk("Failed to populate memory: [%" PRIx64 ",%" PRIx64 ") %d\n",
+                   start, start + ((1ULL) << (order + PAGE_SHIFT)), rc);
+            return -ENOMEM;
+        }
+        start += 1ULL << (order + PAGE_SHIFT);
+        size -= 1ULL << (order + PAGE_SHIFT);
+        if ( (++i % MAP_MAX_ITER) == 0 )
+            process_pending_softirqs();
+    }
+
+    return 0;
+#undef MAP_MAX_ITER
+}
+
+static int __init hvm_steal_ram(struct domain *d, unsigned long size,
+                                paddr_t limit, paddr_t *addr)
+{
+    unsigned int i;
+
+    for ( i = 1; i <= d->arch.nr_e820; i++ )
+    {
+        struct e820entry *entry = &d->arch.e820[d->arch.nr_e820 - i];
+
+        if ( entry->type != E820_RAM || entry->size < size )
+            continue;
+
+        /* Subtract from the beginning. */
+        if ( entry->addr + size < limit && entry->addr >= MB(1) )
+        {
+            *addr = entry->addr;
+            entry->addr += size;
+            entry->size -= size;
+            return 0;
+        }
+    }
+
+    return -ENOMEM;
+}
+
+static int __init hvm_setup_vmx_realmode_helpers(struct domain *d)
+{
+    p2m_type_t p2mt;
+    uint32_t rc, *ident_pt;
+    uint8_t *tss;
+    mfn_t mfn;
+    paddr_t gaddr;
+    unsigned int i;
+
+    /*
+     * Steal some space from the last found RAM region. One page will be
+     * used for the identity page tables, and the remaining space for the
+     * VM86 TSS. Note that after this not all e820 regions will be aligned
+     * to PAGE_SIZE.
+     */
+    if ( hvm_steal_ram(d, PAGE_SIZE + HVM_VM86_TSS_SIZE, ULONG_MAX, &gaddr) )
+    {
+        printk("Unable to find memory to stash the identity map and TSS\n");
+        return -ENOMEM;
+    }
+
+    /*
+     * Identity-map page table is required for running with CR0.PG=0
+     * when using Intel EPT. Create a 32-bit non-PAE page directory of
+     * superpages.
+     */
+    ident_pt = map_domain_gfn(p2m_get_hostp2m(d), _gfn(PFN_DOWN(gaddr)),
+                              &mfn, &p2mt, 0, &rc);
+    if ( ident_pt == NULL )
+    {
+        printk("Unable to map identity page tables\n");
+        return -ENOMEM;
+    }
+    for ( i = 0; i < PAGE_SIZE / sizeof(*ident_pt); i++ )
+        ident_pt[i] = ((i << 22) | _PAGE_PRESENT | _PAGE_RW | _PAGE_USER |
+                       _PAGE_ACCESSED | _PAGE_DIRTY | _PAGE_PSE);
+    unmap_domain_page(ident_pt);
+    put_page(mfn_to_page(mfn_x(mfn)));
+    d->arch.hvm_domain.params[HVM_PARAM_IDENT_PT] = gaddr;
+    gaddr += PAGE_SIZE;
+    ASSERT(IS_ALIGNED(gaddr, PAGE_SIZE));
+
+    tss = map_domain_gfn(p2m_get_hostp2m(d), _gfn(PFN_DOWN(gaddr)),
+                         &mfn, &p2mt, 0, &rc);
+    if ( tss == NULL )
+    {
+        printk("Unable to map VM86 TSS area\n");
+        return 0;
+    }
+
+    memset(tss, 0, HVM_VM86_TSS_SIZE);
+    unmap_domain_page(tss);
+    put_page(mfn_to_page(mfn_x(mfn)));
+    d->arch.hvm_domain.params[HVM_PARAM_VM86_TSS] = gaddr;
+
+    return 0;
+}
+
+static int __init hvm_setup_p2m(struct domain *d)
+{
+    struct vcpu *saved_current, *v = d->vcpu[0];
+    unsigned long nr_pages;
+    int i, rc;
+    bool preempted;
+
+    nr_pages = compute_dom0_nr_pages(d, NULL, 0);
+
+    hvm_setup_e820(d, nr_pages);
+    do {
+        preempted = false;
+        paging_set_allocation(d, dom0_paging_pages(d, nr_pages),
+                              &preempted);
+        process_pending_softirqs();
+    } while ( preempted );
+
+    /*
+     * Special treatment for memory < 1MB:
+     *  - Copy the data in e820 regions marked as RAM (BDA, BootSector...).
+     *  - Identity map everything else.
+     * NB: all this only makes sense if booted from legacy BIOSes.
+     * NB2: regions marked as RAM in the memory map are backed by RAM pages
+     * in the p2m, and the original data is copied over. This is done because
+     * at least FreeBSD places the AP boot trampoline in a RAM region found
+     * below the first MB, and the real-mode emulator found in Xen cannot
+     * deal with code that resides in guest pages marked as MMIO. This can
+     * cause problems if the memory map is not correct, and for example the
+     * EBDA or the video ROM region is marked as RAM.
+     */
+    rc = modify_identity_mmio(d, 0, PFN_DOWN(MB(1)), true);
+    if ( rc )
+    {
+        printk("Failed to identity map low 1MB: %d\n", rc);
+        return rc;
+    }
+
+    /* Populate memory map. */
+    for ( i = 0; i < d->arch.nr_e820; i++ )
+    {
+        if ( d->arch.e820[i].type != E820_RAM )
+            continue;
+
+        rc = hvm_populate_memory_range(d, d->arch.e820[i].addr,
+                                       d->arch.e820[i].size);
+        if ( rc )
+            return rc;
+        if ( d->arch.e820[i].addr < MB(1) )
+        {
+            unsigned long end = min_t(unsigned long,
+                            d->arch.e820[i].addr + d->arch.e820[i].size, MB(1));
+
+            saved_current = current;
+            set_current(v);
+            rc = hvm_copy_to_guest_phys(d->arch.e820[i].addr,
+                                        maddr_to_virt(d->arch.e820[i].addr),
+                                        end - d->arch.e820[i].addr);
+            set_current(saved_current);
+            if ( rc != HVMCOPY_okay )
+            {
+                printk("Unable to copy RAM region %#lx - %#lx\n",
+                       d->arch.e820[i].addr, end);
+                return -EFAULT;
+            }
+        }
+    }
+
+    if ( cpu_has_vmx && paging_mode_hap(d) && !vmx_unrestricted_guest(v) )
+    {
+        /*
+         * Since Dom0 cannot be migrated, we will only setup the
+         * unrestricted guest helpers if they are needed by the current
+         * hardware we are running on.
+         */
+        rc = hvm_setup_vmx_realmode_helpers(d);
+        if ( rc )
+            return rc;
+    }
+
+    return 0;
+}
+
 static int __init construct_dom0_hvm(struct domain *d, const module_t *image,
                                      unsigned long image_headroom,
                                      module_t *initrd,
                                      void *(*bootstrap_map)(const module_t *),
                                      char *cmdline)
 {
+    int rc;
 
     printk("** Building a PVH Dom0 **\n");
+
+    /* Sanity! */
+    BUG_ON(d->domain_id);
+    BUG_ON(!d->vcpu[0]);
+
+    iommu_hwdom_init(d);
+
+    rc = hvm_setup_p2m(d);
+    if ( rc )
+    {
+        printk("Failed to setup Dom0 physical memory map\n");
+        return rc;
+    }
 
     return 0;
 }
@@ -1670,6 +1926,7 @@ int __init construct_dom0(struct domain *d, const module_t *image,
                           void *(*bootstrap_map)(const module_t *),
                           char *cmdline)
 {
+    process_pending_softirqs();
 
     return (is_hvm_domain(d) ? construct_dom0_hvm : construct_dom0_pv)
            (d, image, image_headroom, initrd,bootstrap_map, cmdline);
