@@ -2,6 +2,7 @@
 #define _XEN_P2M_COMMON_H
 
 #include <public/vm_event.h>
+#include <xen/softirq.h>
 
 /*
  * Additional access types, which are used to further restrict
@@ -44,6 +45,34 @@ int unmap_mmio_regions(struct domain *d,
                        gfn_t start_gfn,
                        unsigned long nr,
                        mfn_t mfn);
+
+/*
+ * Preemptive Helper for mapping MMIO regions.
+ */
+static inline int map_mmio_11(struct domain *d, unsigned long pfn,
+                              unsigned long nr_pages)
+{
+    int rc;
+
+    while ( nr_pages > 0 )
+    {
+        rc = map_mmio_regions(d, _gfn(pfn), nr_pages, _mfn(pfn));
+        if ( rc == 0 )
+            break;
+        if ( rc < 0 )
+        {
+            printk(XENLOG_ERR
+                   "Failed to map %#lx - %#lx into domain %d memory map: %d\n",
+                   pfn, pfn + nr_pages, d->domain_id, rc);
+            return rc;
+        }
+        nr_pages -= rc;
+        pfn += rc;
+        process_pending_softirqs();
+    }
+
+    return rc;
+}
 
 /*
  * Set access type for a region of gfns.
