@@ -23,6 +23,7 @@
 #include <xen/libelf.h>
 #include <xen/pfn.h>
 #include <xen/guest_access.h>
+#include <xen/acpi.h>
 #include <asm/regs.h>
 #include <asm/system.h>
 #include <asm/io.h>
@@ -38,6 +39,8 @@
 #include <asm/io_apic.h>
 #include <asm/hpet.h>
 
+#include <acpi/actables.h>
+
 #include <public/version.h>
 #include <public/arch-x86/hvm/start_info.h>
 #include <public/hvm/hvm_vcpu.h>
@@ -50,6 +53,8 @@ static long __initdata dom0_max_nrpages = LONG_MAX;
 #define HVM_IDENT_PT_GFN  0xfeffeu
 
 static unsigned int __initdata hvm_mem_stats[MAX_ORDER + 1];
+static unsigned int __initdata acpi_intr_overrrides = 0;
+static struct acpi_madt_interrupt_override __initdata *intsrcovr = NULL;
 
 /*
  * dom0_mem=[min:<min_amt>,][max:<max_amt>,][<amt>]
@@ -1932,6 +1937,7 @@ static int __init hvm_load_kernel(struct domain *d, const module_t *image,
     last_addr += sizeof(mod);
     start_info.magic = XEN_HVM_START_MAGIC_VALUE;
     start_info.flags = SIF_PRIVILEGED | SIF_INITDOMAIN;
+    start_info.rsdp_paddr = acpi_os_get_root_pointer();
     rc = hvm_copy_to_guest_phys(last_addr, &start_info, sizeof(start_info));
     if ( rc != HVMCOPY_okay )
     {
@@ -2044,6 +2050,243 @@ static int __init hvm_setup_cpus(struct domain *d, paddr_t entry,
     return 0;
 }
 
+static int __init acpi_count_intr_ov(struct acpi_subtable_header *header,
+                                     const unsigned long end)
+{
+
+    acpi_intr_overrrides++;
+    return 0;
+}
+
+static int __init acpi_set_intr_ov(struct acpi_subtable_header *header,
+                                   const unsigned long end)
+{
+    struct acpi_madt_interrupt_override *intr =
+        container_of(header, struct acpi_madt_interrupt_override, header);
+
+    ACPI_MEMCPY(intsrcovr, intr, sizeof(*intr));
+    intsrcovr++;
+
+    return 0;
+}
+
+static void __init acpi_zap_table_signature(char *name)
+{
+    struct acpi_table_header *table;
+    acpi_status status;
+    union {
+        char str[ACPI_NAME_SIZE];
+        uint32_t bits;
+    } signature;
+    char tmp;
+    int i;
+
+    status = acpi_get_table(name, 0, &table);
+    if ( ACPI_SUCCESS(status) )
+    {
+        memcpy(&signature.str[0], &table->signature[0], ACPI_NAME_SIZE);
+        for ( i = 0; i < ACPI_NAME_SIZE / 2; i++ )
+        {
+            tmp = signature.str[ACPI_NAME_SIZE - i - 1];
+            signature.str[ACPI_NAME_SIZE - i - 1] = signature.str[i];
+            signature.str[i] = tmp;
+        }
+        write_atomic((uint32_t*)&table->signature[0], signature.bits);
+    }
+}
+
+static int __init acpi_map(struct domain *d, unsigned long pfn,
+                           unsigned long nr_pages)
+{
+    int rc;
+
+    while ( nr_pages > 0 )
+    {
+        rc = map_mmio_regions(d, _gfn(pfn), nr_pages, _mfn(pfn));
+        if ( rc == 0 )
+            break;
+        if ( rc < 0 )
+        {
+            printk("Failed to map %#lx - %#lx into Dom0 memory map: %d\n",
+                   pfn, pfn + nr_pages, rc);
+            return rc;
+        }
+        nr_pages -= rc;
+        pfn += rc;
+        process_pending_softirqs();
+    }
+
+    return rc;
+}
+
+static int __init hvm_setup_acpi(struct domain *d)
+{
+    struct vcpu *saved_current, *v = d->vcpu[0];
+    unsigned long pfn, nr_pages;
+    uint64_t size, start_addr, end_addr;
+    uint64_t madt_addr[2] = { 0, 0 };
+    struct acpi_table_header *table;
+    struct acpi_table_madt *madt;
+    struct acpi_madt_io_apic *io_apic;
+    struct acpi_madt_local_apic *local_apic;
+    acpi_status status;
+    int rc, i;
+
+    printk("** Setup ACPI tables **\n");
+
+    /* ZAP the HPET, SLIT, SRAT, MPST and PMTT tables. */
+    acpi_zap_table_signature(ACPI_SIG_HPET);
+    acpi_zap_table_signature(ACPI_SIG_SLIT);
+    acpi_zap_table_signature(ACPI_SIG_SRAT);
+    acpi_zap_table_signature(ACPI_SIG_MPST);
+    acpi_zap_table_signature(ACPI_SIG_PMTT);
+
+    /* Map ACPI tables 1:1 */
+    for ( i = 0; i < d->arch.nr_e820; i++ )
+    {
+        if ( d->arch.e820[i].type != E820_ACPI &&
+             d->arch.e820[i].type != E820_NVS )
+            continue;
+
+        pfn = PFN_DOWN(d->arch.e820[i].addr);
+        nr_pages = DIV_ROUND_UP(d->arch.e820[i].size, PAGE_SIZE);
+
+        rc = acpi_map(d, pfn, nr_pages);
+        if ( rc )
+        {
+            printk(
+                "Failed to map ACPI region %#lx - %#lx into Dom0 memory map\n",
+                   pfn, pfn + nr_pages);
+            return rc;
+        }
+    }
+
+    /* Map the first 1MB 1:1 also */
+    pfn = 0;
+    nr_pages = 0x100;
+    rc = acpi_map(d, pfn, nr_pages);
+    if ( rc )
+    {
+        printk(
+            "Failed to map low 1MB region %#lx - %#lx into Dom0 memory map\n",
+               pfn, pfn + nr_pages);
+        return rc;
+    }
+
+    acpi_get_table_phys(ACPI_SIG_MADT, 0, &madt_addr[0], &size);
+    if ( !madt_addr[0] )
+    {
+        printk("Unable to find ACPI MADT table\n");
+        return -EINVAL;
+    }
+    if ( size > PAGE_SIZE )
+    {
+        printk("MADT table is bigger than PAGE_SIZE, aborting\n");
+        return -EINVAL;
+    }
+
+    acpi_get_table_phys(ACPI_SIG_MADT, 2, &madt_addr[1], &size);
+    if ( madt_addr[1] != 0 && madt_addr[1] != madt_addr[0] )
+    {
+        printk("Multiple MADT tables found, aborting\n");
+        return -EINVAL;
+    }
+
+    /*
+     * Populate the guest physical memory were MADT resides with empty RAM
+     * pages. This will remove the 1:1 mapping in this area, so that Xen
+     * can modify it without any side-effects.
+     */
+    start_addr = madt_addr[0] & PAGE_MASK;
+    end_addr = PAGE_ALIGN(madt_addr[0] + size);
+    hvm_populate_memory_range(d, start_addr, end_addr - start_addr);
+
+    /* Get the address where the MADT is currently mapped. */
+    status = acpi_get_table(ACPI_SIG_MADT, 0, &table);
+    if ( !ACPI_SUCCESS(status) )
+    {
+        printk("Failed to get MADT ACPI table, aborting.\n");
+        return -EINVAL;
+    }
+
+    /*
+     * Copy the original MADT table (and whatever is around it) to the
+     * guest physmap.
+     */
+    saved_current = current;
+    set_current(v);
+    rc = hvm_copy_to_guest_phys(start_addr,
+                                (void *)((uintptr_t)table & PAGE_MASK),
+                                end_addr - start_addr);
+    set_current(saved_current);
+    if ( rc != HVMCOPY_okay )
+    {
+        printk("Unable to copy original MADT page(s)\n");
+        return -EFAULT;
+    }
+
+    /* Craft a new MADT for the guest */
+
+    /* Count number of interrupt overrides. */
+    acpi_table_parse_madt(ACPI_MADT_TYPE_INTERRUPT_OVERRIDE, acpi_count_intr_ov,
+                          MAX_IRQ_SOURCES);
+    size = sizeof(struct acpi_table_madt);
+    size += sizeof(struct acpi_madt_interrupt_override) * acpi_intr_overrrides;
+    size += sizeof(struct acpi_madt_io_apic);
+    size += sizeof(struct acpi_madt_local_apic) * dom0_max_vcpus();
+
+    madt = xzalloc_bytes(size);
+    ACPI_MEMCPY(madt, table, sizeof(*madt));
+    madt->address = APIC_DEFAULT_PHYS_BASE;
+    io_apic = (struct acpi_madt_io_apic *)(madt + 1);
+    io_apic->header.type = ACPI_MADT_TYPE_IO_APIC;
+    io_apic->header.length = sizeof(*io_apic);
+    io_apic->id = 1;
+    io_apic->address = VIOAPIC_DEFAULT_BASE_ADDRESS;
+
+    if ( dom0_max_vcpus() > num_online_cpus() )
+    {
+        printk("CPU overcommit is not supported for Dom0\n");
+        xfree(madt);
+        return -EINVAL;
+    }
+
+    local_apic = (struct acpi_madt_local_apic *)(io_apic + 1);
+    for ( i = 0; i < dom0_max_vcpus(); i++ )
+    {
+        local_apic->header.type = ACPI_MADT_TYPE_LOCAL_APIC;
+        local_apic->header.length = sizeof(*local_apic);
+        local_apic->processor_id = i;
+        local_apic->id = i * 2;
+        local_apic->lapic_flags = ACPI_MADT_ENABLED;
+        local_apic++;
+    }
+
+    intsrcovr = (struct acpi_madt_interrupt_override *)local_apic;
+    acpi_table_parse_madt(ACPI_MADT_TYPE_INTERRUPT_OVERRIDE, acpi_set_intr_ov,
+                          MAX_IRQ_SOURCES);
+    ASSERT(((unsigned char *)intsrcovr - (unsigned char *)madt) == size);
+    madt->header.length = size;
+    madt->header.checksum -= acpi_tb_checksum(ACPI_CAST_PTR(u8, madt),
+                                              madt->header.length);
+
+    /* Copy the new MADT table to the guest physmap. */
+    saved_current = current;
+    set_current(v);
+    rc = hvm_copy_to_guest_phys(madt_addr[0], madt, size);
+    set_current(saved_current);
+    if ( rc != HVMCOPY_okay )
+    {
+        printk("Unable to copy modified MADT page(s)\n");
+        xfree(madt);
+        return -EFAULT;
+    }
+
+    xfree(madt);
+
+    return 0;
+}
+
 static int __init construct_dom0_hvm(struct domain *d, const module_t *image,
                                      unsigned long image_headroom,
                                      module_t *initrd,
@@ -2082,6 +2325,13 @@ static int __init construct_dom0_hvm(struct domain *d, const module_t *image,
     if ( rc )
     {
         printk("Failed to setup Dom0 CPUs: %d\n", rc);
+        return rc;
+    }
+
+    rc = hvm_setup_acpi(d);
+    if ( rc )
+    {
+        printk("Failed to setup Dom0 ACPI tables: %d\n", rc);
         return rc;
     }
 
