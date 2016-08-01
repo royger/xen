@@ -30,3 +30,8 @@ Domain and vCPU information:
 
        %pv     Domain and vCPU ID from a 'struct vcpu *' (printed as
                "d<domid>v<vcpuid>")
+
+Size in human readable form:
+
+       %pZ     Size in human-readable form (input size must be in bytes).
+                 e.g.  24MB
