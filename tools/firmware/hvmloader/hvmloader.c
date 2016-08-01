@@ -168,21 +168,6 @@ static void cmos_write_memory_size(void)
     cmos_outb(0x35, (uint8_t)( alt_mem >> 8));
 }
 
-/*
- * Set up an empty TSS area for virtual 8086 mode to use. 
- * The only important thing is that it musn't have any bits set 
- * in the interrupt redirection bitmap, so all zeros will do.
- */
-static void init_vm86_tss(void)
-{
-    void *tss;
-
-    tss = mem_alloc(128, 128);
-    memset(tss, 0, 128);
-    hvm_param_set(HVM_PARAM_VM86_TSS, virt_to_phys(tss));
-    printf("vm86 TSS at %08lx\n", virt_to_phys(tss));
-}
-
 static void apic_setup(void)
 {
     /* Set the IOAPIC ID to the static value used in the MP/ACPI tables. */
@@ -324,8 +309,6 @@ int main(void)
 
         hvm_param_set(HVM_PARAM_ACPI_IOPORTS_LOCATION, 1);
     }
-
-    init_vm86_tss();
 
     cmos_write_memory_size();
 
