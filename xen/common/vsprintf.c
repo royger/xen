@@ -386,6 +386,21 @@ static char *pointer(char *str, char *end, const char **fmt_ptr,
             *str = 'v';
         return number(str + 1, end, v->vcpu_id, 10, -1, -1, 0);
     }
+    case 'Z':
+    {
+        static const char units[][3] = {"B", "KB", "MB", "GB", "TB"};
+        size_t size = (size_t)arg;
+        int i = 0;
+
+        /* Advance parents fmt string, as we have consumed 'B' */
+        ++*fmt_ptr;
+
+        while ( ++i < sizeof(units) && size >= 1024 )
+            size >>= 10; /* size /= 1024 */
+
+        str = number(str, end, size, 10, -1, -1, 0);
+        return string(str, end, units[i-1], -1, -1, 0);
+    }
     }
 
     if ( field_width == -1 )
