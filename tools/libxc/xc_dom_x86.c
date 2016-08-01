@@ -59,6 +59,7 @@
 #define SPECIALPAGE_IOREQ    5
 #define SPECIALPAGE_IDENT_PT 6
 #define SPECIALPAGE_CONSOLE  7
+#define SPECIALPAGE_VM86TSS  8
 #define special_pfn(x) \
     (X86_HVM_END_SPECIAL_REGION - X86_HVM_NR_SPECIAL_PAGES + (x))
 
@@ -590,6 +591,7 @@ static int alloc_magic_pages_hvm(struct xc_dom_image *dom)
 {
     unsigned long i;
     uint32_t *ident_pt, domid = dom->guest_domid;
+    void *tss;
     int rc;
     xen_pfn_t special_array[X86_HVM_NR_SPECIAL_PAGES];
     xen_pfn_t ioreq_server_array[NR_IOREQ_SERVER_PAGES];
@@ -698,6 +700,20 @@ static int alloc_magic_pages_hvm(struct xc_dom_image *dom)
     munmap(ident_pt, PAGE_SIZE);
     xc_hvm_param_set(xch, domid, HVM_PARAM_IDENT_PT,
                      special_pfn(SPECIALPAGE_IDENT_PT) << PAGE_SHIFT);
+
+    /*
+     * Set up an empty TSS area for virtual 8086 mode to use.
+     * The only important thing is that it musn't have any bits set
+     * in the interrupt redirection bitmap, so all zeros will do.
+     */
+    if ( (tss = xc_map_foreign_range(
+              xch, domid, PAGE_SIZE, PROT_READ | PROT_WRITE,
+              special_pfn(SPECIALPAGE_VM86TSS))) == NULL )
+        goto error_out;
+    memset(tss, 0, 128);
+    munmap(tss, PAGE_SIZE);
+    xc_hvm_param_set(xch, domid, HVM_PARAM_VM86_TSS,
+                     special_pfn(SPECIALPAGE_VM86TSS) << PAGE_SHIFT);
 
     dom->console_pfn = special_pfn(SPECIALPAGE_CONSOLE);
     dom->xenstore_pfn = special_pfn(SPECIALPAGE_XENSTORE);
