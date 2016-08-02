@@ -325,7 +325,7 @@ static void hap_free_p2m_page(struct domain *d, struct page_info *pg)
 static unsigned int
 hap_get_allocation(struct domain *d)
 {
-    unsigned int pg = d->arch.paging.hap.total_pages
+    unsigned long pg = d->arch.paging.hap.total_pages
         + d->arch.paging.hap.p2m_pages;
 
     return ((pg >> (20 - PAGE_SHIFT))
@@ -334,8 +334,8 @@ hap_get_allocation(struct domain *d)
 
 /* Set the pool of pages to the required number of pages.
  * Returns 0 for success, non-zero for failure. */
-static unsigned int
-hap_set_allocation(struct domain *d, unsigned int pages, int *preempted)
+static int
+hap_set_allocation(struct domain *d, unsigned long pages, int *preempted)
 {
     struct page_info *pg;
 
@@ -468,14 +468,12 @@ int hap_enable(struct domain *d, u32 mode)
     old_pages = d->arch.paging.hap.total_pages;
     if ( old_pages == 0 )
     {
-        unsigned int r;
         paging_lock(d);
-        r = hap_set_allocation(d, 256, NULL);
-        if ( r != 0 )
+        rv = hap_set_allocation(d, 256, NULL);
+        if ( rv != 0 )
         {
             hap_set_allocation(d, 0, NULL);
             paging_unlock(d);
-            rv = -ENOMEM;
             goto out;
         }
         paging_unlock(d);
