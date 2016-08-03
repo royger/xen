@@ -379,7 +379,9 @@ hap_set_allocation(struct domain *d, unsigned int pages, int *preempted)
             break;
 
         /* Check to see if we need to yield and try again */
-        if ( preempted && hypercall_preempt_check() )
+        if ( preempted &&
+             (is_idle_vcpu(current) ? softirq_pending(smp_processor_id()) :
+                                      hypercall_preempt_check()) )
         {
             *preempted = 1;
             return 0;
