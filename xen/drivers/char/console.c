@@ -301,7 +301,7 @@ static void dump_console_ring_key(unsigned char key)
 
     /* create a buffer in which we'll copy the ring in the correct
        order and NUL terminate */
-    order = get_order_from_bytes(conring_size + 1);
+    order = get_order_from_bytes_ceil(conring_size + 1);
     buf = alloc_xenheap_pages(order, 0);
     if ( buf == NULL )
     {
@@ -759,7 +759,7 @@ void __init console_init_ring(void)
     if ( !opt_conring_size )
         return;
 
-    order = get_order_from_bytes(max(opt_conring_size, conring_size));
+    order = get_order_from_bytes_ceil(max(opt_conring_size, conring_size));
     memflags = MEMF_bits(crashinfo_maxaddr_bits);
     while ( (ring = alloc_xenheap_pages(order, memflags)) == NULL )
     {
@@ -1080,7 +1080,7 @@ static int __init debugtrace_init(void)
     if ( bytes == 0 )
         return 0;
 
-    order = get_order_from_bytes(bytes);
+    order = get_order_from_bytes_ceil(bytes);
     debugtrace_buf = alloc_xenheap_pages(order, 0);
     ASSERT(debugtrace_buf != NULL);
 

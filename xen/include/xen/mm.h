@@ -519,13 +519,23 @@ page_list_splice(struct page_list_head *list, struct page_list_head *head)
     list_for_each_entry_safe_reverse(pos, tmp, head, list)
 #endif
 
-static inline unsigned int get_order_from_bytes(paddr_t size)
+static inline unsigned int get_order_from_bytes_ceil(paddr_t size)
 {
     unsigned int order;
 
     size = (size - 1) >> PAGE_SHIFT;
     for ( order = 0; size; order++ )
         size >>= 1;
+
+    return order;
+}
+
+static inline unsigned int get_order_from_bytes_floor(paddr_t size)
+{
+    unsigned int order;
+
+    size >>= PAGE_SHIFT;
+    for ( order = 0; size >= (1 << (order + 1)); order++ );
 
     return order;
 }

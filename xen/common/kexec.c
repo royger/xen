@@ -556,7 +556,7 @@ static int __init kexec_init(void)
         crash_heap_size = PAGE_ALIGN(crash_heap_size);
 
         crash_heap_current = alloc_xenheap_pages(
-            get_order_from_bytes(crash_heap_size),
+            get_order_from_bytes_ceil(crash_heap_size),
             MEMF_bits(crashinfo_maxaddr_bits) );
 
         if ( ! crash_heap_current )

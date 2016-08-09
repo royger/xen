@@ -298,7 +298,7 @@ struct xmem_pool *xmem_pool_create(
     BUG_ON(max_size && (max_size < init_size));
 
     pool_bytes = ROUNDUP_SIZE(sizeof(*pool));
-    pool_order = get_order_from_bytes(pool_bytes);
+    pool_order = get_order_from_bytes_ceil(pool_bytes);
 
     pool = (void *)alloc_xenheap_pages(pool_order, 0);
     if ( pool == NULL )
@@ -371,7 +371,7 @@ void xmem_pool_destroy(struct xmem_pool *pool)
     spin_unlock(&pool_list_lock);
 
     pool_bytes = ROUNDUP_SIZE(sizeof(*pool));
-    pool_order = get_order_from_bytes(pool_bytes);
+    pool_order = get_order_from_bytes_ceil(pool_bytes);
     free_xenheap_pages(pool,pool_order);
 }
 
@@ -530,7 +530,7 @@ static void *xmalloc_whole_pages(unsigned long size, unsigned long align)
     unsigned int i, order;
     void *res, *p;
 
-    order = get_order_from_bytes(max(align, size));
+    order = get_order_from_bytes_ceil(max(align, size));
 
     res = alloc_xenheap_pages(order, 0);
     if ( res == NULL )
