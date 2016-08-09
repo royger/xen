@@ -236,7 +236,7 @@ static unsigned int __init noinline _domain_struct_bits(void)
 struct domain *alloc_domain_struct(void)
 {
     struct domain *d;
-    unsigned int order = get_order_from_bytes(sizeof(*d));
+    unsigned int order = get_order_from_bytes_ceil(sizeof(*d));
 #ifdef CONFIG_BIGMEM
     const unsigned int bits = 0;
 #else

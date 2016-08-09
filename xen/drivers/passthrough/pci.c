@@ -460,7 +460,7 @@ int __init pci_ro_device(int seg, int bus, int devfn)
     {
         size_t sz = BITS_TO_LONGS(PCI_BDF(-1, -1, -1) + 1) * sizeof(long);
 
-        pseg->ro_map = alloc_xenheap_pages(get_order_from_bytes(sz), 0);
+        pseg->ro_map = alloc_xenheap_pages(get_order_from_bytes_ceil(sz), 0);
         if ( !pseg->ro_map )
             return -ENOMEM;
         memset(pseg->ro_map, 0, sz);

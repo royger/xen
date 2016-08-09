@@ -7,7 +7,8 @@
 
 unsigned long __per_cpu_offset[NR_CPUS];
 #define INVALID_PERCPU_AREA (-(long)__per_cpu_start)
-#define PERCPU_ORDER (get_order_from_bytes(__per_cpu_data_end-__per_cpu_start))
+#define PERCPU_ORDER \
+    (get_order_from_bytes_ceil(__per_cpu_data_end-__per_cpu_start))
 
 void __init percpu_init_areas(void)
 {

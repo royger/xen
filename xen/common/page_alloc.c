@@ -553,7 +553,7 @@ static unsigned long init_node_heap(int node, unsigned long mfn,
         *use_tail = 0;
     }
 #endif
-    else if ( get_order_from_bytes(sizeof(**_heap)) ==
+    else if ( get_order_from_bytes_ceil(sizeof(**_heap)) ==
               get_order_from_pages(needed) )
     {
         _heap[node] = alloc_xenheap_pages(get_order_from_pages(needed), 0);

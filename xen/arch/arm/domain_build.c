@@ -73,14 +73,8 @@ struct vcpu *__init alloc_dom0_vcpu0(struct domain *dom0)
 
 static unsigned int get_11_allocation_size(paddr_t size)
 {
-    /*
-     * get_order_from_bytes returns the order greater than or equal to
-     * the given size, but we need less than or equal. Adding one to
-     * the size pushes an evenly aligned size into the next order, so
-     * we can then unconditionally subtract 1 from the order which is
-     * returned.
-     */
-    return get_order_from_bytes(size + 1) - 1;
+
+    return get_order_from_bytes_floor(size);
 }
 
 /*
@@ -238,8 +232,8 @@ fail:
 static void allocate_memory(struct domain *d, struct kernel_info *kinfo)
 {
     const unsigned int min_low_order =
-        get_order_from_bytes(min_t(paddr_t, dom0_mem, MB(128)));
-    const unsigned int min_order = get_order_from_bytes(MB(4));
+        get_order_from_bytes_ceil(min_t(paddr_t, dom0_mem, MB(128)));
+    const unsigned int min_order = get_order_from_bytes_ceil(MB(4));
     struct page_info *pg;
     unsigned int order = get_11_allocation_size(kinfo->unassigned_mem);
     int i;
@@ -1831,7 +1825,7 @@ static int prepare_acpi(struct domain *d, struct kernel_info *kinfo)
     if ( rc != 0 )
         return rc;
 
-    order = get_order_from_bytes(d->arch.efi_acpi_len);
+    order = get_order_from_bytes_ceil(d->arch.efi_acpi_len);
     d->arch.efi_acpi_table = alloc_xenheap_pages(order, 0);
     if ( d->arch.efi_acpi_table == NULL )
     {
