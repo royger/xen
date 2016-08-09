@@ -577,7 +577,7 @@ void __init serial_async_transmit(struct serial_port *port)
     while ( serial_txbufsz & (serial_txbufsz - 1) )
         serial_txbufsz &= serial_txbufsz - 1;
     port->txbuf = alloc_xenheap_pages(
-        get_order_from_bytes(serial_txbufsz), 0);
+        get_order_from_bytes_ceil(serial_txbufsz), 0);
 }
 
 /*

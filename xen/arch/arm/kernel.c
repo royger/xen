@@ -291,7 +291,7 @@ static __init int kernel_decompress(struct bootmodule *mod)
         return -EFAULT;
 
     output_size = output_length(input, size);
-    kernel_order_out = get_order_from_bytes(output_size);
+    kernel_order_out = get_order_from_bytes_ceil(output_size);
     pages = alloc_domheap_pages(NULL, kernel_order_out, 0);
     if ( pages == NULL )
     {
@@ -463,7 +463,7 @@ static int kernel_elf_probe(struct kernel_info *info,
 
     memset(&info->elf.elf, 0, sizeof(info->elf.elf));
 
-    info->elf.kernel_order = get_order_from_bytes(size);
+    info->elf.kernel_order = get_order_from_bytes_ceil(size);
     info->elf.kernel_img = alloc_xenheap_pages(info->elf.kernel_order, 0);
     if ( info->elf.kernel_img == NULL )
         panic("Cannot allocate temporary buffer for kernel");

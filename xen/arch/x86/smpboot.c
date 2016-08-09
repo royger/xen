@@ -669,7 +669,7 @@ static void cpu_smpboot_free(unsigned int cpu)
 
     free_xenheap_pages(per_cpu(compat_gdt_table, cpu), order);
 
-    order = get_order_from_bytes(IDT_ENTRIES * sizeof(idt_entry_t));
+    order = get_order_from_bytes_ceil(IDT_ENTRIES * sizeof(idt_entry_t));
     free_xenheap_pages(idt_tables[cpu], order);
     idt_tables[cpu] = NULL;
 
@@ -710,7 +710,7 @@ static int cpu_smpboot_alloc(unsigned int cpu)
     memcpy(gdt, boot_cpu_compat_gdt_table, NR_RESERVED_GDT_PAGES * PAGE_SIZE);
     gdt[PER_CPU_GDT_ENTRY - FIRST_RESERVED_GDT_ENTRY].a = cpu;
 
-    order = get_order_from_bytes(IDT_ENTRIES * sizeof(idt_entry_t));
+    order = get_order_from_bytes_ceil(IDT_ENTRIES * sizeof(idt_entry_t));
     idt_tables[cpu] = alloc_xenheap_pages(order, memflags);
     if ( idt_tables[cpu] == NULL )
         goto oom;
