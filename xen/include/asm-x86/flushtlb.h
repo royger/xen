@@ -125,7 +125,7 @@ static inline int invalidate_dcache_va_range(const void *p,
 static inline int clean_and_invalidate_dcache_va_range(const void *p,
                                                        unsigned long size)
 {
-    unsigned int order = get_order_from_bytes(size);
+    unsigned int order = get_order_from_bytes_ceil(size);
     /* sub-page granularity support needs to be added if necessary */
     flush_area_local(p, FLUSH_CACHE|FLUSH_ORDER(order));
     return 0;

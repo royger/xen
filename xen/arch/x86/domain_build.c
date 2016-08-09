@@ -290,7 +290,7 @@ static unsigned long __init compute_dom0_nr_pages(
 
     /* Reserve memory for further dom0 vcpu-struct allocations... */
     avail -= (d->max_vcpus - 1UL)
-             << get_order_from_bytes(sizeof(struct vcpu));
+             << get_order_from_bytes_ceil(sizeof(struct vcpu));
     /* ...and compat_l4's, if needed. */
     if ( is_pv_32bit_domain(d) )
         avail -= d->max_vcpus - 1;
@@ -1172,7 +1172,7 @@ static int __init construct_dom0_pv(
     count = v_end - v_start;
     if ( vinitrd_start )
         count -= PAGE_ALIGN(initrd_len);
-    order = get_order_from_bytes(count);
+    order = get_order_from_bytes_ceil(count);
     if ( (1UL << order) + PFN_UP(initrd_len) > nr_pages )
         panic("Domain 0 allocation is too small for kernel image");
 

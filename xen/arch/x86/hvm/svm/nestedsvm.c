@@ -101,13 +101,13 @@ int nsvm_vcpu_initialise(struct vcpu *v)
     struct nestedvcpu *nv = &vcpu_nestedhvm(v);
     struct nestedsvm *svm = &vcpu_nestedsvm(v);
 
-    msrpm = alloc_xenheap_pages(get_order_from_bytes(MSRPM_SIZE), 0);
+    msrpm = alloc_xenheap_pages(get_order_from_bytes_ceil(MSRPM_SIZE), 0);
     svm->ns_cached_msrpm = msrpm;
     if (msrpm == NULL)
         goto err;
     memset(msrpm, 0x0, MSRPM_SIZE);
 
-    msrpm = alloc_xenheap_pages(get_order_from_bytes(MSRPM_SIZE), 0);
+    msrpm = alloc_xenheap_pages(get_order_from_bytes_ceil(MSRPM_SIZE), 0);
     svm->ns_merged_msrpm = msrpm;
     if (msrpm == NULL)
         goto err;
@@ -141,12 +141,12 @@ void nsvm_vcpu_destroy(struct vcpu *v)
 
     if (svm->ns_cached_msrpm) {
         free_xenheap_pages(svm->ns_cached_msrpm,
-                           get_order_from_bytes(MSRPM_SIZE));
+                           get_order_from_bytes_ceil(MSRPM_SIZE));
         svm->ns_cached_msrpm = NULL;
     }
     if (svm->ns_merged_msrpm) {
         free_xenheap_pages(svm->ns_merged_msrpm,
-                           get_order_from_bytes(MSRPM_SIZE));
+                           get_order_from_bytes_ceil(MSRPM_SIZE));
         svm->ns_merged_msrpm = NULL;
     }
     hvm_unmap_guest_frame(nv->nv_vvmcx, 1);

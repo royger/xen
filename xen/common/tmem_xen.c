@@ -292,7 +292,7 @@ int __init tmem_init(void)
     unsigned int cpu;
 
     dstmem_order = get_order_from_pages(LZO_DSTMEM_PAGES);
-    workmem_order = get_order_from_bytes(LZO1X_1_MEM_COMPRESS);
+    workmem_order = get_order_from_bytes_ceil(LZO1X_1_MEM_COMPRESS);
 
     for_each_online_cpu ( cpu )
     {
