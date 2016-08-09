@@ -661,7 +661,7 @@ void arch_domain_destroy(struct domain *d)
     free_xenheap_page(d->shared_info);
 #ifdef CONFIG_ACPI
     free_xenheap_pages(d->arch.efi_acpi_table,
-                       get_order_from_bytes(d->arch.efi_acpi_len));
+                       get_order_from_bytes_ceil(d->arch.efi_acpi_len));
 #endif
     domain_io_free(d);
 }
