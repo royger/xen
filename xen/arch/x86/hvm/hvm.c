@@ -624,6 +624,7 @@ int hvm_domain_initialise(struct domain *d)
             goto fail1;
         }
         memset(d->arch.hvm_domain.io_bitmap, ~0, HVM_IOBITMAP_SIZE);
+        INIT_LIST_HEAD(&d->arch.hvm_domain.pt_devices);
     }
     else
         d->arch.hvm_domain.io_bitmap = hvm_io_bitmap;

@@ -664,6 +664,14 @@ Flag that makes a 64bit dom0 boot in PVH mode. No 32bit support at present.
 
 Flag that makes a dom0 boot in PVHv2 mode.
 
+### dom0permissive
+> `= <boolean>`
+
+> Default: `true`
+
+Select mode of PCI pass-through when using a PVHv2 Dom0, either permissive or
+not.
+
 ### dtuart (ARM)
 > `= path [:options]`
 

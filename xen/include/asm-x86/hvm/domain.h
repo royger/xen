@@ -152,6 +152,9 @@ struct hvm_domain {
         struct vmx_domain vmx;
         struct svm_domain svm;
     };
+
+    /* List of passed-through devices (hw domain only). */
+    struct list_head pt_devices;
 };
 
 #define hap_enabled(d)  ((d)->arch.hvm_domain.hap_enabled)
