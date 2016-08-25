@@ -153,6 +153,182 @@ extern void hvm_dpci_msi_eoi(struct domain *d, int vector);
 
 void register_dpci_portio_handler(struct domain *d);
 
+/* Structures for pci-passthrough state and handlers. */
+struct hvm_pt_device;
+struct hvm_pt_reg_handler;
+struct hvm_pt_reg;
+struct hvm_pt_reg_group;
+
+/* Return code when register should be ignored. */
+#define HVM_PT_INVALID_REG 0xFFFFFFFF
+
+/* function type for config reg */
+typedef int (*hvm_pt_conf_reg_init)
+    (struct hvm_pt_device *, struct hvm_pt_reg_handler *, uint32_t real_offset,
+     uint32_t *data);
+
+typedef int (*hvm_pt_conf_dword_write)
+    (struct hvm_pt_device *, struct hvm_pt_reg *cfg_entry,
+     uint32_t *val, uint32_t dev_value, uint32_t valid_mask);
+typedef int (*hvm_pt_conf_word_write)
+    (struct hvm_pt_device *, struct hvm_pt_reg *cfg_entry,
+     uint16_t *val, uint16_t dev_value, uint16_t valid_mask);
+typedef int (*hvm_pt_conf_byte_write)
+    (struct hvm_pt_device *, struct hvm_pt_reg *cfg_entry,
+     uint8_t *val, uint8_t dev_value, uint8_t valid_mask);
+typedef int (*hvm_pt_conf_dword_read)
+    (struct hvm_pt_device *, struct hvm_pt_reg *cfg_entry,
+     uint32_t *val, uint32_t valid_mask);
+typedef int (*hvm_pt_conf_word_read)
+    (struct hvm_pt_device *, struct hvm_pt_reg *cfg_entry,
+     uint16_t *val, uint16_t valid_mask);
+typedef int (*hvm_pt_conf_byte_read)
+    (struct hvm_pt_device *, struct hvm_pt_reg *cfg_entry,
+     uint8_t *val, uint8_t valid_mask);
+
+typedef int (*hvm_pt_group_init)
+    (struct hvm_pt_device *, struct hvm_pt_reg_group *);
+
+/*
+ * Emulated register information.
+ *
+ * This should be shared between all the consumers that trap on accesses
+ * to certain PCI registers.
+ */
+struct hvm_pt_reg_handler {
+    uint32_t offset;
+    uint32_t size;
+    uint32_t init_val;
+    /* reg reserved field mask (ON:reserved, OFF:defined) */
+    uint32_t res_mask;
+    /* reg read only field mask (ON:RO/ROS, OFF:other) */
+    uint32_t ro_mask;
+    /* reg read/write-1-clear field mask (ON:RW1C/RW1CS, OFF:other) */
+    uint32_t rw1c_mask;
+    /* reg emulate field mask (ON:emu, OFF:passthrough) */
+    uint32_t emu_mask;
+    hvm_pt_conf_reg_init init;
+    /* read/write function pointer
+     * for double_word/word/byte size */
+    union {
+        struct {
+            hvm_pt_conf_dword_write write;
+            hvm_pt_conf_dword_read read;
+        } dw;
+        struct {
+            hvm_pt_conf_word_write write;
+            hvm_pt_conf_word_read read;
+        } w;
+        struct {
+            hvm_pt_conf_byte_write write;
+            hvm_pt_conf_byte_read read;
+        } b;
+    } u;
+};
+
+struct hvm_pt_handler_init {
+    struct hvm_pt_reg_handler *handlers;
+    hvm_pt_group_init init;
+};
+
+/*
+ * Emulated register value.
+ *
+ * This is the representation of each specific emulated register.
+ */
+struct hvm_pt_reg {
+    struct list_head entries;
+    struct hvm_pt_reg_handler *handler;
+    union {
+        uint8_t   byte;
+        uint16_t  word;
+        uint32_t  dword;
+    } val;
+};
+
+/*
+ * Emulated register group.
+ *
+ * In order to speed up (and logically group) emulated registers search,
+ * groups are used that represent specific emulated features, like MSI.
+ */
+struct hvm_pt_reg_group {
+    struct list_head entries;
+    uint32_t base_offset;
+    uint8_t size;
+    struct list_head registers;
+};
+
+/*
+ * Guest MSI information.
+ *
+ * MSI values set by the guest.
+ */
+struct hvm_pt_msi {
+    uint16_t flags;
+    uint32_t addr_lo;  /* guest message address */
+    uint32_t addr_hi;  /* guest message upper address */
+    uint16_t data;     /* guest message data */
+    uint32_t ctrl_offset; /* saved control offset */
+    int pirq;          /* guest pirq corresponding */
+    bool_t initialized;  /* when guest MSI is initialized */
+    bool_t mapped;       /* when pirq is mapped */
+};
+
+/*
+ * Guest passed-through PCI device.
+ */
+struct hvm_pt_device {
+    struct list_head entries;
+
+    struct pci_dev *pdev;
+
+    bool_t permissive;
+    bool_t permissive_warned;
+
+    /* MSI status. */
+    struct hvm_pt_msi msi;
+
+    struct list_head register_groups;
+};
+
+/*
+ * The hierarchy of the above structures is the following:
+ *
+ * +---------------+         +---------------+
+ * |               | entries |               | ...
+ * | hvm_pt_device +---------+ hvm_pt_device +----+
+ * |               |         |               |
+ * +-+-------------+         +---------------+
+ *   |
+ *   | register_groups
+ *   |
+ * +-v----------------+          +------------------+
+ * |                  | entries  |                  | ...
+ * | hvm_pt_reg_group +----------+ hvm_pt_reg_group +----+
+ * |                  |          |                  |
+ * +-+----------------+          +------------------+
+ *   |
+ *   | registers
+ *   |
+ * +-v----------+            +------------+
+ * |            | entries    |            | ...
+ * | hvm_pt_reg +------------+ hvm_pt_reg +----+
+ * |            |            |            |
+ * +-+----------+            +-+----------+
+ *   |                         |
+ *   | handler                 | handler
+ *   |                         |
+ * +-v------------------+    +-v------------------+
+ * |                    |    |                    |
+ * | hvm_pt_reg_handler |    | hvm_pt_reg_handler |
+ * |                    |    |                    |
+ * +--------------------+    +--------------------+
+ */
+
+/* Helper to add passed-through devices to the hardware domain. */
+int hwdom_add_device(struct pci_dev *pdev);
+
 #endif /* __ASM_X86_HVM_IO_H__ */
 
 
