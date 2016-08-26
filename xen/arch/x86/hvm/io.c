@@ -864,6 +864,7 @@ static int hvm_pt_add_register(struct hvm_pt_device *dev,
 static struct hvm_pt_handler_init *hwdom_pt_handlers[] = {
     &hvm_pt_bar_init,
     &hvm_pt_vf_bar_init,
+    &hvm_pt_msi_init,
 };
 
 int hwdom_add_device(struct pci_dev *pdev)
@@ -927,6 +928,64 @@ int hwdom_add_device(struct pci_dev *pdev)
     list_add_tail(&dev->entries, &d->arch.hvm_domain.pt_devices);
     write_unlock(&d->arch.hvm_domain.pt_lock);
     printk_pdev(pdev, XENLOG_DEBUG, "added for pass-through\n");
+
+    return 0;
+}
+
+/* Generic handlers for HVM PCI pass-through. */
+int hvm_pt_common_reg_init(struct hvm_pt_device *s,
+                           struct hvm_pt_reg_handler *handler,
+                           uint32_t real_offset, uint32_t *data)
+{
+    *data = handler->init_val;
+    return 0;
+}
+
+int hvm_pt_word_reg_read(struct hvm_pt_device *s, struct hvm_pt_reg *reg,
+                         uint16_t *value, uint16_t valid_mask)
+{
+    struct hvm_pt_reg_handler *handler = reg->handler;
+    uint16_t valid_emu_mask = 0;
+    uint16_t *data = &reg->val.word;
+
+    /* emulate word register */
+    valid_emu_mask = handler->emu_mask & valid_mask;
+    *value = HVM_PT_MERGE_VALUE(*value, *data, ~valid_emu_mask);
+
+    return 0;
+}
+
+int hvm_pt_long_reg_read(struct hvm_pt_device *s, struct hvm_pt_reg *reg,
+                         uint32_t *value, uint32_t valid_mask)
+{
+    struct hvm_pt_reg_handler *handler = reg->handler;
+    uint32_t valid_emu_mask = 0;
+    uint32_t *data = &reg->val.dword;
+
+    /* emulate long register */
+    valid_emu_mask = handler->emu_mask & valid_mask;
+    *value = HVM_PT_MERGE_VALUE(*value, *data, ~valid_emu_mask);
+
+    return 0;
+}
+
+int hvm_pt_long_reg_write(struct hvm_pt_device *s, struct hvm_pt_reg *reg,
+                          uint32_t *val, uint32_t dev_value,
+                          uint32_t valid_mask)
+{
+    struct hvm_pt_reg_handler *handler = reg->handler;
+    uint32_t writable_mask = 0;
+    uint32_t throughable_mask = hvm_pt_get_throughable_mask(s, handler,
+                                                            valid_mask);
+    uint32_t *data = &reg->val.dword;
+
+    /* modify emulate register */
+    writable_mask = handler->emu_mask & ~handler->ro_mask & valid_mask;
+    *data = HVM_PT_MERGE_VALUE(*val, *data, writable_mask);
+
+    /* create value for writing to I/O device register */
+    *val = HVM_PT_MERGE_VALUE(*val, dev_value & ~handler->rw1c_mask,
+                              throughable_mask);
 
     return 0;
 }
