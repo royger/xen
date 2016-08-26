@@ -296,6 +296,10 @@
 #define PCI_MSI_DATA_32		8	/* 16 bits of data for 32-bit devices */
 #define PCI_MSI_DATA_64		12	/* 16 bits of data for 64-bit devices */
 #define PCI_MSI_MASK_BIT	16	/* Mask bits register */
+#define PCI_MSI_MASK_64		PCI_MSI_MASK_BIT
+#define PCI_MSI_MASK_32		PCI_MSI_DATA_64
+#define PCI_MSI_PENDING_32	PCI_MSI_MASK_BIT
+#define PCI_MSI_PENDING_64	20
 
 /* MSI-X registers (these are at offset PCI_MSIX_FLAGS) */
 #define PCI_MSIX_FLAGS		2
