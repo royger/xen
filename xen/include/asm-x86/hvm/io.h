@@ -165,6 +165,9 @@ struct hvm_pt_reg_group;
 /* Return code when register should be ignored. */
 #define HVM_PT_INVALID_REG 0xFFFFFFFF
 
+#define HVM_PT_MERGE_VALUE(value, data, val_mask) \
+    (((value) & (val_mask)) | ((data) & ~(val_mask)))
+
 /* function type for config reg */
 typedef int (*hvm_pt_conf_reg_init)
     (struct hvm_pt_device *, struct hvm_pt_reg_handler *, uint32_t real_offset,
@@ -349,6 +352,31 @@ struct hvm_pt_device {
 
 /* Helper to add passed-through devices to the hardware domain. */
 int hwdom_add_device(struct pci_dev *pdev);
+
+/* Generic handlers for HVM PCI pass-through. */
+int hvm_pt_long_reg_read(struct hvm_pt_device *, struct hvm_pt_reg *,
+                         uint32_t *, uint32_t);
+int hvm_pt_long_reg_write(struct hvm_pt_device *, struct hvm_pt_reg *,
+                          uint32_t *, uint32_t, uint32_t);
+int hvm_pt_word_reg_read(struct hvm_pt_device *, struct hvm_pt_reg *,
+                         uint16_t *, uint16_t);
+
+int hvm_pt_common_reg_init(struct hvm_pt_device *, struct hvm_pt_reg_handler *,
+                           uint32_t real_offset, uint32_t *data);
+
+static inline uint32_t hvm_pt_get_throughable_mask(
+                                    struct hvm_pt_device *s,
+                                    struct hvm_pt_reg_handler *handler,
+                                    uint32_t valid_mask)
+{
+    uint32_t throughable_mask = ~(handler->emu_mask | handler->ro_mask);
+
+    if ( !s->permissive )
+        throughable_mask &= ~handler->res_mask;
+
+    return throughable_mask & valid_mask;
+}
+
 
 #endif /* __ASM_X86_HVM_IO_H__ */
 
