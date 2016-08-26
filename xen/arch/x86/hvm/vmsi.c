@@ -624,3 +624,537 @@ void msix_write_completion(struct vcpu *v)
     if ( msixtbl_write(v, ctrl_address, 4, 0) != X86EMUL_OKAY )
         gdprintk(XENLOG_WARNING, "MSI-X write completion failure\n");
 }
+
+/* MSI emulation. */
+
+/* Helper to check supported MSI features. */
+#define vmsi_check_type(offset, flags, what) \
+        ((offset) == ((flags) & PCI_MSI_FLAGS_64BIT ? \
+                      PCI_MSI_##what##_64 : PCI_MSI_##what##_32))
+
+static inline uint64_t msi_addr64(struct hvm_pt_msi *msi)
+{
+    return (uint64_t)msi->addr_hi << 32 | msi->addr_lo;
+}
+
+/* Helper for updating a PIRQ-vMSI bind. */
+static int vmsi_update_bind(struct hvm_pt_msi *msi)
+{
+    xen_domctl_bind_pt_irq_t bind;
+    struct hvm_pt_device *s = container_of(msi, struct hvm_pt_device, msi);
+    int rc;
+
+    ASSERT(msi->pirq != -1);
+
+    bind.hvm_domid = DOMID_SELF;
+    bind.machine_irq = msi->pirq;
+    bind.irq_type = PT_IRQ_TYPE_MSI;
+    bind.u.msi.gvec = msi_vector(msi->data);
+    bind.u.msi.gflags = msi_gflags(msi->data, msi_addr64(msi));
+    bind.u.msi.gtable = 0;
+
+    rc = pt_irq_create_bind(current->domain, &bind);
+    if ( rc )
+    {
+        printk_pdev(s->pdev, XENLOG_ERR,
+                      "updating of MSI failed. (err: %d)\n", rc);
+        rc = physdev_unmap_pirq(DOMID_SELF, msi->pirq);
+        if ( rc )
+            printk_pdev(s->pdev, XENLOG_ERR,
+                          "unmapping of MSI pirq %d failed. (err: %i)\n",
+                          msi->pirq, rc);
+        msi->pirq = -1;
+        msi->mapped = false;
+        msi->initialized = false;
+        return rc;
+    }
+
+    return 0;
+}
+
+/* Handlers. */
+
+/* Message Control register */
+static int vmsi_msgctrl_reg_init(struct hvm_pt_device *s,
+                                 struct hvm_pt_reg_handler *handler,
+                                 uint32_t real_offset, uint32_t *data)
+{
+    struct hvm_pt_msi *msi = &s->msi;
+    struct pci_dev *pdev = s->pdev;
+    uint16_t reg_field;
+    uint8_t seg, bus, slot, func;
+
+    seg = pdev->seg;
+    bus = pdev->bus;
+    slot = PCI_SLOT(pdev->devfn);
+    func = PCI_FUNC(pdev->devfn);
+
+    /* Use I/O device register's value as initial value */
+    reg_field = pci_conf_read16(seg, bus, slot, func, real_offset);
+    if ( reg_field & PCI_MSI_FLAGS_ENABLE )
+    {
+        printk_pdev(pdev, XENLOG_INFO,
+                      "MSI already enabled, disabling it first\n");
+        reg_field &= ~PCI_MSI_FLAGS_ENABLE;
+        pci_conf_write16(seg, bus, slot, func, real_offset, reg_field);
+    }
+    msi->flags |= reg_field;
+    msi->ctrl_offset = real_offset;
+    msi->initialized = false;
+    msi->mapped = false;
+
+    *data = handler->init_val | (reg_field & ~PCI_MSI_FLAGS_QMASK);
+    return 0;
+}
+
+static int vmsi_msgctrl_reg_write(struct hvm_pt_device *s,
+                                  struct hvm_pt_reg *reg, uint16_t *val,
+                                  uint16_t dev_value, uint16_t valid_mask)
+{
+    struct hvm_pt_reg_handler *handler = reg->handler;
+    struct hvm_pt_msi *msi = &s->msi;
+    uint16_t writable_mask = 0;
+    uint16_t throughable_mask = hvm_pt_get_throughable_mask(s, handler,
+                                                            valid_mask);
+    uint16_t *data = &reg->val.word;
+    int rc;
+
+    /* Currently no support for multi-vector */
+    if ( *val & PCI_MSI_FLAGS_QSIZE )
+        printk_pdev(s->pdev, XENLOG_WARNING,
+                      "tries to set more than 1 vector ctrl %x\n", *val);
+
+    /* Modify emulate register */
+    writable_mask = handler->emu_mask & ~handler->ro_mask & valid_mask;
+    *data = HVM_PT_MERGE_VALUE(*val, *data, writable_mask);
+    msi->flags |= *data & ~PCI_MSI_FLAGS_ENABLE;
+
+    /* Create value for writing to I/O device register */
+    *val = HVM_PT_MERGE_VALUE(*val, dev_value, throughable_mask);
+
+    /* update MSI */
+    if ( *val & PCI_MSI_FLAGS_ENABLE )
+    {
+        /* Setup MSI pirq for the first time */
+        if ( !msi->initialized )
+        {
+            struct msi_info msi_info;
+            int index = -1;
+
+            /* Init physical one */
+            printk_pdev(s->pdev, XENLOG_DEBUG, "setup MSI (register: %x).\n",
+                          *val);
+
+            memset(&msi_info, 0, sizeof(msi_info));
+            msi_info.seg = s->pdev->seg;
+            msi_info.bus = s->pdev->bus;
+            msi_info.devfn = s->pdev->devfn;
+
+            rc = physdev_map_pirq(DOMID_SELF, MAP_PIRQ_TYPE_MSI, &index,
+                                  &msi->pirq, &msi_info);
+            if ( rc )
+            {
+                /*
+                 * Do not broadcast this error, since there's nothing else
+                 * that can be done (MSI setup should have been successful).
+                 * Guest MSI would be actually not working.
+                 */
+                *val &= ~PCI_MSI_FLAGS_ENABLE;
+
+                printk_pdev(s->pdev, XENLOG_ERR,
+                              "can not map MSI (register: %x)!\n", *val);
+                return 0;
+            }
+
+            rc = vmsi_update_bind(msi);
+            if ( rc )
+            {
+                *val &= ~PCI_MSI_FLAGS_ENABLE;
+                printk_pdev(s->pdev, XENLOG_ERR,
+                              "can not bind MSI (register: %x)!\n", *val);
+                return 0;
+            }
+            msi->initialized = true;
+            msi->mapped = true;
+        }
+        msi->flags |= PCI_MSI_FLAGS_ENABLE;
+    }
+    else if ( msi->mapped )
+    {
+        uint8_t seg, bus, slot, func;
+        uint8_t gvec = msi_vector(msi->data);
+        uint32_t gflags = msi_gflags(msi->data, msi_addr64(msi));
+        uint16_t flags;
+
+        seg = s->pdev->seg;
+        bus = s->pdev->bus;
+        slot = PCI_SLOT(s->pdev->devfn);
+        func = PCI_FUNC(s->pdev->devfn);
+
+        flags = pci_conf_read16(seg, bus, slot, func, s->msi.ctrl_offset);
+        pci_conf_write16(seg, bus, slot, func, s->msi.ctrl_offset,
+                         flags & ~PCI_MSI_FLAGS_ENABLE);
+
+        if ( msi->pirq == -1 )
+            return 0;
+
+        if ( msi->initialized )
+        {
+            xen_domctl_bind_pt_irq_t bind;
+
+            printk_pdev(s->pdev, XENLOG_DEBUG,
+                          "Unbind MSI with pirq %d, gvec %#x\n", msi->pirq,
+                          gvec);
+
+            bind.hvm_domid = DOMID_SELF;
+            bind.irq_type = PT_IRQ_TYPE_MSI;
+            bind.machine_irq = msi->pirq;
+            bind.u.msi.gvec = gvec;
+            bind.u.msi.gflags = gflags;
+            bind.u.msi.gtable = 0;
+
+            rc = pt_irq_destroy_bind(current->domain, &bind);
+            if ( rc )
+                printk_pdev(s->pdev, XENLOG_ERR,
+                              "can not unbind MSI (register: %x)!\n", *val);
+
+            rc = physdev_unmap_pirq(DOMID_SELF, msi->pirq);
+            if ( rc )
+                printk_pdev(s->pdev, XENLOG_ERR,
+                              "unmapping of MSI pirq %d failed. (err: %i)\n",
+                              msi->pirq, rc);
+            msi->flags &= ~PCI_MSI_FLAGS_ENABLE;
+            msi->initialized = false;
+            msi->mapped = false;
+            msi->pirq = -1;
+        }
+    }
+
+    return 0;
+}
+
+/* Initialize Message Upper Address register */
+static int vmsi_msgaddr64_reg_init(struct hvm_pt_device *s,
+                                   struct hvm_pt_reg_handler *handler,
+                                   uint32_t real_offset,
+                                   uint32_t *data)
+{
+    /* No need to initialize in case of 32 bit type */
+    if ( !(s->msi.flags & PCI_MSI_FLAGS_64BIT) )
+        *data = HVM_PT_INVALID_REG;
+    else
+        *data = handler->init_val;
+
+    return 0;
+}
+
+/* Write Message Address register */
+static int vmsi_msgaddr32_reg_write(struct hvm_pt_device *s,
+                                    struct hvm_pt_reg *reg, uint32_t *val,
+                                    uint32_t dev_value, uint32_t valid_mask)
+{
+    struct hvm_pt_reg_handler *handler = reg->handler;
+    uint32_t writable_mask = 0;
+    uint32_t old_addr = reg->val.dword;
+    uint32_t *data = &reg->val.dword;
+
+    /* Modify emulate register */
+    writable_mask = handler->emu_mask & ~handler->ro_mask & valid_mask;
+    *data = HVM_PT_MERGE_VALUE(*val, *data, writable_mask);
+    s->msi.addr_lo = *data;
+
+    /* Create value for writing to I/O device register */
+    *val = HVM_PT_MERGE_VALUE(*val, dev_value, 0);
+
+    /* Update MSI */
+    if ( *data != old_addr && s->msi.mapped )
+        vmsi_update_bind(&s->msi);
+
+    return 0;
+}
+
+/* Write Message Upper Address register */
+static int vmsi_msgaddr64_reg_write(struct hvm_pt_device *s,
+                                    struct hvm_pt_reg *reg, uint32_t *val,
+                                    uint32_t dev_value, uint32_t valid_mask)
+{
+    struct hvm_pt_reg_handler *handler = reg->handler;
+    uint32_t writable_mask = 0;
+    uint32_t old_addr = reg->val.dword;
+    uint32_t *data = &reg->val.dword;
+
+    /* Check whether the type is 64 bit or not */
+    if ( !(s->msi.flags & PCI_MSI_FLAGS_64BIT) )
+    {
+        printk_pdev(s->pdev, XENLOG_ERR,
+                   "Can't write to the upper address without 64 bit support\n");
+        return -EOPNOTSUPP;
+    }
+
+    /* Modify emulate register */
+    writable_mask = handler->emu_mask & ~handler->ro_mask & valid_mask;
+    *data = HVM_PT_MERGE_VALUE(*val, *data, writable_mask);
+    /* update the msi_info too */
+    s->msi.addr_hi = *data;
+
+    /* Create value for writing to I/O device register */
+    *val = HVM_PT_MERGE_VALUE(*val, dev_value, 0);
+
+    /* Update MSI */
+    if ( *data != old_addr && s->msi.mapped )
+        vmsi_update_bind(&s->msi);
+
+    return 0;
+}
+
+/*
+ * This function is shared between 32 and 64 bits MSI implementations
+ * Initialize Message Data register
+ */
+static int vmsi_msgdata_reg_init(struct hvm_pt_device *s,
+                                 struct hvm_pt_reg_handler *handler,
+                                 uint32_t real_offset,
+                                 uint32_t *data)
+{
+    uint32_t flags = s->msi.flags;
+    uint32_t offset = handler->offset;
+
+    /* Check the offset whether matches the type or not */
+    if ( vmsi_check_type(offset, flags, DATA) )
+        *data = handler->init_val;
+    else
+        *data = HVM_PT_INVALID_REG;
+
+    return 0;
+}
+
+/*
+ * This function is shared between 32 and 64 bits MSI implementations
+ * Write Message Data register
+ */
+static int vmsi_msgdata_reg_write(struct hvm_pt_device *s,
+                                  struct hvm_pt_reg *reg, uint16_t *val,
+                                  uint16_t dev_value, uint16_t valid_mask)
+{
+    struct hvm_pt_reg_handler *handler = reg->handler;
+    struct hvm_pt_msi *msi = &s->msi;
+    uint16_t writable_mask = 0;
+    uint16_t old_data = reg->val.word;
+    uint32_t offset = handler->offset;
+    uint16_t *data = &reg->val.word;
+
+    /* Check the offset whether matches the type or not */
+    if ( !vmsi_check_type(offset, msi->flags, DATA) )
+    {
+        /* Exit I/O emulator */
+        printk_pdev(s->pdev, XENLOG_ERR,
+                      "the offset does not match the 32/64 bit type!\n");
+        return -EOPNOTSUPP;
+    }
+
+    /* Modify emulate register */
+    writable_mask = handler->emu_mask & ~handler->ro_mask & valid_mask;
+    *data = HVM_PT_MERGE_VALUE(*val, *data, writable_mask);
+    /* Update the msi_info too */
+    msi->data = *data;
+
+    /* Create value for writing to I/O device register */
+    *val = HVM_PT_MERGE_VALUE(*val, dev_value, 0);
+
+    /* Update MSI */
+    if ( *data != old_data && msi->mapped )
+        vmsi_update_bind(msi);
+
+    return 0;
+}
+
+/*
+ * This function is shared between 32 and 64 bits MSI implementations
+ * Initialize Mask register
+ */
+static int vmsi_mask_reg_init(struct hvm_pt_device *s,
+                              struct hvm_pt_reg_handler *handler,
+                              uint32_t real_offset,
+                              uint32_t *data)
+{
+    uint32_t flags = s->msi.flags;
+
+    /* Check the offset whether matches the type or not */
+    if ( !(flags & PCI_MSI_FLAGS_MASKBIT) )
+        *data = HVM_PT_INVALID_REG;
+    else if ( vmsi_check_type(handler->offset, flags, MASK) )
+        *data = handler->init_val;
+    else
+        *data = HVM_PT_INVALID_REG;
+
+    return 0;
+}
+
+/*
+ * This function is shared between 32 and 64 bits MSI implementations
+ * Initialize Pending register
+ */
+static int vmsi_pending_reg_init(struct hvm_pt_device *s,
+                                 struct hvm_pt_reg_handler *handler,
+                                 uint32_t real_offset,
+                                 uint32_t *data)
+{
+    uint32_t flags = s->msi.flags;
+
+    /* check the offset whether matches the type or not */
+    if ( !(flags & PCI_MSI_FLAGS_MASKBIT) )
+        *data = HVM_PT_INVALID_REG;
+    else if ( vmsi_check_type(handler->offset, flags, PENDING) )
+        *data = handler->init_val;
+    else
+        *data = HVM_PT_INVALID_REG;
+
+    return 0;
+}
+
+/* MSI Capability Structure reg static information table */
+static struct hvm_pt_reg_handler vmsi_handler[] = {
+    /* Message Control reg */
+    {
+        .offset     = PCI_MSI_FLAGS,
+        .size       = 2,
+        .init_val   = 0x0000,
+        .res_mask   = 0xFE00,
+        .ro_mask    = 0x018E,
+        .emu_mask   = 0x017E,
+        .init       = vmsi_msgctrl_reg_init,
+        .u.w.read   = hvm_pt_word_reg_read,
+        .u.w.write  = vmsi_msgctrl_reg_write,
+    },
+    /* Message Address reg */
+    {
+        .offset     = PCI_MSI_ADDRESS_LO,
+        .size       = 4,
+        .init_val   = 0x00000000,
+        .ro_mask    = 0x00000003,
+        .emu_mask   = 0xFFFFFFFF,
+        .init       = hvm_pt_common_reg_init,
+        .u.dw.read  = hvm_pt_long_reg_read,
+        .u.dw.write = vmsi_msgaddr32_reg_write,
+    },
+    /* Message Upper Address reg (if PCI_MSI_FLAGS_64BIT set) */
+    {
+        .offset     = PCI_MSI_ADDRESS_HI,
+        .size       = 4,
+        .init_val   = 0x00000000,
+        .ro_mask    = 0x00000000,
+        .emu_mask   = 0xFFFFFFFF,
+        .init       = vmsi_msgaddr64_reg_init,
+        .u.dw.read  = hvm_pt_long_reg_read,
+        .u.dw.write = vmsi_msgaddr64_reg_write,
+    },
+    /* Message Data reg (16 bits of data for 32-bit devices) */
+    {
+        .offset     = PCI_MSI_DATA_32,
+        .size       = 2,
+        .init_val   = 0x0000,
+        .ro_mask    = 0x0000,
+        .emu_mask   = 0xFFFF,
+        .init       = vmsi_msgdata_reg_init,
+        .u.w.read   = hvm_pt_word_reg_read,
+        .u.w.write  = vmsi_msgdata_reg_write,
+    },
+    /* Message Data reg (16 bits of data for 64-bit devices) */
+    {
+        .offset     = PCI_MSI_DATA_64,
+        .size       = 2,
+        .init_val   = 0x0000,
+        .ro_mask    = 0x0000,
+        .emu_mask   = 0xFFFF,
+        .init       = vmsi_msgdata_reg_init,
+        .u.w.read   = hvm_pt_word_reg_read,
+        .u.w.write  = vmsi_msgdata_reg_write,
+    },
+    /* Mask reg (if PCI_MSI_FLAGS_MASKBIT set, for 32-bit devices) */
+    {
+        .offset     = PCI_MSI_DATA_64, /* PCI_MSI_MASK_32 */
+        .size       = 4,
+        .init_val   = 0x00000000,
+        .ro_mask    = 0xFFFFFFFF,
+        .emu_mask   = 0xFFFFFFFF,
+        .init       = vmsi_mask_reg_init,
+        .u.dw.read  = hvm_pt_long_reg_read,
+        .u.dw.write = hvm_pt_long_reg_write,
+    },
+    /* Mask reg (if PCI_MSI_FLAGS_MASKBIT set, for 64-bit devices) */
+    {
+        .offset     = PCI_MSI_MASK_BIT, /* PCI_MSI_MASK_64 */
+        .size       = 4,
+        .init_val   = 0x00000000,
+        .ro_mask    = 0xFFFFFFFF,
+        .emu_mask   = 0xFFFFFFFF,
+        .init       = vmsi_mask_reg_init,
+        .u.dw.read  = hvm_pt_long_reg_read,
+        .u.dw.write = hvm_pt_long_reg_write,
+    },
+    /* Pending reg (if PCI_MSI_FLAGS_MASKBIT set, for 32-bit devices) */
+    {
+        .offset     = PCI_MSI_DATA_64 + 4, /* PCI_MSI_PENDING_32 */
+        .size       = 4,
+        .init_val   = 0x00000000,
+        .ro_mask    = 0xFFFFFFFF,
+        .emu_mask   = 0x00000000,
+        .init       = vmsi_pending_reg_init,
+        .u.dw.read  = hvm_pt_long_reg_read,
+        .u.dw.write = hvm_pt_long_reg_write,
+    },
+    /* Pending reg (if PCI_MSI_FLAGS_MASKBIT set, for 64-bit devices) */
+    {
+        .offset     = PCI_MSI_MASK_BIT + 4, /* PCI_MSI_PENDING_64 */
+        .size       = 4,
+        .init_val   = 0x00000000,
+        .ro_mask    = 0xFFFFFFFF,
+        .emu_mask   = 0x00000000,
+        .init       = vmsi_pending_reg_init,
+        .u.dw.read  = hvm_pt_long_reg_read,
+        .u.dw.write = hvm_pt_long_reg_write,
+    },
+    /* End */
+    {
+        .size = 0,
+    },
+};
+
+static int vmsi_group_init(struct hvm_pt_device *dev,
+                                 struct hvm_pt_reg_group *group)
+{
+    uint8_t seg, bus, slot, func;
+    struct pci_dev *pdev = dev->pdev;
+    int msi_offset;
+    uint8_t msi_size = 0xa;
+    uint16_t flags;
+
+    dev->msi.pirq = -1;
+    seg = pdev->seg;
+    bus = pdev->bus;
+    slot = PCI_SLOT(pdev->devfn);
+    func = PCI_FUNC(pdev->devfn);
+
+    msi_offset = pci_find_cap_offset(seg, bus, slot, func, PCI_CAP_ID_MSI);
+    if ( msi_offset == 0 )
+        return -ENODEV;
+
+    group->base_offset = msi_offset;
+    flags = pci_conf_read16(seg, bus, slot, func,
+                            msi_offset + PCI_MSI_FLAGS);
+
+    if ( flags & PCI_MSI_FLAGS_64BIT )
+        msi_size += 4;
+    if ( flags & PCI_MSI_FLAGS_MASKBIT )
+        msi_size += 10;
+
+    dev->msi.flags = flags;
+    group->size = msi_size;
+
+    return 0;
+}
+
+struct hvm_pt_handler_init hvm_pt_msi_init = {
+    .handlers = vmsi_handler,
+    .init = vmsi_group_init,
+};
