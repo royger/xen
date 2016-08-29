@@ -4117,6 +4117,8 @@ static long hvm_memory_op(int cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
 
 static long hvm_physdev_op(int cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
 {
+    struct domain *d = current->domain;
+
     switch ( cmd )
     {
     default:
@@ -4128,7 +4130,9 @@ static long hvm_physdev_op(int cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
     case PHYSDEVOP_eoi:
     case PHYSDEVOP_irq_status_query:
     case PHYSDEVOP_get_free_pirq:
-        return do_physdev_op(cmd, arg);
+        return ((d->arch.emulation_flags & XEN_X86_EMU_USE_PIRQ) ||
+               is_pvh_vcpu(current)) ?
+                    do_physdev_op(cmd, arg) : -ENOSYS;
     }
 }
 
@@ -4161,17 +4165,20 @@ static long hvm_memory_op_compat32(int cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
 static long hvm_physdev_op_compat32(
     int cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
 {
+    struct domain *d = current->domain;
+
     switch ( cmd )
     {
-        case PHYSDEVOP_map_pirq:
-        case PHYSDEVOP_unmap_pirq:
-        case PHYSDEVOP_eoi:
-        case PHYSDEVOP_irq_status_query:
-        case PHYSDEVOP_get_free_pirq:
-            return compat_physdev_op(cmd, arg);
+    case PHYSDEVOP_map_pirq:
+    case PHYSDEVOP_unmap_pirq:
+    case PHYSDEVOP_eoi:
+    case PHYSDEVOP_irq_status_query:
+    case PHYSDEVOP_get_free_pirq:
+        return (d->arch.emulation_flags & XEN_X86_EMU_USE_PIRQ) ?
+                    compat_physdev_op(cmd, arg) : -ENOSYS;
         break;
     default:
-            return -ENOSYS;
+        return -ENOSYS;
         break;
     }
 }
