@@ -334,7 +334,8 @@ DO(xen_version)(int cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
             case guest_type_hvm:
                 fi.submap |= (1U << XENFEAT_hvm_safe_pvclock) |
                              (1U << XENFEAT_hvm_callback_vector) |
-                             (1U << XENFEAT_hvm_pirqs);
+                             ((d->arch.emulation_flags & XEN_X86_EMU_USE_PIRQ) ?
+                                 (1U << XENFEAT_hvm_pirqs) : 0);
                 break;
             }
 #endif

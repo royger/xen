@@ -94,7 +94,8 @@ int physdev_map_pirq(domid_t domid, int type, int *index, int *pirq_p,
     int pirq, irq, ret = 0;
     void *map_data = NULL;
 
-    if ( domid == DOMID_SELF && is_hvm_domain(d) )
+    if ( domid == DOMID_SELF && is_hvm_domain(d) &&
+         (d->arch.emulation_flags & XEN_X86_EMU_USE_PIRQ) )
     {
         /*
          * Only makes sense for vector-based callback, else HVM-IRQ logic
@@ -265,7 +266,7 @@ int physdev_unmap_pirq(domid_t domid, int pirq)
     if ( ret )
         goto free_domain;
 
-    if ( is_hvm_domain(d) )
+    if ( is_hvm_domain(d) && (d->arch.emulation_flags & XEN_X86_EMU_USE_PIRQ) )
     {
         spin_lock(&d->event_lock);
         if ( domain_pirq_to_emuirq(d, pirq) != IRQ_UNBOUND )
