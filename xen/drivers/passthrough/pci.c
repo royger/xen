@@ -633,6 +633,396 @@ static int pci_size_bar(unsigned int seg, unsigned int bus, unsigned int slot,
     return 0;
 }
 
+static bool bar_reg_is_vf(uint32_t real_offset, uint32_t handler_offset)
+{
+    if ( real_offset - handler_offset == PCI_SRIOV_BAR )
+        return true;
+    else
+        return false;
+}
+
+static int bar_reg_init(struct hvm_pt_device *s,
+                        struct hvm_pt_reg_handler *handler,
+                        uint32_t real_offset, uint32_t *data)
+{
+    uint8_t seg, bus, slot, func;
+    uint64_t addr, size;
+    uint32_t val;
+    unsigned int index = handler->offset / 4;
+    bool vf = bar_reg_is_vf(real_offset, handler->offset);
+    struct hvm_pt_bar *bars = (vf ? s->vf_bars : s->bars);
+    int num_bars = (vf ? PCI_SRIOV_NUM_BARS : s->num_bars);
+    int rc;
+
+    if ( index >= num_bars )
+    {
+        *data = HVM_PT_INVALID_REG;
+        return 0;
+    }
+
+    seg = s->pdev->seg;
+    bus = s->pdev->bus;
+    slot = PCI_SLOT(s->pdev->devfn);
+    func = PCI_FUNC(s->pdev->devfn);
+    val = pci_conf_read32(seg, bus, slot, func, real_offset);
+
+    if ( index > 0 && bars[index - 1].type == HVM_PT_BAR_MEM64_LO )
+        bars[index].type = HVM_PT_BAR_MEM64_HI;
+    else if ( (val & PCI_BASE_ADDRESS_SPACE) == PCI_BASE_ADDRESS_SPACE_IO )
+    {
+        bars[index].type = HVM_PT_BAR_UNUSED;
+    }
+    else if ( (val & PCI_BASE_ADDRESS_MEM_TYPE_MASK) ==
+              PCI_BASE_ADDRESS_MEM_TYPE_64 )
+        bars[index].type = HVM_PT_BAR_MEM64_LO;
+    else
+        bars[index].type = HVM_PT_BAR_MEM32;
+
+    if ( bars[index].type == HVM_PT_BAR_MEM32 ||
+         bars[index].type == HVM_PT_BAR_MEM64_LO )
+    {
+        /* Size the BAR and map it. */
+        rc = pci_size_bar(seg, bus, slot, func, real_offset - handler->offset,
+                          num_bars, &index, &addr, &size);
+        if ( rc )
+        {
+            printk_pdev(s->pdev, XENLOG_ERR, "unable to size BAR#%d\n",
+                        index);
+            return rc;
+        }
+
+        if ( size == 0 )
+            bars[index].type = HVM_PT_BAR_UNUSED;
+        else
+        {
+            printk_pdev(s->pdev, XENLOG_DEBUG,
+                        "Mapping BAR#%u: %#lx size: %u\n", index, addr, size);
+            rc = map_mmio_regions(s->pdev->domain, _gfn(PFN_DOWN(addr)),
+                                  DIV_ROUND_UP(size, PAGE_SIZE),
+                                  _mfn(PFN_DOWN(addr)));
+            if ( rc )
+            {
+                printk_pdev(s->pdev, XENLOG_ERR,
+                            "failed to map BAR#%d into memory map: %d\n",
+                            index, rc);
+                return rc;
+            }
+        }
+    }
+
+    *data = bars[index].type == HVM_PT_BAR_UNUSED ? HVM_PT_INVALID_REG : val;
+    return 0;
+}
+
+/* Only allow writes to check the size of the BARs */
+static int allow_bar_write(struct hvm_pt_bar *bar, struct hvm_pt_reg *reg,
+                           struct pci_dev *pdev, uint32_t val)
+{
+    uint32_t mask;
+
+    if ( bar->type == HVM_PT_BAR_MEM64_HI )
+        mask = ~0;
+    else
+        mask = (uint32_t) PCI_BASE_ADDRESS_MEM_MASK;
+
+    if ( val != ~0 && (val & mask) != (reg->val.dword & mask) )
+    {
+        printk_pdev(pdev, XENLOG_ERR,
+                "changing the position of the BARs is not yet supported: %#x\n",
+                    val);
+        return -EINVAL;
+    }
+
+    return 0;
+}
+
+static int bar_reg_write(struct hvm_pt_device *s, struct hvm_pt_reg *reg,
+                         uint32_t *val, uint32_t dev_value, uint32_t valid_mask)
+{
+    int index = reg->handler->offset / 4;
+
+    return allow_bar_write(&s->bars[index], reg, s->pdev, *val);
+}
+
+static int vf_bar_reg_write(struct hvm_pt_device *s, struct hvm_pt_reg *reg,
+                            uint32_t *val, uint32_t dev_value,
+                            uint32_t valid_mask)
+{
+    int index = reg->handler->offset / 4;
+
+    return allow_bar_write(&s->vf_bars[index], reg, s->pdev, *val);
+}
+
+static int rom_reg_init(struct hvm_pt_device *s,
+                        struct hvm_pt_reg_handler *handler,
+                        uint32_t real_offset, uint32_t *data)
+{
+    uint8_t seg, bus, slot, func;
+    uint32_t size, addr;
+    int rc;
+
+    if ( (s->htype == 0 && handler->offset == 40) ||
+         (s->htype == 1 && handler->offset == 32) )
+    {
+        *data = HVM_PT_INVALID_REG;
+        return 0;
+    }
+
+    seg = s->pdev->seg;
+    bus = s->pdev->bus;
+    slot = PCI_SLOT(s->pdev->devfn);
+    func = PCI_FUNC(s->pdev->devfn);
+
+    addr = pci_conf_read32(seg, bus, slot, func, real_offset);
+    pci_conf_write32(seg, bus, slot, func, real_offset,
+                     ~PCI_ROM_ADDRESS_ENABLE);
+    size = pci_conf_read32(seg, bus, slot, func, real_offset);
+    if ( size == 0 )
+    {
+        *data = HVM_PT_INVALID_REG;
+        return 0;
+    }
+    size = -size;
+    pci_conf_write32(seg, bus, slot, func, real_offset, addr);
+    addr &= PCI_ROM_ADDRESS_MASK;
+
+    printk_pdev(s->pdev, XENLOG_DEBUG, "Mapping ROM: %#lx size: %u\n",
+                addr, size);
+    rc = map_mmio_regions(s->pdev->domain, _gfn(PFN_DOWN(addr)),
+                          DIV_ROUND_UP(size, PAGE_SIZE),
+                          _mfn(PFN_DOWN(addr)));
+    if ( rc )
+    {
+        printk_pdev(s->pdev, XENLOG_ERR,
+                    "failed to map PCI ROM into memory map: %d\n", rc);
+        return rc;
+    }
+
+    *data = addr;
+    return 0;
+}
+
+/* Only allow writes to check the size of the BARs */
+static int rom_reg_write(struct hvm_pt_device *s, struct hvm_pt_reg *reg,
+                         uint32_t *val, uint32_t dev_value, uint32_t valid_mask)
+{
+    if ( *val != ~0 && *val != ~PCI_ROM_ADDRESS_ENABLE &&
+         *val & ~PCI_ROM_ADDRESS_ENABLE != reg->val.dword )
+    {
+        printk_pdev(s->pdev, XENLOG_ERR,
+                "changing the position of the ROM is not yet supported: %#x\n",
+                    *val);
+        return -EINVAL;
+    }
+
+    return 0;
+}
+
+/* BAR regs static information table */
+static struct hvm_pt_reg_handler bar_handler[] = {
+    /* BAR 0 reg */
+    /* mask of BAR need to be decided later, depends on IO/MEM type */
+    {
+        .offset     = 0,
+        .size       = 4,
+        .init_val   = 0x00000000,
+        .init       = bar_reg_init,
+        .u.dw.write = bar_reg_write,
+    },
+    /* BAR 1 reg */
+    {
+        .offset     = 4,
+        .size       = 4,
+        .init_val   = 0x00000000,
+        .init       = bar_reg_init,
+        .u.dw.write = bar_reg_write,
+    },
+    /* BAR 2 reg */
+    {
+        .offset     = 8,
+        .size       = 4,
+        .init_val   = 0x00000000,
+        .init       = bar_reg_init,
+        .u.dw.write = bar_reg_write,
+    },
+    /* BAR 3 reg */
+    {
+        .offset     = 12,
+        .size       = 4,
+        .init_val   = 0x00000000,
+        .init       = bar_reg_init,
+        .u.dw.write = bar_reg_write,
+    },
+    /* BAR 4 reg */
+    {
+        .offset     = 16,
+        .size       = 4,
+        .init_val   = 0x00000000,
+        .init       = bar_reg_init,
+        .u.dw.write = bar_reg_write,
+    },
+    /* BAR 5 reg */
+    {
+        .offset     = 20,
+        .size       = 4,
+        .init_val   = 0x00000000,
+        .init       = bar_reg_init,
+        .u.dw.write = bar_reg_write,
+    },
+    /* ROM (header type 00h) */
+    {
+        .offset     = 32,
+        .size       = 4,
+        .init_val   = 0x00000000,
+        .init       = rom_reg_init,
+        .u.dw.write = rom_reg_write,
+    },
+    /* ROM (header type 01h) */
+    {
+        .offset     = 40,
+        .size       = 4,
+        .init_val   = 0x00000000,
+        .init       = rom_reg_init,
+        .u.dw.write = rom_reg_write,
+    },
+    /* End. */
+    {
+        .size = 0,
+    },
+};
+
+static int bar_group_init(struct hvm_pt_device *dev,
+                          struct hvm_pt_reg_group *group)
+{
+    uint8_t seg, bus, slot, func;
+
+    seg = dev->pdev->seg;
+    bus = dev->pdev->bus;
+    slot = PCI_SLOT(dev->pdev->devfn);
+    func = PCI_FUNC(dev->pdev->devfn);
+    dev->htype = pci_conf_read8(seg, bus, slot, func, PCI_HEADER_TYPE);
+    switch ( dev->htype )
+    {
+    case PCI_HEADER_TYPE_NORMAL:
+        group->size = 36;
+        dev->num_bars = 6;
+        break;
+    case PCI_HEADER_TYPE_BRIDGE:
+        group->size = 44;
+        dev->num_bars = 2;
+        break;
+    default:
+        printk_pdev(dev->pdev, XENLOG_ERR, "device type %#x not supported\n",
+                    dev->htype);
+        return -EINVAL;
+    }
+    group->base_offset = PCI_BASE_ADDRESS_0;
+
+    return 0;
+}
+
+struct hvm_pt_handler_init hvm_pt_bar_init = {
+    .handlers = bar_handler,
+    .init = bar_group_init,
+};
+
+/* BAR regs static information table */
+static struct hvm_pt_reg_handler vf_bar_handler[] = {
+    /* BAR 0 reg */
+    /* mask of BAR need to be decided later, depends on IO/MEM type */
+    {
+        .offset     = 0,
+        .size       = 4,
+        .init_val   = 0x00000000,
+        .init       = bar_reg_init,
+        .u.dw.write = vf_bar_reg_write,
+    },
+    /* BAR 1 reg */
+    {
+        .offset     = 4,
+        .size       = 4,
+        .init_val   = 0x00000000,
+        .init       = bar_reg_init,
+        .u.dw.write = vf_bar_reg_write,
+    },
+    /* BAR 2 reg */
+    {
+        .offset     = 8,
+        .size       = 4,
+        .init_val   = 0x00000000,
+        .init       = bar_reg_init,
+        .u.dw.write = vf_bar_reg_write,
+    },
+    /* BAR 3 reg */
+    {
+        .offset     = 12,
+        .size       = 4,
+        .init_val   = 0x00000000,
+        .init       = bar_reg_init,
+        .u.dw.write = vf_bar_reg_write,
+    },
+    /* BAR 4 reg */
+    {
+        .offset     = 16,
+        .size       = 4,
+        .init_val   = 0x00000000,
+        .init       = bar_reg_init,
+        .u.dw.write = vf_bar_reg_write,
+    },
+    /* BAR 5 reg */
+    {
+        .offset     = 20,
+        .size       = 4,
+        .init_val   = 0x00000000,
+        .init       = bar_reg_init,
+        .u.dw.write = vf_bar_reg_write,
+    },
+    /* End. */
+    {
+        .size = 0,
+    },
+};
+
+static int vf_bar_group_init(struct hvm_pt_device *dev,
+                          struct hvm_pt_reg_group *group)
+{
+    uint8_t seg, bus, slot, func;
+    struct pci_dev *pdev = dev->pdev;
+    int sr_offset;
+    uint16_t ctrl;
+
+    seg = dev->pdev->seg;
+    bus = dev->pdev->bus;
+    slot = PCI_SLOT(dev->pdev->devfn);
+    func = PCI_FUNC(dev->pdev->devfn);
+
+    sr_offset = pci_find_ext_capability(seg, bus, pdev->devfn,
+                                        PCI_EXT_CAP_ID_SRIOV);
+    if ( sr_offset == 0 )
+    {
+        printk_pdev(pdev, XENLOG_DEBUG, "no SR-IOV capabilities\n");
+        return -EINVAL;
+    }
+
+    ctrl = pci_conf_read16(seg, bus, slot, func, sr_offset + PCI_SRIOV_CTRL);
+    if ( (ctrl & (PCI_SRIOV_CTRL_VFE | PCI_SRIOV_CTRL_MSE)) )
+    {
+        printk_pdev(pdev, XENLOG_ERR,
+                    "SR-IOV functions already enabled (%#04x)\n", ctrl);
+        return -EINVAL;
+    }
+
+    group->base_offset = sr_offset + PCI_SRIOV_BAR;
+    group->size = PCI_SRIOV_NUM_BARS * 4;
+
+    return 0;
+}
+
+struct hvm_pt_handler_init hvm_pt_vf_bar_init = {
+    .handlers = vf_bar_handler,
+    .init = vf_bar_group_init,
+};
+
 int pci_add_device(u16 seg, u8 bus, u8 devfn,
                    const struct pci_dev_info *info, nodeid_t node)
 {
