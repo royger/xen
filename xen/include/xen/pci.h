@@ -174,4 +174,7 @@ int msixtbl_pt_register(struct domain *, struct pirq *, uint64_t gtable);
 void msixtbl_pt_unregister(struct domain *, struct pirq *);
 void msixtbl_pt_cleanup(struct domain *d);
 
+extern struct hvm_pt_handler_init hvm_pt_bar_init;
+extern struct hvm_pt_handler_init hvm_pt_vf_bar_init;
+
 #endif /* __XEN_PCI_H__ */
