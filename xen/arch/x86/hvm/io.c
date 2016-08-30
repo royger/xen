@@ -862,6 +862,8 @@ static int hvm_pt_add_register(struct hvm_pt_device *dev,
 }
 
 static struct hvm_pt_handler_init *hwdom_pt_handlers[] = {
+    &hvm_pt_bar_init,
+    &hvm_pt_vf_bar_init,
 };
 
 int hwdom_add_device(struct pci_dev *pdev)

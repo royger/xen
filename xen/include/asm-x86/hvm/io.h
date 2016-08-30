@@ -19,6 +19,7 @@
 #ifndef __ASM_X86_HVM_IO_H__
 #define __ASM_X86_HVM_IO_H__
 
+#include <xen/pci_regs.h>
 #include <asm/hvm/vpic.h>
 #include <asm/hvm/vioapic.h>
 #include <public/hvm/ioreq.h>
@@ -275,6 +276,16 @@ struct hvm_pt_msi {
     bool_t mapped;       /* when pirq is mapped */
 };
 
+struct hvm_pt_bar {
+    uint32_t val;
+    enum bar_type {
+        HVM_PT_BAR_UNUSED,
+        HVM_PT_BAR_MEM32,
+        HVM_PT_BAR_MEM64_LO,
+        HVM_PT_BAR_MEM64_HI,
+    } type;
+};
+
 /*
  * Guest passed-through PCI device.
  */
@@ -288,6 +299,14 @@ struct hvm_pt_device {
 
     /* MSI status. */
     struct hvm_pt_msi msi;
+
+    /* PCI header type. */
+    uint8_t htype;
+
+    /* BAR tracking. */
+    int num_bars;
+    struct hvm_pt_bar bars[6];
+    struct hvm_pt_bar vf_bars[PCI_SRIOV_NUM_BARS];
 
     struct list_head register_groups;
 };
