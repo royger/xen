@@ -2377,6 +2377,25 @@ static int __init hvm_setup_acpi(struct domain *d)
     return 0;
 }
 
+static int __init hvm_setup_pci(struct domain *d)
+{
+    struct pci_dev *pdev;
+    int rc;
+
+    printk("** Adding PCI devices **\n");
+
+    pcidevs_lock();
+    list_for_each_entry( pdev, &d->arch.pdev_list, domain_list )
+    {
+        rc = hwdom_add_device(pdev);
+        if ( rc )
+            return rc;
+    }
+    pcidevs_unlock();
+
+    return 0;
+}
+
 static int __init construct_dom0_hvm(struct domain *d, const module_t *image,
                                      unsigned long image_headroom,
                                      module_t *initrd,
@@ -2422,6 +2441,13 @@ static int __init construct_dom0_hvm(struct domain *d, const module_t *image,
     if ( rc )
     {
         printk("Failed to setup Dom0 ACPI tables: %d\n", rc);
+        return rc;
+    }
+
+    rc = hvm_setup_pci(d);
+    if ( rc )
+    {
+        printk("Failed to add PCI devices: %d\n", rc);
         return rc;
     }
 
