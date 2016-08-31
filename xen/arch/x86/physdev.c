@@ -632,7 +632,10 @@ ret_t do_physdev_op(int cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
         else
             node = NUMA_NO_NODE;
 
-        ret = pci_add_device(add.seg, add.bus, add.devfn, &pdev_info, node);
+        if ( !is_hvm_domain(currd) )
+            ret = pci_add_device(add.seg, add.bus, add.devfn, &pdev_info, node);
+        else
+            ret = 0;
         break;
     }
 
