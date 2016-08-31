@@ -1442,6 +1442,8 @@ void __init noreturn __start_xen(unsigned long mbi_p)
 
     early_msi_init();
 
+    scan_pci_devices();
+
     iommu_setup();    /* setup iommu if available */
 
     smp_prepare_cpus(max_cpus);
