@@ -2299,8 +2299,6 @@ int __init intel_vtd_setup(void)
     P(iommu_hap_pt_share, "Shared EPT tables");
 #undef P
 
-    scan_pci_devices();
-
     ret = init_vtd_hw();
     if ( ret )
         goto error;
