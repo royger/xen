@@ -360,8 +360,8 @@ static int hvm_pt_pci_config_access_check(struct hvm_pt_device *d,
     return 0;
 }
 
-static int hvm_pt_pci_read_config(struct hvm_pt_device *d, uint32_t addr,
-                                  uint32_t *data, int len)
+int hvm_pt_pci_read_config(struct hvm_pt_device *d, uint32_t addr,
+                           uint32_t *data, int len, bool pcie)
 {
     uint32_t val = 0;
     struct hvm_pt_reg_group *reg_grp_entry = NULL;
@@ -375,7 +375,7 @@ static int hvm_pt_pci_read_config(struct hvm_pt_device *d, uint32_t addr,
     unsigned int func = PCI_FUNC(d->pdev->devfn);
 
     /* Sanity checks. */
-    if ( hvm_pt_pci_config_access_check(d, addr, len) )
+    if ( !pcie && hvm_pt_pci_config_access_check(d, addr, len) )
         return X86EMUL_UNHANDLEABLE;
 
     /* Find register group entry. */
@@ -465,8 +465,8 @@ static int hvm_pt_pci_read_config(struct hvm_pt_device *d, uint32_t addr,
     return X86EMUL_OKAY;
 }
 
-static int hvm_pt_pci_write_config(struct hvm_pt_device *d, uint32_t addr,
-                                    uint32_t val, int len)
+int hvm_pt_pci_write_config(struct hvm_pt_device *d, uint32_t addr,
+                            uint32_t val, int len, bool pcie)
 {
     int index = 0;
     struct hvm_pt_reg_group *reg_grp_entry = NULL;
@@ -483,7 +483,7 @@ static int hvm_pt_pci_write_config(struct hvm_pt_device *d, uint32_t addr,
     unsigned int func = PCI_FUNC(d->pdev->devfn);
 
     /* Sanity checks. */
-    if ( hvm_pt_pci_config_access_check(d, addr, len) )
+    if ( !pcie && hvm_pt_pci_config_access_check(d, addr, len) )
         return X86EMUL_UNHANDLEABLE;
 
     /* Find register group entry. */
@@ -676,7 +676,7 @@ static int hw_dpci_portio_read(const struct hvm_io_handler *handler,
     if ( dev != NULL )
     {
         reg = (currd->arch.pci_cf8 & 0xfc) | addr;
-        rc = hvm_pt_pci_read_config(dev, reg, &data32, size);
+        rc = hvm_pt_pci_read_config(dev, reg, &data32, size, false);
         if ( rc == X86EMUL_OKAY )
         {
             read_unlock(&currd->arch.hvm_domain.pt_lock);
@@ -722,7 +722,7 @@ static int hw_dpci_portio_write(const struct hvm_io_handler *handler,
     if ( dev != NULL )
     {
         reg = (currd->arch.pci_cf8 & 0xfc) | addr;
-        rc = hvm_pt_pci_write_config(dev, reg, data32, size);
+        rc = hvm_pt_pci_write_config(dev, reg, data32, size, false);
         if ( rc == X86EMUL_OKAY )
         {
             read_unlock(&currd->arch.hvm_domain.pt_lock);

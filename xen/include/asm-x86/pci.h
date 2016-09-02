@@ -26,4 +26,6 @@ bool_t pci_mmcfg_decode(unsigned long mfn, unsigned int *seg,
 bool_t pci_ro_mmcfg_decode(unsigned long mfn, unsigned int *seg,
                            unsigned int *bdf);
 
+extern const struct hvm_mmio_ops hvm_pt_pcie_mmio_ops;
+
 #endif /* __X86_PCI_H__ */

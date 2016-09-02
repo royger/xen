@@ -377,6 +377,10 @@ static inline uint32_t hvm_pt_get_throughable_mask(
     return throughable_mask & valid_mask;
 }
 
+int hvm_pt_pci_write_config(struct hvm_pt_device *d, uint32_t addr,
+                            uint32_t val, int len, bool pcie);
+int hvm_pt_pci_read_config(struct hvm_pt_device *d, uint32_t addr,
+                           uint32_t *data, int len, bool pcie);
 
 #endif /* __ASM_X86_HVM_IO_H__ */
 

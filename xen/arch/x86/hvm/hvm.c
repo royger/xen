@@ -648,6 +648,9 @@ int hvm_domain_initialise(struct domain *d)
         return 0;
     }
 
+    if ( is_hardware_domain(d) )
+        register_mmio_handler(d, &hvm_pt_pcie_mmio_ops);
+
     hvm_init_guest_time(d);
 
     d->arch.hvm_domain.params[HVM_PARAM_TRIPLE_FAULT_REASON] = SHUTDOWN_reboot;
