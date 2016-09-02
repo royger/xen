@@ -46,6 +46,8 @@
 #include <xen/iocap.h>
 #include <public/hvm/ioreq.h>
 
+#include "../x86_64/mmconfig.h"
+
 /* Set permissive mode for HVM Dom0 PCI pass-through by default */
 static bool_t opt_dom0permissive = 1;
 boolean_param("dom0permissive", opt_dom0permissive);
@@ -363,7 +365,7 @@ static int hvm_pt_pci_config_access_check(struct hvm_pt_device *d,
 }
 
 static int hvm_pt_pci_read_config(struct hvm_pt_device *d, uint32_t addr,
-                                  uint32_t *data, int len)
+                                  uint32_t *data, int len, bool pcie)
 {
     uint32_t val = 0;
     struct hvm_pt_reg_group *reg_grp_entry = NULL;
@@ -377,7 +379,7 @@ static int hvm_pt_pci_read_config(struct hvm_pt_device *d, uint32_t addr,
     unsigned int func = PCI_FUNC(d->pdev->devfn);
 
     /* Sanity checks. */
-    if ( hvm_pt_pci_config_access_check(d, addr, len) )
+    if ( !pcie && hvm_pt_pci_config_access_check(d, addr, len) )
         return X86EMUL_UNHANDLEABLE;
 
     /* Find register group entry. */
@@ -468,7 +470,7 @@ static int hvm_pt_pci_read_config(struct hvm_pt_device *d, uint32_t addr,
 }
 
 static int hvm_pt_pci_write_config(struct hvm_pt_device *d, uint32_t addr,
-                                    uint32_t val, int len)
+                                    uint32_t val, int len, bool pcie)
 {
     int index = 0;
     struct hvm_pt_reg_group *reg_grp_entry = NULL;
@@ -485,7 +487,7 @@ static int hvm_pt_pci_write_config(struct hvm_pt_device *d, uint32_t addr,
     unsigned int func = PCI_FUNC(d->pdev->devfn);
 
     /* Sanity checks. */
-    if ( hvm_pt_pci_config_access_check(d, addr, len) )
+    if ( !pcie && hvm_pt_pci_config_access_check(d, addr, len) )
         return X86EMUL_UNHANDLEABLE;
 
     /* Find register group entry. */
@@ -677,7 +679,7 @@ static int hw_dpci_portio_read(const struct hvm_io_handler *handler,
     if ( dev != NULL )
     {
         reg = (currd->arch.pci_cf8 & 0xfc) | (addr & 0x3);
-        rc = hvm_pt_pci_read_config(dev, reg, &data32, size);
+        rc = hvm_pt_pci_read_config(dev, reg, &data32, size, false);
         if ( rc == X86EMUL_OKAY )
         {
             read_unlock(&currd->arch.hvm_domain.pt_lock);
@@ -722,7 +724,7 @@ static int hw_dpci_portio_write(const struct hvm_io_handler *handler,
     if ( dev != NULL )
     {
         reg = (currd->arch.pci_cf8 & 0xfc) | (addr & 0x3);
-        rc = hvm_pt_pci_write_config(dev, reg, data32, size);
+        rc = hvm_pt_pci_write_config(dev, reg, data32, size, false);
         if ( rc == X86EMUL_OKAY )
         {
             read_unlock(&currd->arch.hvm_domain.pt_lock);
@@ -1002,6 +1004,166 @@ static const struct hvm_io_ops hw_dpci_portio_ops = {
     .write = hw_dpci_portio_write
 };
 
+static struct acpi_mcfg_allocation *pcie_find_mmcfg(unsigned long addr)
+{
+    int i;
+
+    for ( i = 0; i < pci_mmcfg_config_num; i++ )
+    {
+        unsigned long start, end;
+
+        start = pci_mmcfg_config[i].address;
+        end = pci_mmcfg_config[i].address +
+              ((pci_mmcfg_config[i].end_bus_number + 1) << 20);
+        if ( addr >= start && addr < end )
+            return &pci_mmcfg_config[i];
+    }
+
+    return NULL;
+}
+
+static struct hvm_pt_device *hw_pcie_get_device(unsigned int seg,
+                                                unsigned int bus,
+                                                unsigned int slot,
+                                                unsigned int func)
+{
+    struct hvm_pt_device *dev;
+    struct domain *d = current->domain;
+
+    list_for_each_entry( dev, &d->arch.hvm_domain.pt_devices, entries )
+    {
+        if ( dev->pdev->seg != seg || dev->pdev->bus != bus ||
+             dev->pdev->devfn != PCI_DEVFN(slot, func) )
+            continue;
+
+        return dev;
+    }
+
+    return NULL;
+}
+
+static void pcie_decode_addr(unsigned long addr, unsigned int *bus,
+                             unsigned int *slot, unsigned int *func,
+                             unsigned int *reg)
+{
+
+    *bus = (addr >> 20) & 0xff;
+    *slot = (addr >> 15) & 0x1f;
+    *func = (addr >> 12) & 0x7;
+    *reg = addr & 0xfff;
+}
+
+static int pcie_range(struct vcpu *v, unsigned long addr)
+{
+
+    return pcie_find_mmcfg(addr) != NULL ? 1 : 0;
+}
+
+static int pcie_read(struct vcpu *v, unsigned long addr,
+                     unsigned int len, unsigned long *pval)
+{
+    struct acpi_mcfg_allocation *mmcfg = pcie_find_mmcfg(addr);
+    struct domain *d = v->domain;
+    unsigned int seg, bus, slot, func, reg;
+    struct hvm_pt_device *dev;
+    uint32_t val;
+    int rc;
+
+    ASSERT(mmcfg != NULL);
+
+    if ( len > 4 || len == 3 )
+        return X86EMUL_UNHANDLEABLE;
+
+    addr -= mmcfg->address;
+    seg = mmcfg->pci_segment;
+    pcie_decode_addr(addr, &bus, &slot, &func, &reg);
+
+    read_lock(&d->arch.hvm_domain.pt_lock);
+    dev = hw_pcie_get_device(seg, bus, slot, func);
+    if ( dev != NULL )
+    {
+        rc = hvm_pt_pci_read_config(dev, reg, &val, len, true);
+        if ( rc == X86EMUL_OKAY )
+        {
+            read_unlock(&d->arch.hvm_domain.pt_lock);
+            goto out;
+        }
+    }
+    read_unlock(&d->arch.hvm_domain.pt_lock);
+
+    /* Pass-through */
+    switch ( len )
+    {
+    case 1:
+        val = pci_conf_read8(seg, bus, slot, func, reg);
+        break;
+    case 2:
+        val = pci_conf_read16(seg, bus, slot, func, reg);
+        break;
+    case 4:
+        val = pci_conf_read32(seg, bus, slot, func, reg);
+        break;
+    }
+
+ out:
+    *pval = val;
+    return X86EMUL_OKAY;
+}
+
+static int pcie_write(struct vcpu *v, unsigned long addr,
+                      unsigned int len, unsigned long val)
+{
+    struct acpi_mcfg_allocation *mmcfg = pcie_find_mmcfg(addr);
+    struct domain *d = v->domain;
+    unsigned int seg, bus, slot, func, reg;
+    struct hvm_pt_device *dev;
+    int rc;
+
+    ASSERT(mmcfg != NULL);
+
+    if ( len > 4 || len == 3 )
+        return X86EMUL_UNHANDLEABLE;
+
+    addr -= mmcfg->address;
+    seg = mmcfg->pci_segment;
+    pcie_decode_addr(addr, &bus, &slot, &func, &reg);
+
+    read_lock(&d->arch.hvm_domain.pt_lock);
+    dev = hw_pcie_get_device(seg, bus, slot, func);
+    if ( dev != NULL )
+    {
+        rc = hvm_pt_pci_write_config(dev, reg, val, len, true);
+        if ( rc == X86EMUL_OKAY )
+        {
+            read_unlock(&d->arch.hvm_domain.pt_lock);
+            return rc;
+        }
+    }
+    read_unlock(&d->arch.hvm_domain.pt_lock);
+
+    /* Pass-through */
+    switch ( len )
+    {
+    case 1:
+        pci_conf_write8(seg, bus, slot, func, reg, val);
+        break;
+    case 2:
+        pci_conf_write16(seg, bus, slot, func, reg, val);
+        break;
+    case 4:
+        pci_conf_write32(seg, bus, slot, func, reg, val);
+        break;
+    }
+
+    return X86EMUL_OKAY;
+}
+
+static const struct hvm_mmio_ops pcie_mmio_ops = {
+    .check = pcie_range,
+    .read = pcie_read,
+    .write = pcie_write
+};
+
 void register_dpci_portio_handler(struct domain *d)
 {
     struct hvm_io_handler *handler = hvm_next_io_handler(d);
@@ -1011,7 +1173,10 @@ void register_dpci_portio_handler(struct domain *d)
 
     handler->type = IOREQ_TYPE_PIO;
     if ( is_hardware_domain(d) )
+    {
         handler->ops = &hw_dpci_portio_ops;
+        register_mmio_handler(d, &pcie_mmio_ops);
+    }
     else
         handler->ops = &dpci_portio_ops;
 }
