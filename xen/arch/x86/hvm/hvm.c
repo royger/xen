@@ -5035,6 +5035,7 @@ static int hvm_allow_set_param(struct domain *d,
     case HVM_PARAM_STORE_EVTCHN:
     case HVM_PARAM_CONSOLE_EVTCHN:
     case HVM_PARAM_X87_FIP_WIDTH:
+    case HVM_PARAM_STORE_PFN:
         break;
     /*
      * The following parameters must not be set by the guest
