@@ -2889,7 +2889,7 @@ int p2m_add_foreign(struct domain *tdom, unsigned long fgfn,
     struct domain *fdom;
 
     ASSERT(tdom);
-    if ( foreigndom == DOMID_SELF || !is_pvh_domain(tdom) )
+    if ( foreigndom == DOMID_SELF || !has_hvm_container_domain(tdom) )
         return -EINVAL;
     /*
      * pvh fixme: until support is added to p2m teardown code to cleanup any
