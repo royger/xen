@@ -1029,56 +1029,6 @@ int set_mmio_p2m_entry(struct domain *d, unsigned long gfn, mfn_t mfn,
     return set_typed_p2m_entry(d, gfn, mfn, order, p2m_mmio_direct, access);
 }
 
-int set_identity_p2m_entry(struct domain *d, unsigned long gfn,
-                           p2m_access_t p2ma, unsigned int flag)
-{
-    p2m_type_t p2mt;
-    p2m_access_t a;
-    mfn_t mfn;
-    struct p2m_domain *p2m = p2m_get_hostp2m(d);
-    int ret;
-
-    if ( !paging_mode_translate(p2m->domain) )
-    {
-        if ( !need_iommu(d) )
-            return 0;
-        return iommu_map_page(d, gfn, gfn, IOMMUF_readable|IOMMUF_writable);
-    }
-
-    gfn_lock(p2m, gfn, 0);
-
-    mfn = p2m->get_entry(p2m, gfn, &p2mt, &a, 0, NULL, NULL);
-
-    if ( p2mt == p2m_invalid || p2mt == p2m_mmio_dm )
-        ret = p2m_set_entry(p2m, gfn, _mfn(gfn), PAGE_ORDER_4K,
-                            p2m_mmio_direct, p2ma);
-    else if ( mfn_x(mfn) == gfn && p2mt == p2m_mmio_direct && a == p2ma )
-    {
-        ret = 0;
-        /*
-         * PVH fixme: during Dom0 PVH construction, p2m entries are being set
-         * but iomem regions are not mapped with IOMMU. This makes sure that
-         * RMRRs are correctly mapped with IOMMU.
-         */
-        if ( is_hardware_domain(d) && !iommu_use_hap_pt(d) )
-            ret = iommu_map_page(d, gfn, gfn, IOMMUF_readable|IOMMUF_writable);
-    }
-    else
-    {
-        if ( flag & XEN_DOMCTL_DEV_RDM_RELAXED )
-            ret = 0;
-        else
-            ret = -EBUSY;
-        printk(XENLOG_G_WARNING
-               "Cannot setup identity map d%d:%lx,"
-               " gfn already mapped to %lx.\n",
-               d->domain_id, gfn, mfn_x(mfn));
-    }
-
-    gfn_unlock(p2m, gfn, 0);
-    return ret;
-}
-
 /*
  * Returns:
  *    0        for success
@@ -1125,42 +1075,6 @@ int clear_mmio_p2m_entry(struct domain *d, unsigned long gfn, mfn_t mfn,
     gfn_unlock(p2m, gfn, order);
 
     return rc;
-}
-
-int clear_identity_p2m_entry(struct domain *d, unsigned long gfn)
-{
-    p2m_type_t p2mt;
-    p2m_access_t a;
-    mfn_t mfn;
-    struct p2m_domain *p2m = p2m_get_hostp2m(d);
-    int ret;
-
-    if ( !paging_mode_translate(d) )
-    {
-        if ( !need_iommu(d) )
-            return 0;
-        return iommu_unmap_page(d, gfn);
-    }
-
-    gfn_lock(p2m, gfn, 0);
-
-    mfn = p2m->get_entry(p2m, gfn, &p2mt, &a, 0, NULL, NULL);
-    if ( p2mt == p2m_mmio_direct && mfn_x(mfn) == gfn )
-    {
-        ret = p2m_set_entry(p2m, gfn, INVALID_MFN, PAGE_ORDER_4K,
-                            p2m_invalid, p2m->default_access);
-        gfn_unlock(p2m, gfn, 0);
-    }
-    else
-    {
-        gfn_unlock(p2m, gfn, 0);
-        printk(XENLOG_G_WARNING
-               "non-identity map d%d:%lx not cleared (mapped to %lx)\n",
-               d->domain_id, gfn, mfn_x(mfn));
-        ret = 0;
-    }
-
-    return ret;
 }
 
 /* Returns: 0 for success, -errno for failure */
