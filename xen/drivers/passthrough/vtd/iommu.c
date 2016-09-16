@@ -1896,6 +1896,7 @@ static int rmrr_identity_mapping(struct domain *d, bool_t map,
     unsigned long end_pfn = PAGE_ALIGN_4K(rmrr->end_address) >> PAGE_SHIFT_4K;
     struct mapped_rmrr *mrmrr;
     struct domain_iommu *hd = dom_iommu(d);
+    int ret = 0;
 
     ASSERT(pcidevs_locked());
     ASSERT(rmrr->base_address < rmrr->end_address);
@@ -1909,8 +1910,6 @@ static int rmrr_identity_mapping(struct domain *d, bool_t map,
         if ( mrmrr->base == rmrr->base_address &&
              mrmrr->end == rmrr->end_address )
         {
-            int ret = 0;
-
             if ( map )
             {
                 ++mrmrr->count;
@@ -1920,9 +1919,10 @@ static int rmrr_identity_mapping(struct domain *d, bool_t map,
             if ( --mrmrr->count )
                 return 0;
 
-            while ( base_pfn < end_pfn )
+            ret = modify_mmio_11(d, base_pfn, end_pfn - base_pfn, false);
+            while ( !iommu_use_hap_pt(d) && base_pfn < end_pfn )
             {
-                if ( clear_identity_p2m_entry(d, base_pfn) )
+                if ( iommu_unmap_page(d, base_pfn) )
                     ret = -ENXIO;
                 base_pfn++;
             }
@@ -1936,12 +1936,15 @@ static int rmrr_identity_mapping(struct domain *d, bool_t map,
     if ( !map )
         return -ENOENT;
 
-    while ( base_pfn < end_pfn )
+    ret = modify_mmio_11(d, base_pfn, end_pfn - base_pfn, true);
+    if ( ret )
+        return ret;
+    while ( !iommu_use_hap_pt(d) && base_pfn < end_pfn )
     {
-        int err = set_identity_p2m_entry(d, base_pfn, p2m_access_rw, flag);
-
-        if ( err )
-            return err;
+        ret = iommu_map_page(d, base_pfn, base_pfn,
+                             IOMMUF_readable|IOMMUF_writable);
+        if ( ret )
+            return ret;
         base_pfn++;
     }
 
