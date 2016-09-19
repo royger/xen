@@ -40,6 +40,7 @@
 #include <asm/current.h>
 #include <asm/event.h>
 #include <asm/io_apic.h>
+#include <asm/p2m.h>
 
 static void vmsi_inj_irq(
     struct vlapic *target,
@@ -1157,4 +1158,486 @@ static int vmsi_group_init(struct hvm_pt_device *dev,
 struct hvm_pt_handler_init hvm_pt_msi_init = {
     .handlers = vmsi_handler,
     .init = vmsi_group_init,
+};
+
+/* MSI-X */
+#define latch(fld) latch[PCI_MSIX_ENTRY_##fld / sizeof(uint32_t)]
+
+static int vmsix_update_one(struct hvm_pt_device *s, int entry_nr,
+                            uint32_t vec_ctrl)
+{
+    struct hvm_pt_msix_entry *entry = NULL;
+    xen_domctl_bind_pt_irq_t bind;
+    bool bound = true;
+    struct irq_desc *desc;
+    unsigned long flags;
+    int irq;
+    int pirq;
+    int rc;
+
+    if ( entry_nr < 0 || entry_nr >= s->msix->total_entries )
+        return -EINVAL;
+
+    entry = &s->msix->msix_entry[entry_nr];
+
+    if ( !entry->updated )
+        goto mask;
+
+    pirq = entry->pirq;
+
+    /*
+     * Update the entry addr and data to the latest values only when the
+     * entry is masked or they are all masked, as required by the spec.
+     * Addr and data changes while the MSI-X entry is unmasked get deferred
+     * until the next masked -> unmasked transition.
+     */
+    if ( s->msix->maskall ||
+         (entry->latch(VECTOR_CTRL_OFFSET) & PCI_MSIX_VECTOR_BITMASK) )
+    {
+        entry->addr = entry->latch(LOWER_ADDR_OFFSET) |
+                      ((uint64_t)entry->latch(UPPER_ADDR_OFFSET) << 32);
+        entry->data = entry->latch(DATA_OFFSET);
+    }
+
+    if ( pirq == -1 )
+    {
+        struct msi_info msi_info;
+        //struct irq_desc *desc;
+        int index = -1;
+
+        /* Init physical one */
+        printk_pdev(s->pdev, XENLOG_DEBUG, "setup MSI-X (entry: %d).\n",
+                    entry_nr);
+
+        memset(&msi_info, 0, sizeof(msi_info));
+        msi_info.seg = s->pdev->seg;
+        msi_info.bus = s->pdev->bus;
+        msi_info.devfn = s->pdev->devfn;
+        msi_info.table_base = s->msix->table_base;
+        msi_info.entry_nr = entry_nr;
+
+        rc = physdev_map_pirq(DOMID_SELF, MAP_PIRQ_TYPE_MSI, &index,
+                              &pirq, &msi_info);
+        if ( rc )
+        {
+            /*
+             * Do not broadcast this error, since there's nothing else
+             * that can be done (MSI-X setup should have been successful).
+             * Guest MSI would be actually not working.
+             */
+
+            printk_pdev(s->pdev, XENLOG_ERR,
+                          "can not map MSI-X (entry: %d)!\n", entry_nr);
+            return rc;
+        }
+        entry->pirq = pirq;
+        bound = false;
+    }
+
+    ASSERT(entry->pirq != -1);
+
+    if ( bound )
+    {
+        printk_pdev(s->pdev, XENLOG_DEBUG, "destroy bind MSI-X entry %d\n",
+                    entry_nr);
+        bind.hvm_domid = DOMID_SELF;
+        bind.machine_irq = entry->pirq;
+        bind.irq_type = PT_IRQ_TYPE_MSI;
+        bind.u.msi.gvec = msi_vector(entry->data);
+        bind.u.msi.gflags = msi_gflags(entry->data, entry->addr);
+        bind.u.msi.gtable = s->msix->table_base;
+
+        pcidevs_lock();
+        rc = pt_irq_destroy_bind(current->domain, &bind);
+        pcidevs_unlock();
+        if ( rc )
+        {
+            printk_pdev(s->pdev, XENLOG_ERR, "updating of MSI-X failed: %d\n",
+                        rc);
+            rc = physdev_unmap_pirq(DOMID_SELF, entry->pirq);
+            if ( rc )
+                printk_pdev(s->pdev, XENLOG_ERR,
+                            "unmapping of MSI pirq %d failed: %d\n",
+                            entry->pirq, rc);
+            entry->pirq = -1;
+            return rc;
+        }
+    }
+
+    printk_pdev(s->pdev, XENLOG_DEBUG, "bind MSI-X entry %d\n", entry_nr);
+    bind.hvm_domid = DOMID_SELF;
+    bind.machine_irq = entry->pirq;
+    bind.irq_type = PT_IRQ_TYPE_MSI;
+    bind.u.msi.gvec = msi_vector(entry->data);
+    bind.u.msi.gflags = msi_gflags(entry->data, entry->addr);
+    bind.u.msi.gtable = s->msix->table_base;
+
+    pcidevs_lock();
+    rc = pt_irq_create_bind(current->domain, &bind);
+    pcidevs_unlock();
+    if ( rc )
+    {
+        printk_pdev(s->pdev, XENLOG_ERR, "updating of MSI-X failed: %d\n", rc);
+        rc = physdev_unmap_pirq(DOMID_SELF, entry->pirq);
+        if ( rc )
+            printk_pdev(s->pdev, XENLOG_ERR,
+                        "unmapping of MSI pirq %d failed: %d\n",
+                        entry->pirq, rc);
+        entry->pirq = -1;
+        return rc;
+    }
+
+    entry->updated = false;
+
+ mask:
+    if ( entry->pirq != -1 &&
+         ((vec_ctrl ^ entry->latch(VECTOR_CTRL_OFFSET)) &
+          PCI_MSIX_VECTOR_BITMASK) )
+    {
+        printk_pdev(s->pdev, XENLOG_DEBUG, "%smasking MSI-X entry %d\n",
+                    (vec_ctrl & PCI_MSIX_VECTOR_BITMASK) ? "" : "un", entry_nr);
+        irq = domain_pirq_to_irq(s->pdev->domain, entry->pirq);
+        desc = irq_to_desc(irq);
+        spin_lock_irqsave(&desc->lock, flags);
+        guest_mask_msi_irq(desc, !!(vec_ctrl & PCI_MSIX_VECTOR_BITMASK));
+        spin_unlock_irqrestore(&desc->lock, flags);
+    }
+
+    return 0;
+}
+
+static int vmsix_update(struct hvm_pt_device *s)
+{
+    struct hvm_pt_msix *msix = s->msix;
+    int i, rc;
+
+    for ( i = 0; i < msix->total_entries; i++ )
+    {
+        rc = vmsix_update_one(s, i,
+                              msix->msix_entry[i].latch(VECTOR_CTRL_OFFSET));
+        if ( rc )
+            printk_pdev(s->pdev, XENLOG_ERR, "failed to update MSI-X %d\n", i);
+    }
+
+    return 0;
+}
+
+static int vmsix_disable(struct hvm_pt_device *s)
+{
+    struct hvm_pt_msix *msix = s->msix;
+    int i, rc;
+
+    for ( i = 0; i < msix->total_entries; i++ )
+    {
+        struct hvm_pt_msix_entry *entry =  &s->msix->msix_entry[i];
+        xen_domctl_bind_pt_irq_t bind;
+
+        if ( entry->pirq == -1 )
+            continue;
+
+        bind.hvm_domid = DOMID_SELF;
+        bind.irq_type = PT_IRQ_TYPE_MSI;
+        bind.machine_irq = entry->pirq;
+        bind.u.msi.gvec = msi_vector(entry->data);
+        bind.u.msi.gflags = msi_gflags(entry->data, entry->addr);
+        bind.u.msi.gtable = msix->table_base;
+        pcidevs_lock();
+        rc = pt_irq_destroy_bind(current->domain, &bind);
+        pcidevs_unlock();
+        if ( rc )
+        {
+            printk_pdev(s->pdev, XENLOG_ERR,
+                        "failed to destroy MSI-X PIRQ bind entry %d: %d\n",
+                        i, rc);
+            return rc;
+        }
+
+        rc = physdev_unmap_pirq(DOMID_SELF, entry->pirq);
+        if ( rc )
+        {
+            printk_pdev(s->pdev, XENLOG_ERR,
+                        "failed to unmap PIRQ %d MSI-X entry %d: %d\n",
+                        entry->pirq, i, rc);
+            return rc;
+        }
+
+        entry->pirq = -1;
+        entry->updated = false;
+    }
+
+    return 0;
+}
+
+/* Message Control register for MSI-X */
+static int vmsix_ctrl_reg_init(struct hvm_pt_device *s,
+                               struct hvm_pt_reg_handler *handler,
+                               uint32_t real_offset, uint32_t *data)
+{
+    struct pci_dev *pdev = s->pdev;
+    struct hvm_pt_msix *msix = s->msix;
+    uint8_t seg, bus, slot, func;
+    uint16_t reg_field;
+
+    seg = pdev->seg;
+    bus = pdev->bus;
+    slot = PCI_SLOT(pdev->devfn);
+    func = PCI_FUNC(pdev->devfn);
+
+    /* use I/O device register's value as initial value */
+    reg_field = pci_conf_read16(seg, bus, slot, func, real_offset);
+    if ( reg_field & PCI_MSIX_FLAGS_ENABLE )
+    {
+        printk_pdev(pdev, XENLOG_INFO,
+                    "MSI-X already enabled, disabling it first\n");
+        reg_field &= ~PCI_MSIX_FLAGS_ENABLE;
+        pci_conf_write16(seg, bus, slot, func, real_offset, reg_field);
+    }
+
+    msix->ctrl_offset = real_offset;
+
+    *data = handler->init_val;
+    return 0;
+}
+static int vmsix_ctrl_reg_write(struct hvm_pt_device *s, struct hvm_pt_reg *reg,
+                                uint16_t *val, uint16_t dev_value,
+                                uint16_t valid_mask)
+{
+    struct hvm_pt_reg_handler *handler = reg->handler;
+    uint16_t writable_mask = 0;
+    uint16_t throughable_mask = hvm_pt_get_throughable_mask(s, handler,
+                                                            valid_mask);
+    int debug_msix_enabled_old;
+    uint16_t *data = &reg->val.word;
+
+    /* modify emulate register */
+    writable_mask = handler->emu_mask & ~handler->ro_mask & valid_mask;
+    *data = HVM_PT_MERGE_VALUE(*val, *data, writable_mask);
+
+    /* create value for writing to I/O device register */
+    *val = HVM_PT_MERGE_VALUE(*val, dev_value, throughable_mask);
+
+    /* update MSI-X */
+    if ( (*val & PCI_MSIX_FLAGS_ENABLE)
+         && !(*val & PCI_MSIX_FLAGS_MASKALL) )
+        vmsix_update(s);
+    else if ( !(*val & PCI_MSIX_FLAGS_ENABLE) && s->msix->enabled )
+        vmsix_disable(s);
+
+    s->msix->maskall = *val & PCI_MSIX_FLAGS_MASKALL;
+
+    debug_msix_enabled_old = s->msix->enabled;
+    s->msix->enabled = !!(*val & PCI_MSIX_FLAGS_ENABLE);
+    if ( s->msix->enabled != debug_msix_enabled_old )
+        printk_pdev(s->pdev, XENLOG_DEBUG, "%s MSI-X\n",
+                    s->msix->enabled ? "enable" : "disable");
+
+    return 0;
+}
+
+/* MSI Capability Structure reg static information table */
+static struct hvm_pt_reg_handler vmsix_handler[] = {
+    /* Message Control reg */
+    {
+        .offset     = PCI_MSIX_FLAGS,
+        .size       = 2,
+        .init_val   = 0x0000,
+        .res_mask   = 0x3800,
+        .ro_mask    = 0x07FF,
+        .emu_mask   = 0x0000,
+        .init       = vmsix_ctrl_reg_init,
+        .u.w.read   = hvm_pt_word_reg_read,
+        .u.w.write  = vmsix_ctrl_reg_write,
+    },
+    /* End */
+    {
+        .size = 0,
+    },
+};
+
+static int vmsix_group_init(struct hvm_pt_device *s,
+                            struct hvm_pt_reg_group *group)
+{
+    uint8_t seg, bus, slot, func;
+    struct pci_dev *pdev = s->pdev;
+    int msix_offset, total_entries, i, bar_index, rc;
+    uint32_t table_off;
+    uint16_t flags;
+
+    seg = pdev->seg;
+    bus = pdev->bus;
+    slot = PCI_SLOT(pdev->devfn);
+    func = PCI_FUNC(pdev->devfn);
+
+    msix_offset = pci_find_cap_offset(seg, bus, slot, func, PCI_CAP_ID_MSIX);
+    if ( msix_offset == 0 )
+        return -ENODEV;
+
+    group->base_offset = msix_offset;
+    flags = pci_conf_read16(seg, bus, slot, func,
+                            msix_offset + PCI_MSIX_FLAGS);
+    total_entries = flags & PCI_MSIX_FLAGS_QSIZE;
+    total_entries += 1;
+
+    s->msix = xmalloc_bytes(sizeof(struct hvm_pt_msix) +
+                            total_entries * sizeof(struct hvm_pt_msix_entry));
+    if ( s->msix == NULL )
+    {
+        printk_pdev(pdev, XENLOG_ERR, "unable to allocate memory for MSI-X\n");
+        return -ENOMEM;
+    }
+    memset(s->msix, 0, sizeof(struct hvm_pt_msix) +
+           total_entries * sizeof(struct hvm_pt_msix_entry));
+
+    s->msix->total_entries = total_entries;
+    for ( i = 0; i < total_entries; i++ )
+    {
+        struct hvm_pt_msix_entry *entry = &s->msix->msix_entry[i];
+
+        entry->pirq = -1;
+        entry->latch(VECTOR_CTRL_OFFSET) = PCI_MSIX_VECTOR_BITMASK;
+    }
+
+    table_off = pci_conf_read32(seg, bus, slot, func,
+                                msix_offset + PCI_MSIX_TABLE);
+    bar_index = s->msix->bar_index = table_off & PCI_MSIX_BIRMASK;
+    table_off &= ~PCI_MSIX_BIRMASK;
+    s->msix->table_base = s->bars[bar_index].addr;
+    s->msix->table_offset = table_off;
+    s->msix->mmio_base_addr = s->bars[bar_index].addr + table_off;
+    printk_pdev(pdev, XENLOG_DEBUG,
+                "MSI-X table at BAR#%d address: %#lx size: %d\n",
+                bar_index, s->msix->mmio_base_addr,
+                total_entries * PCI_MSIX_ENTRY_SIZE);
+
+    /* Unmap the BAR so that the guest cannot directly write to it. */
+    rc = modify_mmio_11(s->pdev->domain, PFN_DOWN(s->msix->mmio_base_addr),
+                        DIV_ROUND_UP(total_entries * PCI_MSIX_ENTRY_SIZE,
+                                     PAGE_SIZE),
+                        false);
+    if ( rc )
+    {
+        printk_pdev(pdev, XENLOG_ERR,
+                    "Unable to unmap address %#lx from BAR#%d\n",
+                    s->bars[bar_index].addr, bar_index);
+        xfree(s->msix);
+        return rc;
+    }
+
+    return 0;
+}
+
+struct hvm_pt_handler_init hvm_pt_msix_init = {
+    .handlers = vmsix_handler,
+    .init = vmsix_group_init,
+};
+
+/* MMIO handlers for MSI-X */
+static struct hvm_pt_device *vmsix_find_dev_mmio(struct domain *d,
+                                                 unsigned long addr)
+{
+    struct hvm_pt_device *dev;
+
+    pcidevs_lock();
+    list_for_each_entry( dev, &d->arch.hvm_domain.pt_devices, entries )
+    {
+        unsigned long table_addr, table_size;
+
+        if ( dev->msix == NULL )
+            continue;
+
+        table_addr = dev->msix->mmio_base_addr;
+        table_size = dev->msix->total_entries * PCI_MSIX_ENTRY_SIZE;
+        if ( addr < table_addr || addr >= table_addr + table_size )
+            continue;
+
+        pcidevs_unlock();
+        return dev;
+    }
+    pcidevs_unlock();
+
+    return NULL;
+}
+
+
+static uint32_t vmsix_get_entry_value(struct hvm_pt_msix_entry *e, int offset)
+{
+    ASSERT(!(offset % sizeof(*e->latch)));
+    return e->latch[offset / sizeof(*e->latch)];
+}
+
+static void vmsix_set_entry_value(struct hvm_pt_msix_entry *e, int offset,
+                                  uint32_t val)
+{
+    ASSERT(!(offset % sizeof(*e->latch)));
+    e->latch[offset / sizeof(*e->latch)] = val;
+}
+
+static int vmsix_mem_write(struct vcpu *v, unsigned long addr,
+                           unsigned int size, unsigned long val)
+{
+    struct hvm_pt_device *s = vmsix_find_dev_mmio(v->domain, addr);
+    struct hvm_pt_msix *msix = s->msix;
+    struct hvm_pt_msix_entry *entry;
+    unsigned int entry_nr, offset;
+    unsigned long raddr;
+
+    raddr = addr - msix->mmio_base_addr;
+    entry_nr = raddr / PCI_MSIX_ENTRY_SIZE;
+    if ( entry_nr >= msix->total_entries )
+    {
+        printk_pdev(s->pdev, XENLOG_ERR, "asked MSI-X entry %d out of range!\n",
+                    entry_nr);
+        return -EINVAL;
+    }
+
+    entry = &msix->msix_entry[entry_nr];
+    offset = raddr % PCI_MSIX_ENTRY_SIZE;
+
+    if ( offset != PCI_MSIX_ENTRY_VECTOR_CTRL_OFFSET )
+    {
+        if ( vmsix_get_entry_value(entry, offset) == val && entry->pirq != -1 )
+            return 0;
+
+        entry->updated = true;
+    }
+    else
+        vmsix_update_one(s, entry_nr, val);
+
+    vmsix_set_entry_value(entry, offset, val);
+
+    return 0;
+}
+
+static int vmsix_mem_read(struct vcpu *v, unsigned long addr,
+                          unsigned int size, unsigned long *val)
+{
+    struct hvm_pt_device *s = vmsix_find_dev_mmio(v->domain, addr);
+    struct hvm_pt_msix *msix = s->msix;
+    unsigned long raddr;
+    int entry_nr, offset;
+
+    raddr = addr - msix->mmio_base_addr;
+    entry_nr = raddr / PCI_MSIX_ENTRY_SIZE;
+    if ( entry_nr >= msix->total_entries )
+    {
+        printk_pdev(s->pdev, XENLOG_ERR, "asked MSI-X entry %d out of range!\n",
+                    entry_nr);
+        return -EINVAL;
+    }
+
+    offset = raddr % PCI_MSIX_ENTRY_SIZE;
+    *val = vmsix_get_entry_value(&msix->msix_entry[entry_nr], offset);
+
+    return 0;
+}
+
+static int vmsix_mem_accepts(struct vcpu *v, unsigned long addr)
+{
+    return (vmsix_find_dev_mmio(v->domain, addr) != NULL);
+}
+
+const struct hvm_mmio_ops vmsix_mmio_ops = {
+    .check = vmsix_mem_accepts,
+    .read = vmsix_mem_read,
+    .write = vmsix_mem_write,
 };

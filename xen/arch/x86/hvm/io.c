@@ -867,6 +867,7 @@ static struct hvm_pt_handler_init *hwdom_pt_handlers[] = {
     &hvm_pt_bar_init,
     &hvm_pt_vf_bar_init,
     &hvm_pt_msi_init,
+    &hvm_pt_msix_init,
 };
 
 int hwdom_add_device(struct pci_dev *pdev)
@@ -1172,6 +1173,7 @@ void register_dpci_portio_handler(struct domain *d)
     {
         handler->ops = &hw_dpci_portio_ops;
         register_mmio_handler(d, &pcie_mmio_ops);
+        register_mmio_handler(d, &vmsix_mmio_ops);
     }
     else
         handler->ops = &dpci_portio_ops;

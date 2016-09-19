@@ -275,7 +275,9 @@ static inline uint32_t msi_gflags(uint32_t data, uint64_t addr)
     return result;
 }
 
-/* MSI HVM pass-through handlers. */
+/* MSI(-X) HVM pass-through handlers. */
 extern struct hvm_pt_handler_init hvm_pt_msi_init;
+extern struct hvm_pt_handler_init hvm_pt_msix_init;
+extern const struct hvm_mmio_ops vmsix_mmio_ops;
 
 #endif /* __ASM_MSI_H */
