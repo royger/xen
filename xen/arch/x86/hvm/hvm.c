@@ -649,7 +649,10 @@ int hvm_domain_initialise(struct domain *d)
     }
 
     if ( is_hardware_domain(d) )
+    {
         register_mmio_handler(d, &hvm_pt_pcie_mmio_ops);
+        register_mmio_handler(d, &vmsix_mmio_ops);
+    }
 
     hvm_init_guest_time(d);
 
