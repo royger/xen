@@ -681,9 +681,11 @@ static int bar_reg_init(struct hvm_pt_device *s,
     if ( bars[index].type == HVM_PT_BAR_MEM32 ||
          bars[index].type == HVM_PT_BAR_MEM64_LO )
     {
+        unsigned int next_index = index;
+
         /* Size the BAR and map it. */
         rc = pci_size_bar(seg, bus, slot, func, real_offset - handler->offset,
-                          num_bars, &index, &addr, &size);
+                          num_bars, &next_index, &addr, &size);
         if ( rc )
         {
             printk_pdev(s->pdev, XENLOG_ERR, "unable to size BAR#%d\n",
@@ -706,6 +708,8 @@ static int bar_reg_init(struct hvm_pt_device *s,
                             index, rc);
                 return rc;
             }
+            bars[index].addr = addr;
+            bars[index].size = size;
         }
     }
 
