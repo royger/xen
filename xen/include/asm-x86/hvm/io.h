@@ -281,7 +281,30 @@ struct hvm_pt_msi {
     bool_t mapped;       /* when pirq is mapped */
 };
 
+/* Guest MSI-X information. */
+struct hvm_pt_msix_entry {
+    int pirq;
+    uint64_t addr;
+    uint32_t data;
+    uint32_t latch[4];
+    bool updated; /* indicate whether MSI ADDR or DATA is updated */
+};
+
+struct hvm_pt_msix {
+    uint32_t ctrl_offset;
+    bool enabled;
+    bool maskall;
+    int total_entries;
+    int bar_index;
+    uint64_t table_base;
+    uint32_t table_offset; /* page align mmap */
+    uint64_t mmio_base_addr;
+    struct hvm_pt_msix_entry msix_entry[0];
+};
+
 struct hvm_pt_bar {
+    uint64_t addr;
+    uint64_t size;
     uint32_t val;
     enum bar_type {
         HVM_PT_BAR_UNUSED,
@@ -304,6 +327,9 @@ struct hvm_pt_device {
 
     /* MSI status. */
     struct hvm_pt_msi msi;
+
+    /* MSI-X status. */
+    struct hvm_pt_msix *msix;
 
     /* PCI header type. */
     uint8_t htype;
