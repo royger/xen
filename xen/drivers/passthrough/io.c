@@ -24,6 +24,7 @@
 #include <asm/hvm/irq.h>
 #include <asm/hvm/support.h>
 #include <xen/hvm/irq.h>
+#include <asm/hvm/ioreq.h>
 #include <asm/io_apic.h>
 
 static DEFINE_PER_CPU(struct list_head, dpci_list);
@@ -384,7 +385,8 @@ int pt_irq_create_bind(
             pirq_dpci->dom = d;
             /* bind after hvm_irq_dpci is setup to avoid race with irq handler*/
             rc = pirq_guest_bind(d->vcpu[0], info, 0);
-            if ( rc == 0 && pt_irq_bind->u.msi.gtable )
+            if ( rc == 0 && pt_irq_bind->u.msi.gtable &&
+                 hvm_has_ioreq_server(d) )
             {
                 rc = msixtbl_pt_register(d, info, pt_irq_bind->u.msi.gtable);
                 if ( unlikely(rc) )
