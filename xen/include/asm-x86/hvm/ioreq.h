@@ -31,6 +31,7 @@ int hvm_get_ioreq_server_info(struct domain *d, ioservid_t id,
                               unsigned long *ioreq_pfn,
                               unsigned long *bufioreq_pfn,
                               evtchn_port_t *bufioreq_port);
+int hvm_has_ioreq_server(struct domain *d);
 int hvm_map_io_range_to_ioreq_server(struct domain *d, ioservid_t id,
                                      uint32_t type, uint64_t start,
                                      uint64_t end);
