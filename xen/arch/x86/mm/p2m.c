@@ -1049,22 +1049,29 @@ int set_identity_p2m_entry(struct domain *d, unsigned long gfn,
 
     mfn = p2m->get_entry(p2m, gfn, &p2mt, &a, 0, NULL, NULL);
 
-    if ( p2mt == p2m_invalid || p2mt == p2m_mmio_dm )
+    switch ( p2mt )
+    {
+    case p2m_invalid:
+    case p2m_mmio_dm:
         ret = p2m_set_entry(p2m, gfn, _mfn(gfn), PAGE_ORDER_4K,
                             p2m_mmio_direct, p2ma);
-    else if ( mfn_x(mfn) == gfn && p2mt == p2m_mmio_direct && a == p2ma )
-    {
-        ret = 0;
-        /*
-         * PVH fixme: during Dom0 PVH construction, p2m entries are being set
-         * but iomem regions are not mapped with IOMMU. This makes sure that
-         * RMRRs are correctly mapped with IOMMU.
-         */
-        if ( is_hardware_domain(d) && !iommu_use_hap_pt(d) )
+        if ( ret )
+            break;
+        /* fallthrough */
+    case p2m_mmio_direct:
+        if ( p2mt == p2m_mmio_direct && a != p2ma )
+        {
+            printk(XENLOG_G_WARNING
+                   "Cannot setup identity map d%d:%lx, already mapped with "
+                   "different access type (current: %d, requested: %d).\n",
+                   d->domain_id, gfn, a, p2ma);
+            ret = (flag & XEN_DOMCTL_DEV_RDM_RELAXED) ? 0 : -EBUSY;
+            break;
+        }
+        if ( !iommu_use_hap_pt(d) )
             ret = iommu_map_page(d, gfn, gfn, IOMMUF_readable|IOMMUF_writable);
-    }
-    else
-    {
+        break;
+    default:
         if ( flag & XEN_DOMCTL_DEV_RDM_RELAXED )
             ret = 0;
         else
@@ -1073,6 +1080,7 @@ int set_identity_p2m_entry(struct domain *d, unsigned long gfn,
                "Cannot setup identity map d%d:%lx,"
                " gfn already mapped to %lx.\n",
                d->domain_id, gfn, mfn_x(mfn));
+        break;
     }
 
     gfn_unlock(p2m, gfn, 0);
@@ -1149,6 +1157,8 @@ int clear_identity_p2m_entry(struct domain *d, unsigned long gfn)
     {
         ret = p2m_set_entry(p2m, gfn, INVALID_MFN, PAGE_ORDER_4K,
                             p2m_invalid, p2m->default_access);
+        ret = iommu_unmap_page(d, gfn) ? : ret;
+
         gfn_unlock(p2m, gfn, 0);
     }
     else
