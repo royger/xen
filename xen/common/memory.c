@@ -1418,6 +1418,32 @@ int prepare_ring_for_helper(
     return 0;
 }
 
+int modify_identity_mmio(struct domain *d, unsigned long pfn,
+                         unsigned long nr_pages, bool map)
+{
+    int rc;
+
+    for ( ; ; )
+    {
+        rc = (map ? map_mmio_regions : unmap_mmio_regions)
+             (d, _gfn(pfn), nr_pages, _mfn(pfn));
+        if ( rc == 0 )
+            break;
+        if ( rc < 0 )
+        {
+            printk(XENLOG_WARNING
+                   "Failed to identity %smap [%#lx,%#lx) for d%d: %d\n",
+                   map ? "" : "un", pfn, pfn + nr_pages, d->domain_id, rc);
+            break;
+        }
+        nr_pages -= rc;
+        pfn += rc;
+        process_pending_softirqs();
+    }
+
+    return rc;
+}
+
 /*
  * Local variables:
  * mode: C
