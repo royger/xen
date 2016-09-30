@@ -65,4 +65,11 @@ long p2m_set_mem_access_multi(struct domain *d,
  */
 int p2m_get_mem_access(struct domain *d, gfn_t gfn, xenmem_access_t *access);
 
+/*
+ * Helper for {un}mapping large MMIO regions, it will take care of calling
+ * process_pending_softirqs between consecutive {un}map_mmio_regions calls.
+ */
+int modify_identity_mmio(struct domain *d, unsigned long pfn,
+                         unsigned long nr_pages, bool map);
+
 #endif /* _XEN_P2M_COMMON_H */
