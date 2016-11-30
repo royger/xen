@@ -475,6 +475,43 @@ void share_xen_page_with_guest(
     spin_unlock(&d->page_alloc_lock);
 }
 
+int unshare_xen_page_with_guest(struct page_info *page, struct domain *d)
+{
+    unsigned long y, x;
+    bool drop_dom_ref;
+
+    if ( page_get_owner(page) != d || !(page->count_info & PGC_xen_heap) )
+        return -EINVAL;
+
+    spin_lock(&d->page_alloc_lock);
+
+    /* Drop the page reference so we can chanfge the owner. */
+    y = page->count_info;
+    do {
+        x = y;
+        if ( (x & (PGC_count_mask|PGC_allocated)) != (1 | PGC_allocated) )
+        {
+            spin_unlock(&d->page_alloc_lock);
+            return -EINVAL;
+        }
+        y = cmpxchg(&page->count_info, x, PGC_xen_heap);
+    } while ( y != x );
+
+    /* Remove the page form the list of domain pages. */
+    page_list_del(page, &d->xenpage_list);
+    drop_dom_ref = (--d->xenheap_pages == 0);
+
+    /* Remove the owner and clear the flags. */
+    page_set_owner(page, NULL);
+    page->u.inuse.type_info = 0;
+    spin_unlock(&d->page_alloc_lock);
+
+    if ( drop_dom_ref )
+        put_domain(d);
+
+    return 0;
+}
+
 void share_xen_page_with_privileged_guests(
     struct page_info *page, int readonly)
 {
