@@ -23,6 +23,7 @@
 #include <xen/libelf.h>
 #include <xen/pfn.h>
 #include <xen/guest_access.h>
+#include <xen/acpi.h>
 #include <asm/regs.h>
 #include <asm/system.h>
 #include <asm/io.h>
@@ -38,6 +39,8 @@
 #include <asm/io_apic.h>
 #include <asm/hpet.h>
 
+#include <acpi/actables.h>
+
 #include <public/version.h>
 #include <public/arch-x86/hvm/start_info.h>
 #include <public/hvm/hvm_info_table.h>
@@ -49,6 +52,9 @@ static long __initdata dom0_max_nrpages = LONG_MAX;
 
 /* Size of the VM86 TSS for virtual 8086 mode to use. */
 #define HVM_VM86_TSS_SIZE   128
+
+static unsigned int __initdata acpi_intr_overrrides;
+static struct acpi_madt_interrupt_override __initdata *intsrcovr;
 
 /*
  * dom0_mem=[min:<min_amt>,][max:<max_amt>,][<amt>]
@@ -567,7 +573,7 @@ static __init void hvm_setup_e820(struct domain *d, unsigned long nr_pages)
     /*
      * Craft the e820 memory map for Dom0 based on the hardware e820 map.
      */
-    d->arch.e820 = xzalloc_array(struct e820entry, e820.nr_map);
+    d->arch.e820 = xzalloc_array(struct e820entry, E820MAX);
     if ( !d->arch.e820 )
         panic("Unable to allocate memory for Dom0 e820 map");
     entry_guest = d->arch.e820;
@@ -1779,6 +1785,55 @@ static int __init hvm_steal_ram(struct domain *d, unsigned long size,
     return -ENOMEM;
 }
 
+/* NB: memory map must be sorted at all times for this to work correctly. */
+static int __init hvm_add_mem_range(struct domain *d, uint64_t s, uint64_t e,
+                                    unsigned int type)
+{
+    unsigned int i;
+
+    for ( i = 0; i < d->arch.nr_e820; i++ )
+    {
+        uint64_t rs = d->arch.e820[i].addr;
+        uint64_t re = rs + d->arch.e820[i].size;
+
+        if ( rs == e && d->arch.e820[i].type == type )
+        {
+            d->arch.e820[i].addr = s;
+            return 0;
+        }
+
+        if ( re == s && d->arch.e820[i].type == type &&
+             (i + 1 == d->arch.nr_e820 || d->arch.e820[i + 1].addr >= e) )
+        {
+            d->arch.e820[i].size += e - s;
+            return 0;
+        }
+
+        if ( rs >= e )
+            break;
+
+        if ( re > s )
+            return -EEXIST;
+    }
+
+    if ( d->arch.nr_e820 >= E820MAX )
+    {
+        printk(XENLOG_WARNING "E820: overflow while adding region"
+               "[%"PRIx64", %"PRIx64")\n", s, e);
+        return -ENOMEM;
+    }
+
+    memmove(d->arch.e820 + i + 1, d->arch.e820 + i,
+            (d->arch.nr_e820 - i) * sizeof(*d->arch.e820));
+
+    d->arch.nr_e820++;
+    d->arch.e820[i].addr = s;
+    d->arch.e820[i].size = e - s;
+    d->arch.e820[i].type = type;
+
+    return 0;
+}
+
 static int __init hvm_setup_vmx_realmode_helpers(struct domain *d)
 {
     p2m_type_t p2mt;
@@ -2157,6 +2212,371 @@ static int __init hvm_setup_cpus(struct domain *d, paddr_t entry,
     return 0;
 }
 
+static int __init acpi_count_intr_ovr(struct acpi_subtable_header *header,
+                                     const unsigned long end)
+{
+
+    acpi_intr_overrrides++;
+    return 0;
+}
+
+static int __init acpi_set_intr_ovr(struct acpi_subtable_header *header,
+                                    const unsigned long end)
+{
+    const struct acpi_madt_interrupt_override *intr =
+        container_of(header, struct acpi_madt_interrupt_override, header);
+
+    *intsrcovr = *intr;
+    intsrcovr++;
+
+    return 0;
+}
+
+static int __init hvm_setup_acpi_madt(struct domain *d, paddr_t *addr)
+{
+    struct acpi_table_madt *madt;
+    struct acpi_table_header *table;
+    struct acpi_madt_io_apic *io_apic;
+    struct acpi_madt_local_apic *local_apic;
+    acpi_status status;
+    unsigned long size;
+    unsigned int i;
+    int rc;
+
+    /* Count number of interrupt overrides in the MADT. */
+    acpi_table_parse_madt(ACPI_MADT_TYPE_INTERRUPT_OVERRIDE,
+                          acpi_count_intr_ovr, MAX_IRQ_SOURCES);
+
+    /* Calculate the size of the crafted MADT. */
+    size = sizeof(*madt);
+    size += sizeof(*io_apic);
+    size += sizeof(*local_apic) * dom0_max_vcpus();
+    size += sizeof(struct acpi_madt_interrupt_override) * acpi_intr_overrrides;
+
+    madt = xzalloc_bytes(size);
+    if ( !madt )
+    {
+        printk("Unable to allocate memory for MADT table\n");
+        return -ENOMEM;
+    }
+
+    /* Copy the native MADT table header. */
+    status = acpi_get_table(ACPI_SIG_MADT, 0, &table);
+    if ( !ACPI_SUCCESS(status) )
+    {
+        printk("Failed to get MADT ACPI table, aborting.\n");
+        return -EINVAL;
+    }
+    *((struct acpi_table_header *)madt) = *table;
+    madt->address = APIC_DEFAULT_PHYS_BASE;
+    /*
+     * NB: this is currently set to 4, which is the revision in the ACPI
+     * spec 6.1. Sadly ACPICA doesn't provide revision numbers for the
+     * tables described in the headers.
+     */
+    madt->header.revision = 4;
+
+    /*
+     * Setup the IO APIC entry.
+     * FIXME: the current vIO-APIC code just supports one IO-APIC instance
+     * per domain. This must be fixed in order to provide the same amount of
+     * IO APICs as available on bare metal.
+     */
+    if ( nr_ioapics > 1 )
+        printk("WARNING: found %d IO APICs, Dom0 will only have access to 1 emulated IO APIC\n",
+               nr_ioapics);
+    io_apic = (struct acpi_madt_io_apic *)(madt + 1);
+    io_apic->header.type = ACPI_MADT_TYPE_IO_APIC;
+    io_apic->header.length = sizeof(*io_apic);
+    io_apic->id = 1;
+    io_apic->address = VIOAPIC_DEFAULT_BASE_ADDRESS;
+
+    local_apic = (struct acpi_madt_local_apic *)(io_apic + 1);
+    for ( i = 0; i < dom0_max_vcpus(); i++ )
+    {
+        local_apic->header.type = ACPI_MADT_TYPE_LOCAL_APIC;
+        local_apic->header.length = sizeof(*local_apic);
+        local_apic->processor_id = i;
+        local_apic->id = i * 2;
+        local_apic->lapic_flags = ACPI_MADT_ENABLED;
+        local_apic++;
+    }
+
+    /* Setup interrupt overrides. */
+    intsrcovr = (struct acpi_madt_interrupt_override *)local_apic;
+    acpi_table_parse_madt(ACPI_MADT_TYPE_INTERRUPT_OVERRIDE, acpi_set_intr_ovr,
+                          MAX_IRQ_SOURCES);
+    ASSERT(((unsigned char *)intsrcovr - (unsigned char *)madt) == size);
+    madt->header.length = size;
+    madt->header.checksum -= acpi_tb_checksum(ACPI_CAST_PTR(u8, madt), size);
+
+    /* Place the new MADT in guest memory space. */
+    if ( hvm_steal_ram(d, size, GB(4), addr) )
+    {
+        printk("Unable to find allocate guest RAM for MADT\n");
+        return -ENOMEM;
+    }
+
+    /* Mark this region as E820_ACPI. */
+    if ( hvm_add_mem_range(d, *addr, *addr + size, E820_ACPI) )
+        printk("Unable to add MADT region to memory map\n");
+
+    rc = hvm_copy_to_phys(d, *addr, madt, size);
+    if ( rc )
+    {
+        printk("Unable to copy MADT into guest memory\n");
+        return rc;
+    }
+    xfree(madt);
+
+    return 0;
+}
+
+static bool __init acpi_memory_banned(unsigned long mfn, unsigned long nr_pages)
+{
+    unsigned long i;
+
+    for ( i = 0 ; i < nr_pages; i++ )
+        if ( !page_is_ram_type(mfn + i, RAM_TYPE_RESERVED) &&
+             !page_is_ram_type(mfn + i, RAM_TYPE_ACPI) )
+            return true;
+
+    return false;
+}
+
+static bool __init hvm_acpi_table_allowed(const char *sig)
+{
+    static const char __init banned_tables[][ACPI_NAME_SIZE] = {
+        ACPI_SIG_HPET, ACPI_SIG_SLIT, ACPI_SIG_SRAT, ACPI_SIG_MPST,
+        ACPI_SIG_PMTT, ACPI_SIG_MADT, ACPI_SIG_DMAR};
+    unsigned long pfn, nr_pages;
+    int i;
+
+    for ( i = 0 ; i < ARRAY_SIZE(banned_tables); i++ )
+        if ( strncmp(sig, banned_tables[i], ACPI_NAME_SIZE) == 0 )
+            return false;
+
+    /* Make sure table doesn't reside in a RAM region. */
+    pfn = PFN_DOWN(acpi_gbl_root_table_list.tables[i].address);
+    nr_pages = DIV_ROUND_UP(
+                    (acpi_gbl_root_table_list.tables[i].address & ~PAGE_MASK) +
+                    acpi_gbl_root_table_list.tables[i].length, PAGE_SIZE);
+    if ( acpi_memory_banned(pfn, nr_pages) )
+    {
+        printk("Skipping table %.4s because resides in a non ACPI or reserved region\n",
+               sig);
+        return false;
+    }
+
+    return true;
+}
+
+static int __init hvm_setup_acpi_xsdt(struct domain *d, paddr_t madt_addr,
+                                      paddr_t *addr)
+{
+    struct acpi_table_xsdt *xsdt;
+    struct acpi_table_header *table;
+    struct acpi_table_rsdp *rsdp;
+    unsigned long size;
+    unsigned int i, num_tables;
+    paddr_t xsdt_paddr;
+    int j, rc;
+
+    /*
+     * Restore original DMAR table signature, we are going to filter it
+     * from the new XSDT that is presented to the guest, so it no longer
+     * makes sense to have it's signature zapped.
+     */
+    acpi_dmar_reinstate();
+
+    /* Account for the space needed by the XSDT. */
+    size = sizeof(*xsdt);
+    num_tables = 0;
+
+    /* Count the number of tables that will be added to the XSDT. */
+    for( i = 0; i < acpi_gbl_root_table_list.count; i++ )
+    {
+        const char *sig = acpi_gbl_root_table_list.tables[i].signature.ascii;
+
+        if ( hvm_acpi_table_allowed(sig) )
+            num_tables++;
+    }
+
+    /*
+     * No need to subtract one because we will be adding a custom MADT (and
+     * the native one is not accounted for).
+     */
+    size += num_tables * sizeof(xsdt->table_offset_entry[0]);
+
+    xsdt = xzalloc_bytes(size);
+    if ( !xsdt )
+    {
+        printk("Unable to allocate memory for XSDT table\n");
+        return -ENOMEM;
+    }
+
+    /* Copy the native XSDT table header. */
+    rsdp = acpi_os_map_memory(acpi_os_get_root_pointer(), sizeof(*rsdp));
+    if ( !rsdp )
+    {
+        printk("Unable to map RSDP\n");
+        return -EINVAL;
+    }
+    xsdt_paddr = rsdp->xsdt_physical_address;
+    acpi_os_unmap_memory(rsdp, sizeof(*rsdp));
+    table = acpi_os_map_memory(xsdt_paddr, sizeof(*table));
+    if ( !table )
+    {
+        printk("Unable to map XSDT\n");
+        return -EINVAL;
+    }
+    *((struct acpi_table_header *)xsdt) = *table;
+    acpi_os_unmap_memory(table, sizeof(*table));
+
+    /* Add the custom MADT. */
+    j = 0;
+    xsdt->table_offset_entry[j++] = madt_addr;
+
+    /* Copy the addresses of the rest of the allowed tables. */
+    for( i = 0; i < acpi_gbl_root_table_list.count; i++ )
+    {
+        const char *sig = acpi_gbl_root_table_list.tables[i].signature.ascii;
+
+        if ( hvm_acpi_table_allowed(sig) )
+            xsdt->table_offset_entry[j++] =
+                                acpi_gbl_root_table_list.tables[i].address;
+    }
+
+    xsdt->header.revision = 1;
+    xsdt->header.length = size;
+    xsdt->header.checksum -= acpi_tb_checksum(ACPI_CAST_PTR(u8, xsdt), size);
+
+    /* Place the new XSDT in guest memory space. */
+    if ( hvm_steal_ram(d, size, GB(4), addr) )
+    {
+        printk("Unable to find guest RAM for XSDT\n");
+        return -ENOMEM;
+    }
+
+    /* Mark this region as E820_ACPI. */
+    if ( hvm_add_mem_range(d, *addr, *addr + size, E820_ACPI) )
+        printk("Unable to add XSDT region to memory map\n");
+
+    rc = hvm_copy_to_phys(d, *addr, xsdt, size);
+    if ( rc )
+    {
+        printk("Unable to copy XSDT into guest memory\n");
+        return rc;
+    }
+    xfree(xsdt);
+
+    return 0;
+}
+
+static int __init hvm_setup_acpi(struct domain *d, paddr_t start_info)
+{
+    struct acpi_table_rsdp rsdp, *native_rsdp;
+    unsigned long pfn, nr_pages;
+    paddr_t madt_paddr, xsdt_paddr, rsdp_paddr;
+    unsigned int i;
+    int rc;
+
+    /* Scan top-level tables and add their regions to the guest memory map. */
+    for( i = 0; i < acpi_gbl_root_table_list.count; i++ )
+    {
+        const char *sig = acpi_gbl_root_table_list.tables[i].signature.ascii;
+
+        if ( hvm_acpi_table_allowed(sig) )
+            hvm_add_mem_range(d, acpi_gbl_root_table_list.tables[i].address,
+                              acpi_gbl_root_table_list.tables[i].address +
+                              acpi_gbl_root_table_list.tables[i].length,
+                              E820_ACPI);
+    }
+
+    /* Identity map ACPI e820 regions. */
+    for ( i = 0; i < d->arch.nr_e820; i++ )
+    {
+        if ( d->arch.e820[i].type != E820_ACPI &&
+             d->arch.e820[i].type != E820_NVS )
+            continue;
+
+        pfn = PFN_DOWN(d->arch.e820[i].addr);
+        nr_pages = DIV_ROUND_UP((d->arch.e820[i].addr & ~PAGE_MASK) +
+                                d->arch.e820[i].size, PAGE_SIZE);
+
+        rc = modify_identity_mmio(d, pfn, nr_pages, true);
+        if ( rc )
+        {
+            printk(
+                "Failed to map ACPI region [%#lx, %#lx) into Dom0 memory map\n",
+                   pfn, pfn + nr_pages);
+            return rc;
+        }
+    }
+
+    rc = hvm_setup_acpi_madt(d, &madt_paddr);
+    if ( rc )
+        return rc;
+
+    rc = hvm_setup_acpi_xsdt(d, madt_paddr, &xsdt_paddr);
+    if ( rc )
+        return rc;
+
+    /* Craft a custom RSDP. */
+    memset(&rsdp, 0, sizeof(rsdp));
+    memcpy(rsdp.signature, ACPI_SIG_RSDP, sizeof(rsdp.signature));
+    native_rsdp = acpi_os_map_memory(acpi_os_get_root_pointer(), sizeof(rsdp));
+    memcpy(rsdp.oem_id, native_rsdp->oem_id, sizeof(rsdp.oem_id));
+    acpi_os_unmap_memory(native_rsdp, sizeof(rsdp));
+    rsdp.revision = 2;
+    rsdp.xsdt_physical_address = xsdt_paddr;
+    rsdp.rsdt_physical_address = 0;
+    rsdp.length = sizeof(rsdp);
+    rsdp.checksum -= acpi_tb_checksum(ACPI_CAST_PTR(u8, &rsdp),
+                                      ACPI_RSDP_REV0_SIZE);
+    rsdp.extended_checksum -= acpi_tb_checksum(ACPI_CAST_PTR(u8, &rsdp),
+                                               sizeof(rsdp));
+
+    /*
+     * Place the new RSDP in guest memory space.
+     *
+     * NB: this RSDP is not going to replace the original RSDP, which
+     * should still be accessible to the guest. However that RSDP is
+     * going to point to the native RSDT, and should not be used.
+     */
+    if ( hvm_steal_ram(d, sizeof(rsdp), GB(4), &rsdp_paddr) )
+    {
+        printk("Unable to allocate guest RAM for RSDP\n");
+        return -ENOMEM;
+    }
+
+    /* Mark this region as E820_ACPI. */
+    if ( hvm_add_mem_range(d, rsdp_paddr, rsdp_paddr + sizeof(rsdp),
+                           E820_ACPI) )
+        printk("Unable to add RSDP region to memory map\n");
+
+    /* Copy RSDP into guest memory. */
+    rc = hvm_copy_to_phys(d, rsdp_paddr, &rsdp, sizeof(rsdp));
+    if ( rc )
+    {
+        printk("Unable to copy RSDP into guest memory\n");
+        return rc;
+    }
+
+    /* Copy RSDP address to start_info. */
+    rc = hvm_copy_to_phys(d, start_info +
+                          offsetof(struct hvm_start_info, rsdp_paddr),
+                          &rsdp_paddr,
+                          sizeof(((struct hvm_start_info *)0)->rsdp_paddr));
+    if ( rc )
+    {
+        printk("Unable to copy RSDP into guest memory\n");
+        return rc;
+    }
+
+    return 0;
+}
+
 static int __init construct_dom0_hvm(struct domain *d, const module_t *image,
                                      unsigned long image_headroom,
                                      module_t *initrd,
@@ -2193,6 +2613,13 @@ static int __init construct_dom0_hvm(struct domain *d, const module_t *image,
     if ( rc )
     {
         printk("Failed to setup Dom0 CPUs: %d\n", rc);
+        return rc;
+    }
+
+    rc = hvm_setup_acpi(d, start_info);
+    if ( rc )
+    {
+        printk("Failed to setup Dom0 ACPI tables: %d\n", rc);
         return rc;
     }
 
