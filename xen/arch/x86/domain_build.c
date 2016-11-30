@@ -40,6 +40,7 @@
 
 #include <public/version.h>
 #include <public/arch-x86/hvm/start_info.h>
+#include <public/hvm/hvm_info_table.h>
 
 static long __initdata dom0_nrpages;
 static long __initdata dom0_min_nrpages;
@@ -176,6 +177,8 @@ unsigned int __init dom0_max_vcpus(void)
         max_vcpus = opt_dom0_max_vcpus_max;
     if ( max_vcpus > MAX_VIRT_CPUS )
         max_vcpus = MAX_VIRT_CPUS;
+    if ( dom0_hvm )
+        max_vcpus = min_t(typeof(max_vcpus), max_vcpus, HVM_MAX_VCPUS);
 
     return max_vcpus;
 }

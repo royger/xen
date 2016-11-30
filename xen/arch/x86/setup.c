@@ -193,7 +193,7 @@ static void __init parse_acpi_param(char *s)
  *  - hvm               Create a PVHv2 Dom0.
  *  - shadow            Use shadow paging for Dom0.
  */
-static bool __initdata dom0_hvm;
+bool __initdata dom0_hvm;
 static void __init parse_dom0_param(char *s)
 {
     char *ss;

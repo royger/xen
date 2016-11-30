@@ -63,4 +63,6 @@ extern bool opt_dom0_shadow;
 #define opt_dom0_shadow 0
 #endif
 
+extern bool dom0_hvm;
+
 #endif
