@@ -656,6 +656,23 @@ affinities to prefer but be not limited to the specified node(s).
 
 Pin dom0 vcpus to their respective pcpus
 
+### dom0
+> `= List of [ hvm | shadow ]`
+
+> Sub-options:
+
+> `hvm`
+
+> Default: `false`
+
+Flag that makes a dom0 boot in PVHv2 mode.
+
+> `shadow`
+
+> Default: `false`
+
+Flag that makes a dom0 use shadow paging.
+
 ### dom0pvh
 > `= <boolean>`
 

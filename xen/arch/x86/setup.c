@@ -187,6 +187,35 @@ static void __init parse_acpi_param(char *s)
     }
 }
 
+/*
+ * List of parameters that affect Dom0 creation:
+ *
+ *  - hvm               Create a PVHv2 Dom0.
+ *  - shadow            Use shadow paging for Dom0.
+ */
+static bool __initdata dom0_hvm;
+static void __init parse_dom0_param(char *s)
+{
+    char *ss;
+
+    do {
+
+        ss = strchr(s, ',');
+        if ( ss )
+            *ss = '\0';
+
+        if ( !strcmp(s, "hvm") )
+            dom0_hvm = true;
+#ifdef CONFIG_SHADOW_PAGING
+        else if ( !strcmp(s, "shadow") )
+            opt_dom0_shadow = true;
+#endif
+
+        s = ss + 1;
+    } while ( ss );
+}
+custom_param("dom0", parse_dom0_param);
+
 static const module_t *__initdata initial_images;
 static unsigned int __initdata nr_initial_images;
 
@@ -1540,6 +1569,15 @@ void __init noreturn __start_xen(unsigned long mbi_p)
 
     if ( opt_dom0pvh )
         domcr_flags |= DOMCRF_pvh | DOMCRF_hap;
+
+    if ( dom0_hvm )
+    {
+        panic("Building a PVHv2 Dom0 is not yet supported.");
+        domcr_flags |= DOMCRF_hvm |
+                       ((hvm_funcs.hap_supported && !opt_dom0_shadow) ?
+                         DOMCRF_hap : 0);
+        config.emulation_flags = XEN_X86_EMU_LAPIC|XEN_X86_EMU_IOAPIC;
+    }
 
     /* Create initial domain 0. */
     dom0 = domain_create(0, domcr_flags, 0, &config);

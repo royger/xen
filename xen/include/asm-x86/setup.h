@@ -57,4 +57,10 @@ extern uint8_t kbd_shift_flags;
 extern unsigned long highmem_start;
 #endif
 
+#ifdef CONFIG_SHADOW_PAGING
+extern bool opt_dom0_shadow;
+#else
+#define opt_dom0_shadow 0
+#endif
+
 #endif
