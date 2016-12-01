@@ -222,6 +222,8 @@ struct acpi_20_fadt {
     struct acpi_20_generic_address x_pm_tmr_blk;
     struct acpi_20_generic_address x_gpe0_blk;
     struct acpi_20_generic_address x_gpe1_blk;
+    struct acpi_20_generic_address sleep_control;
+    struct acpi_20_generic_address sleep_status;
 };
 
 /*
@@ -230,6 +232,7 @@ struct acpi_20_fadt {
 #define ACPI_FADT_LEGACY_DEVICES    (1 << 0)
 #define ACPI_FADT_8042              (1 << 1)
 #define ACPI_FADT_NO_VGA            (1 << 2)
+#define ACPI_FADT_NO_CMOS_RTC       (1 << 5)
 
 /*
  * FADT Fixed Feature Flags.
@@ -436,7 +439,7 @@ struct acpi_20_slit {
  * Table revision numbers.
  */
 #define ACPI_2_0_RSDP_REVISION 0x02
-#define ACPI_2_0_FADT_REVISION 0x04
+#define ACPI_2_0_FADT_REVISION 0x05
 #define ACPI_2_0_MADT_REVISION 0x02
 #define ACPI_2_0_RSDT_REVISION 0x01
 #define ACPI_2_0_XSDT_REVISION 0x01
