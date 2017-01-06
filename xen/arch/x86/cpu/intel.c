@@ -159,22 +159,10 @@ static void intel_ctxt_switch_levelling(const struct vcpu *next)
 
 	if (cpu_has_cpuid_faulting) {
 		/*
-		 * We *should* be enabling faulting for the control domain.
-		 *
-		 * Unfortunately, the domain builder (having only ever been a
-		 * PV guest) expects to be able to see host cpuid state in a
-		 * native CPUID instruction, to correctly build a CPUID policy
-		 * for HVM guests (notably the xstate leaves).
-		 *
-		 * This logic is fundimentally broken for HVM toolstack
-		 * domains, and faulting causes PV guests to behave like HVM
-		 * guests from their point of view.
-		 *
-		 * Future development plans will move responsibility for
-		 * generating the maximum full cpuid policy into Xen, at which
-		 * this problem will disappear.
+		 * Always enable faulting for all PV domains.  Enable faulting
+		 * for HVM guests if they have configured it.
 		 */
-		set_cpuid_faulting(nextd && !is_control_domain(nextd) &&
+		set_cpuid_faulting(nextd &&
 				   (is_pv_domain(nextd) ||
 				    next->arch.cpuid_faulting));
 		return;
