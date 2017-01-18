@@ -81,7 +81,7 @@ struct cpuid_policy
      *   - All of the feat and xstate unions
      *   - max_{,sub}leaf
      *   - All FEATURESET_* words
-     *   - Short vendor infomation
+     *   - Short and long vendor infomation
      *
      * Per-domain objects:
      *
@@ -89,7 +89,7 @@ struct cpuid_policy
      *   - All of the feat and xstate unions
      *   - max_{,sub}leaf
      *   - All FEATURESET_* words
-     *   - Short vendor infomation
+     *   - Short and long vendor infomation
      *
      * Everything else should be considered inaccurate, and not necesserily 0.
      */
