@@ -1545,6 +1545,15 @@ void __init noreturn __start_xen(unsigned long mbi_p)
     if ( opt_dom0pvh )
         domcr_flags |= DOMCRF_pvh | DOMCRF_hap;
 
+    if ( dom0_pvh )
+    {
+        panic("Building a PVHv2 Dom0 is not yet supported.");
+        domcr_flags |= DOMCRF_hvm |
+                       ((hvm_funcs.hap_supported && !opt_dom0_shadow) ?
+                         DOMCRF_hap : 0);
+        config.emulation_flags = XEN_X86_EMU_LAPIC|XEN_X86_EMU_IOAPIC;
+    }
+
     /* Create initial domain 0. */
     dom0 = domain_create(0, domcr_flags, 0, &config);
     if ( IS_ERR(dom0) || (alloc_dom0_vcpu0(dom0) == NULL) )
