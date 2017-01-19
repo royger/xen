@@ -71,6 +71,8 @@ enum hvm_copy_result hvm_copy_to_guest_phys(
     paddr_t paddr, void *buf, int size);
 enum hvm_copy_result hvm_copy_from_guest_phys(
     void *buf, paddr_t paddr, int size);
+enum hvm_copy_result hvm_copy_to_guest_phys_vcpu(
+    paddr_t paddr, void *buf, size_t size, struct vcpu *vcpu);
 
 /*
  * Copy to/from a guest linear address. @pfec should include PFEC_user_mode
