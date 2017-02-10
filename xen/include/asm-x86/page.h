@@ -374,6 +374,18 @@ perms_strictly_increased(uint32_t old_flags, uint32_t new_flags)
     return ((of | (of ^ nf)) == nf);
 }
 
+/* Build a 32bit PSE page table using 4MB pages. */
+static inline void
+write_32bit_pse_identmap(uint32_t *l2)
+{
+    unsigned int i;
+
+    for ( i = 0; i < PAGE_SIZE / sizeof(*l2); i++ )
+        l2[i] = ((i << 22) | _PAGE_PRESENT | _PAGE_RW | _PAGE_USER |
+                 _PAGE_ACCESSED | _PAGE_DIRTY | _PAGE_PSE);
+}
+
+
 #endif /* !__ASSEMBLY__ */
 
 #define PAGE_ALIGN(x) (((x) + PAGE_SIZE - 1) & PAGE_MASK)

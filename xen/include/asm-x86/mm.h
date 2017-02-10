@@ -276,6 +276,8 @@ struct spage_info
 #define XENSHARE_readonly 1
 extern void share_xen_page_with_guest(
     struct page_info *page, struct domain *d, int readonly);
+extern int unshare_xen_page_with_guest(struct page_info *page,
+                                       struct domain *d);
 extern void share_xen_page_with_privileged_guests(
     struct page_info *page, int readonly);
 extern void free_shared_domheap_page(struct page_info *page);
