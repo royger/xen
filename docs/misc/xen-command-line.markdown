@@ -681,6 +681,14 @@ Flag that makes a dom0 boot in PVHv2 mode.
 
 Flag that makes a dom0 use shadow paging.
 
+### dom0permissive
+> `= <boolean>`
+
+> Default: `true`
+
+Select mode of PCI pass-through when using a PVHv2 Dom0, either permissive or
+not.
+
 ### dtuart (ARM)
 > `= path [:options]`
 

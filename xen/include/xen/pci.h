@@ -90,6 +90,11 @@ struct pci_dev {
     u64 vf_rlen[6];
 };
 
+/* Helper for printing pci_dev related messages. */
+#define printk_pdev(pdev, lvl, fmt, ...)                                  \
+    printk(lvl "PCI %04x:%02x:%02x.%u: " fmt, pdev->seg, pdev->bus,      \
+           PCI_SLOT(pdev->devfn), PCI_FUNC(pdev->devfn), ##__VA_ARGS__)
+
 #define for_each_pdev(domain, pdev) \
     list_for_each_entry(pdev, &(domain->arch.pdev_list), domain_list)
 
