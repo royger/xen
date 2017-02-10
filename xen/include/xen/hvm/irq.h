@@ -56,6 +56,7 @@ struct dev_intx_gsi_link {
 #define VMSI_TRIG_MODE    0x8000
 
 #define GFLAGS_SHIFT_RH             8
+#define GFLAGS_SHIFT_DM             9
 #define GFLAGS_SHIFT_DELIV_MODE     12
 #define GFLAGS_SHIFT_TRG_MODE       15
 

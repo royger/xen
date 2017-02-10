@@ -246,4 +246,36 @@ void ack_nonmaskable_msi_irq(struct irq_desc *);
 void end_nonmaskable_msi_irq(struct irq_desc *, u8 vector);
 void set_msi_affinity(struct irq_desc *, const cpumask_t *);
 
+static inline uint8_t msi_vector(uint32_t data)
+{
+    return (data & MSI_DATA_VECTOR_MASK) >> MSI_DATA_VECTOR_SHIFT;
+}
+
+static inline uint8_t msi_dest_id(uint32_t addr)
+{
+    return (addr & MSI_ADDR_DEST_ID_MASK) >> MSI_ADDR_DEST_ID_SHIFT;
+}
+
+static inline uint32_t msi_gflags(uint32_t data, uint64_t addr)
+{
+    uint32_t result = 0;
+    int rh, dm, dest_id, deliv_mode, trig_mode;
+
+    rh = (addr >> MSI_ADDR_REDIRECTION_SHIFT) & 0x1;
+    dm = (addr >> MSI_ADDR_DESTMODE_SHIFT) & 0x1;
+    dest_id = msi_dest_id(addr);
+    deliv_mode = (data >> MSI_DATA_DELIVERY_MODE_SHIFT) & 0x7;
+    trig_mode = (data >> MSI_DATA_TRIGGER_SHIFT) & 0x1;
+
+    result = dest_id | (rh << GFLAGS_SHIFT_RH)
+        | (dm << GFLAGS_SHIFT_DM)
+        | (deliv_mode << GFLAGS_SHIFT_DELIV_MODE)
+        | (trig_mode << GFLAGS_SHIFT_TRG_MODE);
+
+    return result;
+}
+
+/* MSI HVM pass-through handlers. */
+extern struct hvm_pt_handler_init hvm_pt_msi_init;
+
 #endif /* __ASM_MSI_H */
