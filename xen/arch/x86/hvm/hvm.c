@@ -3764,10 +3764,12 @@ static long hvm_memory_op(int cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
 
 static long hvm_physdev_op(int cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
 {
+    struct domain *currd = current->domain;
+
     switch ( cmd )
     {
     default:
-        if ( !is_pvh_vcpu(current) || !is_hardware_domain(current->domain) )
+        if ( !is_pvh_domain(currd) || !is_hardware_domain(currd) )
             return -ENOSYS;
         /* fall through */
     case PHYSDEVOP_map_pirq:
@@ -3775,7 +3777,8 @@ static long hvm_physdev_op(int cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
     case PHYSDEVOP_eoi:
     case PHYSDEVOP_irq_status_query:
     case PHYSDEVOP_get_free_pirq:
-        return do_physdev_op(cmd, arg);
+        return (has_pirq(currd) || is_pvh_domain(currd)) ?
+                do_physdev_op(cmd, arg) : -ENOSYS;
     }
 }
 
@@ -3808,17 +3811,19 @@ static long hvm_memory_op_compat32(int cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
 static long hvm_physdev_op_compat32(
     int cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
 {
+    struct domain *d = current->domain;
+
     switch ( cmd )
     {
-        case PHYSDEVOP_map_pirq:
-        case PHYSDEVOP_unmap_pirq:
-        case PHYSDEVOP_eoi:
-        case PHYSDEVOP_irq_status_query:
-        case PHYSDEVOP_get_free_pirq:
-            return compat_physdev_op(cmd, arg);
+    case PHYSDEVOP_map_pirq:
+    case PHYSDEVOP_unmap_pirq:
+    case PHYSDEVOP_eoi:
+    case PHYSDEVOP_irq_status_query:
+    case PHYSDEVOP_get_free_pirq:
+        return has_pirq(d) ? compat_physdev_op(cmd, arg) : -ENOSYS;
         break;
     default:
-            return -ENOSYS;
+        return -ENOSYS;
         break;
     }
 }
