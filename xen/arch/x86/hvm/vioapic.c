@@ -199,6 +199,29 @@ static void vioapic_write_redirent(
         unmasked = unmasked && !ent.fields.mask;
     }
 
+    if ( is_hardware_domain(d) && unmasked )
+    {
+        int ret, gsi;
+
+        /* Interrupt has been unmasked */
+        gsi = idx;
+        ret = mp_register_gsi(gsi, ent.fields.trig_mode, ent.fields.polarity);
+        if ( ret && ret != -EEXIST )
+        {
+            gdprintk(XENLOG_WARNING,
+                     "%s: error registering GSI %d\n", __func__, ret);
+        }
+        if ( !ret )
+        {
+            ret = physdev_map_pirq(DOMID_SELF, MAP_PIRQ_TYPE_GSI, &gsi, &gsi,
+                                   NULL);
+            BUG_ON(ret);
+
+            ret = pt_irq_bind_hw_domain(gsi);
+            BUG_ON(ret);
+        }
+    }
+
     *pent = ent;
 
     if ( gsi == 0 )
@@ -467,7 +490,10 @@ void vioapic_update_EOI(struct domain *d, u8 vector)
             if ( iommu_enabled )
             {
                 spin_unlock(&d->arch.hvm_domain.irq_lock);
-                hvm_dpci_eoi(d, base_gsi + j, ent);
+                if ( is_hardware_domain(d) )
+                    hvm_hw_dpci_eoi(d, base_gsi + j, ent);
+                else
+                    hvm_dpci_eoi(d, base_gsi + j, ent);
                 spin_lock(&d->arch.hvm_domain.irq_lock);
             }
 
