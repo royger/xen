@@ -772,6 +772,17 @@ int hvm_destroy_ioreq_server(struct domain *d, ioservid_t id)
     return rc;
 }
 
+int hvm_has_ioreq_server(struct domain *d)
+{
+    int empty;
+
+    spin_lock_recursive(&d->arch.hvm_domain.ioreq_server.lock);
+    empty = list_empty(&d->arch.hvm_domain.ioreq_server.list);
+    spin_unlock_recursive(&d->arch.hvm_domain.ioreq_server.lock);
+
+    return !empty;
+}
+
 int hvm_get_ioreq_server_info(struct domain *d, ioservid_t id,
                               unsigned long *ioreq_pfn,
                               unsigned long *bufioreq_pfn,
