@@ -104,7 +104,8 @@ unsigned long __init bzimage_headroom(char *image_start,
     return headroom;
 }
 
-int __init bzimage_parse(char *image_base, char **image_start, unsigned long *image_len)
+int __init bzimage_parse(void *image_base, void **image_start,
+                         unsigned long *image_len)
 {
     struct setup_header *hdr = (struct setup_header *)(*image_start);
     int err = bzimage_check(hdr, *image_len);

@@ -153,10 +153,19 @@ static elf_errorstatus elf_load_image(struct elf_binary *elf, elf_ptrval dst, el
         return -1;
     /* We trust the dom0 kernel image completely, so we don't care
      * about overruns etc. here. */
-    rc = raw_copy_to_guest(ELF_UNSAFE_PTR(dst), ELF_UNSAFE_PTR(src), filesz);
+    if ( is_hvm_vcpu(elf->vcpu) )
+        rc = hvm_copy_to_guest_phys((paddr_t)ELF_UNSAFE_PTR(dst),
+                                    ELF_UNSAFE_PTR(src), filesz, elf->vcpu);
+    else
+        rc = raw_copy_to_guest(ELF_UNSAFE_PTR(dst), ELF_UNSAFE_PTR(src),
+                               filesz);
     if ( rc != 0 )
         return -1;
-    rc = raw_clear_guest(ELF_UNSAFE_PTR(dst + filesz), memsz - filesz);
+    if ( is_hvm_vcpu(elf->vcpu) )
+        rc = hvm_copy_to_guest_phys((paddr_t)ELF_UNSAFE_PTR(dst + filesz),
+                                    NULL, filesz, elf->vcpu);
+    else
+        rc = raw_clear_guest(ELF_UNSAFE_PTR(dst + filesz), memsz - filesz);
     if ( rc != 0 )
         return -1;
     return 0;
