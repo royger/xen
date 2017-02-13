@@ -215,7 +215,7 @@ CFLAGS += -Wall -Wstrict-prototypes
 # Clang complains about macros that expand to 'if ( ( foo == bar ) ) ...'
 # and is over-zealous with the printf format lint
 # and is a bit too fierce about unused return values
-CFLAGS-$(clang) += -Wno-parentheses -Wno-format -Wno-unused-value
+CFLAGS-$(clang) += -Wno-parentheses -Wno-unused-value
 
 $(call cc-option-add,HOSTCFLAGS,HOSTCC,-Wdeclaration-after-statement)
 $(call cc-option-add,CFLAGS,CC,-Wdeclaration-after-statement)
