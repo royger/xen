@@ -1073,12 +1073,20 @@ static void vmx_set_segment_register(struct vcpu *v, enum x86_segment seg,
         
         if ( seg == x86_seg_tr ) 
         {
-            if ( v->domain->arch.hvm_domain.params[HVM_PARAM_VM86_TSS] )
+            const struct domain *d = v->domain;
+
+            if ( d->arch.hvm_domain.params[HVM_PARAM_VM86_TSS] )
             {
                 sel = 0;
                 attr = vm86_tr_attr;
-                limit = 0xff;
-                base = v->domain->arch.hvm_domain.params[HVM_PARAM_VM86_TSS];
+                /*
+                 * Old hvmloader binaries hardcode the size to 128 bytes,
+                 * without setting HVM_PARAM_VM86_TSS_SIZE.
+                 */
+                limit = (d->arch.hvm_domain.params[HVM_PARAM_VM86_TSS_SIZE]
+                         ?: 0x80) - 1;
+                base = d->arch.hvm_domain.params[HVM_PARAM_VM86_TSS];
+                hvm_prepare_vm86_tss(v, base, limit);
                 v->arch.hvm_vmx.vm86_segment_mask &= ~(1u << seg);
             }
             else
