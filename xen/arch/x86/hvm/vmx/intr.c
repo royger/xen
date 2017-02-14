@@ -339,7 +339,7 @@ void vmx_intr_assist(void)
                        current, intack.source, intack.vector, pt_vector);
 
                 vlapic = vcpu_vlapic(v);
-                if ( vlapic && vlapic->regs->data )
+                if ( vlapic )
                 {
                     word = (const void *)&vlapic->regs->data[APIC_IRR];
                     printk(XENLOG_ERR "vIRR:");
@@ -349,7 +349,7 @@ void vmx_intr_assist(void)
                 }
 
                 pi_desc = &v->arch.hvm_vmx.pi_desc;
-                if ( pi_desc && pi_desc->pir )
+                if ( pi_desc )
                 {
                     word = (const void *)&pi_desc->pir;
                     printk(XENLOG_ERR " PIR:");
