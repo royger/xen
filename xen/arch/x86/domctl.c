@@ -101,6 +101,10 @@ static int update_domain_cpuid_info(struct domain *d,
     switch ( ctl->input[0] )
     {
     case 0x00000000 ... ARRAY_SIZE(p->basic.raw) - 1:
+        if ( ctl->input[0] == 4 &&
+             ctl->input[1] >= ARRAY_SIZE(p->cache.raw) )
+            return 0;
+
         if ( ctl->input[0] == 7 &&
              ctl->input[1] >= ARRAY_SIZE(p->feat.raw) )
             return 0;
@@ -129,7 +133,9 @@ static int update_domain_cpuid_info(struct domain *d,
     switch ( ctl->input[0] )
     {
     case 0x00000000 ... ARRAY_SIZE(p->basic.raw) - 1:
-        if ( ctl->input[0] == 7 )
+        if ( ctl->input[0] == 4 )
+            p->cache.raw[ctl->input[1]] = leaf;
+        else if ( ctl->input[0] == 7 )
             p->feat.raw[ctl->input[1]] = leaf;
         else if ( ctl->input[0] == XSTATE_CPUID )
             p->xstate.raw[ctl->input[1]] = leaf;

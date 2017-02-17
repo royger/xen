@@ -63,6 +63,7 @@ DECLARE_PER_CPU(bool, cpuid_faulting_enabled);
 
 #define CPUID_GUEST_NR_BASIC      (0xdu + 1)
 #define CPUID_GUEST_NR_FEAT       (0u + 1)
+#define CPUID_GUEST_NR_CACHE      (5u + 1)
 #define CPUID_GUEST_NR_XSTATE     (62u + 1)
 #define CPUID_GUEST_NR_EXTD_INTEL (0x8u + 1)
 #define CPUID_GUEST_NR_EXTD_AMD   (0x1cu + 1)
@@ -124,6 +125,15 @@ struct cpuid_policy
             uint8_t l2_nr_queries; /* Documented as fixed to 1. */
         };
     } basic;
+
+    /* Structured cache leaf: 0x00000004[xx] */
+    union {
+        struct cpuid_leaf raw[CPUID_GUEST_NR_CACHE];
+        struct {
+            uint32_t type:4,
+                :28, :32, :32, :32;
+        } subleaf[CPUID_GUEST_NR_CACHE];
+    } cache;
 
     /* Structured feature leaf: 0x00000007[xx] */
     union {
