@@ -189,6 +189,9 @@ static void recalculate_misc(struct cpuid_policy *p)
         p->basic.raw[0x3] = EMPTY_LEAF; /* PSN - always hidden. */
         p->basic.raw[0x9] = EMPTY_LEAF; /* DCA - always hidden. */
 
+        /* TODO: Rework topology logic. */
+        p->basic.raw[0xb] = EMPTY_LEAF;
+
         p->extd.vendor_ebx = 0;
         p->extd.vendor_ecx = 0;
         p->extd.vendor_edx = 0;
@@ -208,7 +211,7 @@ static void recalculate_misc(struct cpuid_policy *p)
 
         zero_leaves(p->basic.raw, 0x2, 0x3);
         memset(p->cache.raw, 0, sizeof(p->cache.raw));
-        zero_leaves(p->basic.raw, 0x9, 0xa);
+        zero_leaves(p->basic.raw, 0x9, 0xb);
 
         p->extd.vendor_ebx = p->basic.vendor_ebx;
         p->extd.vendor_ecx = p->basic.vendor_ecx;
@@ -634,12 +637,7 @@ static void pv_cpuid(uint32_t leaf, uint32_t subleaf, struct cpuid_leaf *res)
 
     switch ( leaf )
     {
-    case 0x0000000b: /* Extended Topology Enumeration */
-        *res = EMPTY_LEAF;
-        break;
-
-    case 0x0 ... 0xa:
-    case 0xc ... XSTATE_CPUID:
+    case 0x0 ... XSTATE_CPUID:
     case 0x80000000 ... 0xffffffff:
         ASSERT_UNREACHABLE();
         /* Now handled in guest_cpuid(). */
@@ -655,13 +653,7 @@ static void hvm_cpuid(uint32_t leaf, uint32_t subleaf, struct cpuid_leaf *res)
 
     switch ( leaf )
     {
-    case 0xb:
-        /* Fix the x2APIC identifier. */
-        res->d = v->vcpu_id * 2;
-        break;
-
-    case 0x0 ... 0xa:
-    case 0xc ... XSTATE_CPUID:
+    case 0x0 ... XSTATE_CPUID:
     case 0x80000000 ... 0xffffffff:
         ASSERT_UNREACHABLE();
         /* Now handled in guest_cpuid(). */
@@ -721,8 +713,7 @@ void guest_cpuid(const struct vcpu *v, uint32_t leaf,
 
         case 0x0 ... 0x3:
         case 0x5 ... 0x6:
-        case 0x8 ... 0xa:
-        case 0xc:
+        case 0x8 ... 0xc:
             *res = p->basic.raw[leaf];
             break;
         }
@@ -956,6 +947,14 @@ void guest_cpuid(const struct vcpu *v, uint32_t leaf,
             /* Report at most v3 since that's all we currently emulate. */
             if ( (res->a & 0xff) > 3 )
                 res->a = (res->a & ~0xff) | 3;
+        }
+        break;
+
+    case 0xb:
+        if ( p->x86_vendor == X86_VENDOR_INTEL )
+        {
+            /* Fix the x2APIC identifier. */
+            res->d = v->vcpu_id * 2;
         }
         break;
 
