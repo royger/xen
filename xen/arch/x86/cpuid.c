@@ -167,6 +167,7 @@ static void recalculate_misc(struct cpuid_policy *p)
     p->basic.raw[0x4] = p->basic.raw[0x7] = p->basic.raw[0xd] = EMPTY_LEAF;
 
     p->basic.raw[0x5] = EMPTY_LEAF; /* MONITOR not exposed to guests. */
+    p->basic.raw[0x6] = EMPTY_LEAF; /* Therm/Power not exposed to guests. */
 
     p->basic.raw[0x8] = EMPTY_LEAF;
     p->basic.raw[0xc] = EMPTY_LEAF;
@@ -648,8 +649,7 @@ static void pv_cpuid(uint32_t leaf, uint32_t subleaf, struct cpuid_leaf *res)
         *res = EMPTY_LEAF;
         break;
 
-    case 0x0 ... 0x5:
-    case 0x7 ... 0x9:
+    case 0x0 ... 0x9:
     case 0xc ... XSTATE_CPUID:
     case 0x80000000 ... 0xffffffff:
         ASSERT_UNREACHABLE();
@@ -683,8 +683,7 @@ static void hvm_cpuid(uint32_t leaf, uint32_t subleaf, struct cpuid_leaf *res)
             res->a = (res->a & ~0xff) | 3;
         break;
 
-    case 0x0 ... 0x5:
-    case 0x7 ... 0x9:
+    case 0x0 ... 0x9:
     case 0xc ... XSTATE_CPUID:
     case 0x80000000 ... 0xffffffff:
         ASSERT_UNREACHABLE();
@@ -744,7 +743,7 @@ void guest_cpuid(const struct vcpu *v, uint32_t leaf,
             goto legacy;
 
         case 0x0 ... 0x3:
-        case 0x5:
+        case 0x5 ... 0x6:
         case 0x8 ... 0x9:
         case 0xc:
             *res = p->basic.raw[leaf];
@@ -940,6 +939,22 @@ void guest_cpuid(const struct vcpu *v, uint32_t leaf,
              guest_kernel_mode(v, regs) && cpu_has_monitor &&
              regs->entry_vector == TRAP_gp_fault )
             *res = raw_policy.basic.raw[leaf];
+        break;
+
+    case 0x6:
+        /*
+         * Leak the implemented-subset of therm/power features into PV
+         * hardware domain kernels.
+         */
+        if ( is_pv_domain(d) && is_hardware_domain(d) &&
+             guest_kernel_mode(v, guest_cpu_user_regs()) )
+        {
+            /* Temp, Turbo, ARAT. */
+            res->a = raw_policy.basic.raw[leaf].a & 0x00000007;
+
+            /* APERF/MPERF, perf/enery bias. */
+            res->c = raw_policy.basic.raw[leaf].c & 0x00000009;
+        }
         break;
 
     case 0x7:
