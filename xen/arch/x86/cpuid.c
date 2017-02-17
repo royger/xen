@@ -166,6 +166,8 @@ static void recalculate_misc(struct cpuid_policy *p)
     /* Leaves with subleaf unions. */
     p->basic.raw[0x4] = p->basic.raw[0x7] = p->basic.raw[0xd] = EMPTY_LEAF;
 
+    p->basic.raw[0x5] = EMPTY_LEAF; /* MONITOR not exposed to guests. */
+
     p->basic.raw[0x8] = EMPTY_LEAF;
     p->basic.raw[0xc] = EMPTY_LEAF;
 
@@ -641,13 +643,12 @@ static void pv_cpuid(uint32_t leaf, uint32_t subleaf, struct cpuid_leaf *res)
             res->a = (res->a & ~0xff) | 3;
         break;
 
-    case 0x00000005: /* MONITOR/MWAIT */
     case 0x0000000b: /* Extended Topology Enumeration */
     unsupported:
         *res = EMPTY_LEAF;
         break;
 
-    case 0x0 ... 0x4:
+    case 0x0 ... 0x5:
     case 0x7 ... 0x9:
     case 0xc ... XSTATE_CPUID:
     case 0x80000000 ... 0xffffffff:
@@ -682,7 +683,7 @@ static void hvm_cpuid(uint32_t leaf, uint32_t subleaf, struct cpuid_leaf *res)
             res->a = (res->a & ~0xff) | 3;
         break;
 
-    case 0x0 ... 0x4:
+    case 0x0 ... 0x5:
     case 0x7 ... 0x9:
     case 0xc ... XSTATE_CPUID:
     case 0x80000000 ... 0xffffffff:
@@ -743,6 +744,7 @@ void guest_cpuid(const struct vcpu *v, uint32_t leaf,
             goto legacy;
 
         case 0x0 ... 0x3:
+        case 0x5:
         case 0x8 ... 0x9:
         case 0xc:
             *res = p->basic.raw[leaf];
@@ -927,6 +929,18 @@ void guest_cpuid(const struct vcpu *v, uint32_t leaf,
 
         /* Adjustments common with leaf 0x80000001. */
         goto common_dynamic_adjustments;
+
+    case 0x5:
+        /*
+         * Leak the hardware MONITOR leaf under the same conditions that the
+         * MONITOR feature flag is leaked.  See above for details.
+         */
+        regs = guest_cpu_user_regs();
+        if ( is_pv_domain(d) && is_hardware_domain(d) &&
+             guest_kernel_mode(v, regs) && cpu_has_monitor &&
+             regs->entry_vector == TRAP_gp_fault )
+            *res = raw_policy.basic.raw[leaf];
+        break;
 
     case 0x7:
         switch ( subleaf )
