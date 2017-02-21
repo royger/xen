@@ -47,7 +47,9 @@
 #define VIOAPIC_REG_ARB_ID  0x02 /* x86 IOAPIC only */
 #define VIOAPIC_REG_RTE0    0x10
 
-#define domain_vioapic(d) ((d)->arch.hvm_domain.vioapic)
+#define domain_vioapic(d, i) (&(d)->arch.hvm_domain.vioapic[i])
+struct hvm_hw_vioapic *gsi_vioapic(struct domain *d, unsigned int gsi,
+                                   unsigned int *pin);
 
 int vioapic_init(struct domain *d);
 void vioapic_deinit(struct domain *d);
