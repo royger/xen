@@ -2274,8 +2274,6 @@ static int ioapic_physbase_to_id(unsigned long physbase)
     return -EINVAL;
 }
 
-unsigned apic_gsi_base(int apic);
-
 static int apic_pin_2_gsi_irq(int apic, int pin)
 {
     int idx;
