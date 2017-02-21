@@ -629,15 +629,25 @@ void vioapic_reset(struct domain *d)
                sizeof(*vioapic->redirtbl) * vioapic->nr_pins);
         for ( j = 0; j < vioapic->nr_pins; j++ )
             vioapic->redirtbl[j].fields.mask = 1;
-        vioapic->base_address = VIOAPIC_DEFAULT_BASE_ADDRESS +
-                                VIOAPIC_MEM_LENGTH * i;
-        vioapic->id = i;
+        if ( !is_hardware_domain(d) )
+        {
+            vioapic->base_address = VIOAPIC_DEFAULT_BASE_ADDRESS +
+                                    VIOAPIC_MEM_LENGTH * i;
+            vioapic->id = i;
+        }
+        else
+        {
+            vioapic->base_address = mp_ioapics[i].mpc_apicaddr;
+            vioapic->id = mp_ioapics[i].mpc_apicid;
+        }
         vioapic->ioregsel = 0;
     }
 }
 
 int vioapic_init(struct domain *d)
 {
+    unsigned int i, nr_vioapics = is_hardware_domain(d) ? nr_ioapics : 1;
+
     if ( !has_vioapic(d) )
     {
         d->arch.hvm_domain.nr_vioapics = 0;
@@ -646,24 +656,41 @@ int vioapic_init(struct domain *d)
 
     if ( (d->arch.hvm_domain.vioapic == NULL) &&
          ((d->arch.hvm_domain.vioapic =
-           xmalloc(struct hvm_hw_vioapic)) == NULL) )
+           xzalloc_array(struct hvm_hw_vioapic, nr_vioapics)) == NULL) )
         return -ENOMEM;
 
-    domain_vioapic(d, 0)->redirtbl = xmalloc_array(union vioapic_redir_entry,
-                                                   VIOAPIC_NUM_PINS);
-    if ( !domain_vioapic(d, 0)->redirtbl )
+    if ( !is_hardware_domain(d) )
     {
-        xfree(d->arch.hvm_domain.vioapic);
-        return -ENOMEM;
+        ASSERT(nr_vioapics == 1);
+        domain_vioapic(d, 0)->redirtbl =
+            xmalloc_array(union vioapic_redir_entry, VIOAPIC_NUM_PINS);
+        if ( !domain_vioapic(d, 0)->redirtbl )
+            goto error;
+        domain_vioapic(d, 0)->nr_pins = VIOAPIC_NUM_PINS;
+    }
+    else
+    {
+        for ( i = 0; i < nr_vioapics; i++ )
+        {
+            domain_vioapic(d, i)->redirtbl =
+                xmalloc_array(union vioapic_redir_entry, nr_ioapic_entries[i]);
+            if ( !domain_vioapic(d, i)->redirtbl )
+                goto error;
+            domain_vioapic(d, i)->nr_pins = nr_ioapic_entries[i];
+        }
     }
 
-    domain_vioapic(d, 0)->nr_pins = VIOAPIC_NUM_PINS;
-    d->arch.hvm_domain.nr_vioapics = 1;
+    d->arch.hvm_domain.nr_vioapics = nr_vioapics;
     vioapic_reset(d);
-
     register_mmio_handler(d, &vioapic_mmio_ops);
 
     return 0;
+
+ error:
+    for ( i = 0; i < nr_vioapics; i++ )
+        xfree(domain_vioapic(d, i)->redirtbl);
+    xfree(d->arch.hvm_domain.vioapic);
+    return -ENOMEM;
 }
 
 void vioapic_deinit(struct domain *d)
