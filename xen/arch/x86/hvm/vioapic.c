@@ -53,7 +53,7 @@ static uint32_t vioapic_read_indirect(const struct hvm_hw_vioapic *vioapic)
     case VIOAPIC_REG_VERSION:
         result = ((union IO_APIC_reg_01){
                   .bits = { .version = VIOAPIC_VERSION_ID,
-                            .entries = VIOAPIC_NUM_PINS - 1 }
+                            .entries = vioapic->nr_pins - 1 }
                   }).raw;
         break;
 
@@ -198,7 +198,7 @@ static void vioapic_write_indirect(struct domain *d, uint32_t val)
         HVM_DBG_LOG(DBG_LEVEL_IOAPIC, "rte[%02x].%s = %08x",
                     redir_index, vioapic->ioregsel & 1 ? "hi" : "lo", val);
 
-        if ( redir_index >= VIOAPIC_NUM_PINS )
+        if ( redir_index >= vioapic->nr_pins )
         {
             gdprintk(XENLOG_WARNING, "vioapic_write_indirect "
                      "error register %x\n", vioapic->ioregsel);
@@ -368,7 +368,7 @@ void vioapic_irq_positive_edge(struct domain *d, unsigned int irq)
 
     HVM_DBG_LOG(DBG_LEVEL_IOAPIC, "irq %x", irq);
 
-    ASSERT(irq < VIOAPIC_NUM_PINS);
+    ASSERT(irq < vioapic->nr_pins);
     ASSERT(spin_is_locked(&d->arch.hvm_domain.irq_lock));
 
     ent = &vioapic->redirtbl[irq];
@@ -397,7 +397,7 @@ void vioapic_update_EOI(struct domain *d, u8 vector)
 
     spin_lock(&d->arch.hvm_domain.irq_lock);
 
-    for ( gsi = 0; gsi < VIOAPIC_NUM_PINS; gsi++ )
+    for ( gsi = 0; gsi < vioapic->nr_pins; gsi++ )
     {
         ent = &vioapic->redirtbl[gsi];
         if ( ent->fields.vector != vector )
@@ -424,40 +424,141 @@ void vioapic_update_EOI(struct domain *d, u8 vector)
     spin_unlock(&d->arch.hvm_domain.irq_lock);
 }
 
-static int ioapic_save(struct domain *d, hvm_domain_context_t *h)
+#define VIOAPIC_SAVE_CONST offsetof(struct hvm_hw_vioapic, redirtbl)
+#define VIOAPIC_SAVE_VAR(cnt) (sizeof(union vioapic_redir_entry) * (cnt))
+#define VIOAPIC_SAVE_SIZE(cnt) (VIOAPIC_SAVE_CONST + VIOAPIC_SAVE_VAR(cnt))
+
+static int vioapic_save(struct domain *d, hvm_domain_context_t *h)
 {
-    struct hvm_hw_vioapic *s = domain_vioapic(d);
+    struct hvm_hw_vioapic *vioapic = domain_vioapic(d);
 
     if ( !has_vioapic(d) )
         return 0;
 
-    return hvm_save_entry(IOAPIC, 0, h, s);
+    if ( vioapic->nr_pins != VIOAPIC_NUM_PINS )
+        return -ENOSYS;
+
+    if ( _hvm_init_entry(h, IOAPIC_CODE, 0,
+                         VIOAPIC_SAVE_SIZE(vioapic->nr_pins)) )
+        return 1;
+
+    memcpy(&h->data[h->cur], vioapic, VIOAPIC_SAVE_CONST);
+    h->cur += VIOAPIC_SAVE_CONST;
+    memcpy(&h->data[h->cur], vioapic->redirtbl,
+           VIOAPIC_SAVE_VAR(vioapic->nr_pins));
+    h->cur += VIOAPIC_SAVE_VAR(vioapic->nr_pins);
+
+    return 0;
 }
 
-static int ioapic_load(struct domain *d, hvm_domain_context_t *h)
+static int vioapic_load(struct domain *d, hvm_domain_context_t *h)
 {
-    struct hvm_hw_vioapic *s = domain_vioapic(d);
+    unsigned int ioapic_nr = hvm_load_instance(h);
+    const struct hvm_save_descriptor *desc;
+    struct hvm_hw_vioapic_compat *ioapic_compat;
+    struct hvm_hw_vioapic *ioapic = domain_vioapic(d);
 
     if ( !has_vioapic(d) )
         return -ENODEV;
 
-    return hvm_load_entry(IOAPIC, h, s);
+    if ( ioapic_nr != 0 )
+        return -ENOSYS;
+
+    desc = (struct hvm_save_descriptor *)&h->data[h->cur];
+    if ( sizeof (*desc) > h->size - h->cur)
+    {
+        printk(XENLOG_G_WARNING
+               "HVM%d restore: not enough data left to read IOAPIC descriptor\n",
+               d->domain_id);
+        return -ENODATA;
+    }
+    if ( desc->length + sizeof (*desc) > h->size - h->cur)
+    {
+        printk(XENLOG_G_WARNING
+               "HVM%d restore: not enough data left to read %u IOAPIC bytes\n",
+               d->domain_id, desc->length);
+        return -ENODATA;
+    }
+    if ( desc->length < sizeof(*ioapic_compat) )
+    {
+        printk(XENLOG_G_WARNING
+               "HVM%d restore mismatch: IOAPIC length %u < %lu\n",
+               d->domain_id, desc->length, sizeof(*ioapic_compat));
+        return -EINVAL;
+    }
+
+    h->cur += sizeof(*desc);
+
+    switch ( desc->length )
+    {
+    case sizeof(*ioapic_compat):
+        ioapic_compat = (struct hvm_hw_vioapic_compat *)&h->data[h->cur];
+        ioapic->base_address = ioapic_compat->base_address;
+        ioapic->ioregsel = ioapic_compat->ioregsel;
+        ioapic->id = ioapic_compat->id;
+        ioapic->nr_pins = VIOAPIC_NUM_PINS;
+        memcpy(ioapic->redirtbl, ioapic_compat->redirtbl,
+               sizeof(ioapic_compat->redirtbl));
+        h->cur += sizeof(*ioapic_compat);
+        break;
+    case VIOAPIC_SAVE_SIZE(VIOAPIC_NUM_PINS):
+        memcpy(ioapic, &h->data[h->cur], VIOAPIC_SAVE_CONST);
+        h->cur += VIOAPIC_SAVE_CONST;
+        if ( ioapic->nr_pins != VIOAPIC_NUM_PINS )
+        {
+            printk(XENLOG_G_WARNING
+                   "HVM%d restore mismatch: unexpected number of IO APIC entries: %u\n",
+                   d->domain_id, ioapic->nr_pins);
+            return -EINVAL;
+        }
+        memcpy(ioapic->redirtbl, &h->data[h->cur],
+               VIOAPIC_SAVE_VAR(ioapic->nr_pins));
+        h->cur += VIOAPIC_SAVE_VAR(ioapic->nr_pins);
+        break;
+    default:
+        printk(XENLOG_G_WARNING "HVM%d restore mismatch: IO APIC length\n",
+               d->domain_id);
+        return -EINVAL;
+    }
+
+    return 0;
 }
 
-HVM_REGISTER_SAVE_RESTORE(IOAPIC, ioapic_save, ioapic_load, 1, HVMSR_PER_DOM);
+/*
+ * We need variable length (variable number of pins) IO APICs, although
+ * those would only be used by the hardware domain, so migration wise
+ * we are always going to use VIOAPIC_NUM_PINS.
+ */
+static int __init vioapic_register_save_and_restore(void)
+{
+    hvm_register_savevm(IOAPIC_CODE, "IOAPIC", vioapic_save, vioapic_load,
+                        VIOAPIC_SAVE_SIZE(VIOAPIC_NUM_PINS) +
+                            sizeof(struct hvm_save_descriptor),
+                        HVMSR_PER_DOM);
+
+    return 0;
+}
+__initcall(vioapic_register_save_and_restore);
+
+#undef VIOAPIC_SAVE_CONST
+#undef VIOAPIC_SAVE_VAR
+#undef VIOAPIC_SAVE_SIZE
 
 void vioapic_reset(struct domain *d)
 {
     struct hvm_hw_vioapic *vioapic = domain_vioapic(d);
-    int i;
+    unsigned int i;
 
     if ( !has_vioapic(d) )
         return;
 
-    memset(vioapic, 0, sizeof(*vioapic));
-    for ( i = 0; i < VIOAPIC_NUM_PINS; i++ )
+    memset(vioapic->redirtbl, 0,
+           sizeof(*vioapic->redirtbl) * vioapic->nr_pins);
+    for ( i = 0; i < vioapic->nr_pins; i++ )
         vioapic->redirtbl[i].fields.mask = 1;
     vioapic->base_address = VIOAPIC_DEFAULT_BASE_ADDRESS;
+    vioapic->id = 0;
+    vioapic->ioregsel = 0;
 }
 
 int vioapic_init(struct domain *d)
@@ -470,6 +571,15 @@ int vioapic_init(struct domain *d)
            xmalloc(struct hvm_hw_vioapic)) == NULL) )
         return -ENOMEM;
 
+    domain_vioapic(d)->redirtbl = xmalloc_array(union vioapic_redir_entry,
+                                                VIOAPIC_NUM_PINS);
+    if ( !domain_vioapic(d)->redirtbl )
+    {
+        xfree(d->arch.hvm_domain.vioapic);
+        return -ENOMEM;
+    }
+
+    domain_vioapic(d)->nr_pins = VIOAPIC_NUM_PINS;
     vioapic_reset(d);
 
     register_mmio_handler(d, &vioapic_mmio_ops);
