@@ -253,6 +253,9 @@
  */
 #define HVM_PARAM_X87_FIP_WIDTH 36
 
-#define HVM_NR_PARAMS 37
+/* Size of TSS used on Intel when CR0.PE=0. */
+#define HVM_PARAM_VM86_TSS_SIZE 37
+
+#define HVM_NR_PARAMS 38
 
 #endif /* __XEN_PUBLIC_HVM_PARAMS_H__ */
