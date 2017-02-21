@@ -127,7 +127,7 @@ struct hvm_domain {
     spinlock_t             irq_lock;
     struct hvm_irq         irq;
     struct hvm_hw_vpic     vpic[2]; /* 0=master; 1=slave */
-    struct hvm_vioapic    *vioapic;
+    struct hvm_hw_vioapic *vioapic;
     struct hvm_hw_stdvga   stdvga;
 
     /*
