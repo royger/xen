@@ -314,7 +314,7 @@ const struct x86_emulate_ops *shadow_init_emulation(
     struct vcpu *v = current;
     unsigned long addr;
 
-    ASSERT(has_hvm_container_vcpu(v));
+    ASSERT(is_hvm_vcpu(v));
 
     memset(sh_ctxt, 0, sizeof(*sh_ctxt));
 
@@ -358,7 +358,7 @@ void shadow_continue_emulation(struct sh_emulate_ctxt *sh_ctxt,
     struct vcpu *v = current;
     unsigned long addr, diff;
 
-    ASSERT(has_hvm_container_vcpu(v));
+    ASSERT(is_hvm_vcpu(v));
 
     /*
      * We don't refetch the segment bases, because we don't emulate
@@ -1695,9 +1695,8 @@ void *sh_emulate_map_dest(struct vcpu *v, unsigned long vaddr,
 
 #ifndef NDEBUG
     /* We don't emulate user-mode writes to page tables. */
-    if ( has_hvm_container_domain(d)
-         ? hvm_get_cpl(v) == 3
-         : !guest_kernel_mode(v, guest_cpu_user_regs()) )
+    if ( is_hvm_domain(d) ? hvm_get_cpl(v) == 3
+                          : !guest_kernel_mode(v, guest_cpu_user_regs()) )
     {
         gdprintk(XENLOG_DEBUG, "User-mode write to pagetable reached "
                  "emulate_map_dest(). This should never happen!\n");
