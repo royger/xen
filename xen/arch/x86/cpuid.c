@@ -576,6 +576,7 @@ static void pv_cpuid(uint32_t leaf, uint32_t subleaf, struct cpuid_leaf *res)
     struct vcpu *curr = current;
     struct domain *currd = curr->domain;
     const struct cpuid_policy *p = currd->arch.cpuid;
+    const struct cpu_user_regs *regs = guest_cpu_user_regs();
 
     if ( !is_control_domain(currd) && !is_hardware_domain(currd) )
         domain_cpuid(currd, leaf, subleaf, res);
@@ -588,130 +589,120 @@ static void pv_cpuid(uint32_t leaf, uint32_t subleaf, struct cpuid_leaf *res)
         res->c = p->basic._1c;
         res->d = p->basic._1d;
 
-        if ( !is_pvh_domain(currd) )
+        /*
+         * !!! OSXSAVE handling for PV guests is non-architectural !!!
+         *
+         * Architecturally, the correct code here is simply:
+         *
+         *   if ( curr->arch.pv_vcpu.ctrlreg[4] & X86_CR4_OSXSAVE )
+         *       c |= cpufeat_mask(X86_FEATURE_OSXSAVE);
+         *
+         * However because of bugs in Xen (before c/s bd19080b, Nov 2010,
+         * the XSAVE cpuid flag leaked into guests despite the feature not
+         * being available for use), buggy workarounds where introduced to
+         * Linux (c/s 947ccf9c, also Nov 2010) which relied on the fact
+         * that Xen also incorrectly leaked OSXSAVE into the guest.
+         *
+         * Furthermore, providing architectural OSXSAVE behaviour to a
+         * many Linux PV guests triggered a further kernel bug when the
+         * fpu code observes that XSAVEOPT is available, assumes that
+         * xsave state had been set up for the task, and follows a wild
+         * pointer.
+         *
+         * Older Linux PVOPS kernels however do require architectural
+         * behaviour.  They observe Xen's leaked OSXSAVE and assume they
+         * can already use XSETBV, dying with a #UD because the shadowed
+         * CR4.OSXSAVE is clear.  This behaviour has been adjusted in all
+         * observed cases via stable backports of the above changeset.
+         *
+         * Therefore, the leaking of Xen's OSXSAVE setting has become a
+         * defacto part of the PV ABI and can't reasonably be corrected.
+         * It can however be restricted to only the enlightened CPUID
+         * view, as seen by the guest kernel.
+         *
+         * The following situations and logic now applies:
+         *
+         * - Hardware without CPUID faulting support and native CPUID:
+         *    There is nothing Xen can do here.  The hosts XSAVE flag will
+         *    leak through and Xen's OSXSAVE choice will leak through.
+         *
+         *    In the case that the guest kernel has not set up OSXSAVE, only
+         *    SSE will be set in xcr0, and guest userspace can't do too much
+         *    damage itself.
+         *
+         * - Enlightened CPUID or CPUID faulting available:
+         *    Xen can fully control what is seen here.  Guest kernels need
+         *    to see the leaked OSXSAVE via the enlightened path, but
+         *    guest userspace and the native is given architectural
+         *    behaviour.
+         *
+         *    Emulated vs Faulted CPUID is distinguised based on whether a
+         *    #UD or #GP is currently being serviced.
+         */
+        /* OSXSAVE clear in policy.  Fast-forward CR4 back in. */
+        if ( (curr->arch.pv_vcpu.ctrlreg[4] & X86_CR4_OSXSAVE) ||
+             (regs->entry_vector == TRAP_invalid_op &&
+              guest_kernel_mode(curr, regs) &&
+              (read_cr4() & X86_CR4_OSXSAVE)) )
+            res->c |= cpufeat_mask(X86_FEATURE_OSXSAVE);
+
+        /*
+         * At the time of writing, a PV domain is the only viable option
+         * for Dom0.  Several interactions between dom0 and Xen for real
+         * hardware setup have unfortunately been implemented based on
+         * state which incorrectly leaked into dom0.
+         *
+         * These leaks are retained for backwards compatibility, but
+         * restricted to the hardware domains kernel only.
+         */
+        if ( is_hardware_domain(currd) && guest_kernel_mode(curr, regs) )
         {
-            const struct cpu_user_regs *regs = guest_cpu_user_regs();
+            /*
+             * MTRR used to unconditionally leak into PV guests.  They
+             * cannot MTRR infrastructure at all, and shouldn't be able to
+             * see the feature.
+             *
+             * Modern PVOPS Linux self-clobbers the MTRR feature, to avoid
+             * trying to use the associated MSRs.  Xenolinux-based PV dom0's
+             * however use the MTRR feature as an indication of the presence
+             * of the XENPF_{add,del,read}_memtype hypercalls.
+             */
+            if ( cpu_has_mtrr )
+                res->d |= cpufeat_mask(X86_FEATURE_MTRR);
 
             /*
-             * Delete the PVH condition when HVMLite formally replaces PVH,
-             * and HVM guests no longer enter a PV codepath.
+             * MONITOR never leaked into PV guests, as PV guests cannot
+             * use the MONITOR/MWAIT instructions.  As such, they require
+             * the feature to not being present in emulated CPUID.
+             *
+             * Modern PVOPS Linux try to be cunning and use native CPUID
+             * to see if the hardware actually supports MONITOR, and by
+             * extension, deep C states.
+             *
+             * If the feature is seen, deep-C state information is
+             * obtained from the DSDT and handed back to Xen via the
+             * XENPF_set_processor_pminfo hypercall.
+             *
+             * This mechanism is incompatible with an HVM-based hardware
+             * domain, and also with CPUID Faulting.
+             *
+             * Luckily, Xen can be just as 'cunning', and distinguish an
+             * emulated CPUID from a faulted CPUID by whether a #UD or #GP
+             * fault is currently being serviced.  Yuck...
              */
+            if ( cpu_has_monitor && regs->entry_vector == TRAP_gp_fault )
+                res->c |= cpufeat_mask(X86_FEATURE_MONITOR);
 
             /*
-             * !!! OSXSAVE handling for PV guests is non-architectural !!!
+             * While MONITOR never leaked into PV guests, EIST always used
+             * to.
              *
-             * Architecturally, the correct code here is simply:
-             *
-             *   if ( curr->arch.pv_vcpu.ctrlreg[4] & X86_CR4_OSXSAVE )
-             *       c |= cpufeat_mask(X86_FEATURE_OSXSAVE);
-             *
-             * However because of bugs in Xen (before c/s bd19080b, Nov 2010,
-             * the XSAVE cpuid flag leaked into guests despite the feature not
-             * being available for use), buggy workarounds where introduced to
-             * Linux (c/s 947ccf9c, also Nov 2010) which relied on the fact
-             * that Xen also incorrectly leaked OSXSAVE into the guest.
-             *
-             * Furthermore, providing architectural OSXSAVE behaviour to a
-             * many Linux PV guests triggered a further kernel bug when the
-             * fpu code observes that XSAVEOPT is available, assumes that
-             * xsave state had been set up for the task, and follows a wild
-             * pointer.
-             *
-             * Older Linux PVOPS kernels however do require architectural
-             * behaviour.  They observe Xen's leaked OSXSAVE and assume they
-             * can already use XSETBV, dying with a #UD because the shadowed
-             * CR4.OSXSAVE is clear.  This behaviour has been adjusted in all
-             * observed cases via stable backports of the above changeset.
-             *
-             * Therefore, the leaking of Xen's OSXSAVE setting has become a
-             * defacto part of the PV ABI and can't reasonably be corrected.
-             * It can however be restricted to only the enlightened CPUID
-             * view, as seen by the guest kernel.
-             *
-             * The following situations and logic now applies:
-             *
-             * - Hardware without CPUID faulting support and native CPUID:
-             *    There is nothing Xen can do here.  The hosts XSAVE flag will
-             *    leak through and Xen's OSXSAVE choice will leak through.
-             *
-             *    In the case that the guest kernel has not set up OSXSAVE, only
-             *    SSE will be set in xcr0, and guest userspace can't do too much
-             *    damage itself.
-             *
-             * - Enlightened CPUID or CPUID faulting available:
-             *    Xen can fully control what is seen here.  Guest kernels need
-             *    to see the leaked OSXSAVE via the enlightened path, but
-             *    guest userspace and the native is given architectural
-             *    behaviour.
-             *
-             *    Emulated vs Faulted CPUID is distinguised based on whether a
-             *    #UD or #GP is currently being serviced.
+             * Modern PVOPS will only parse P state information from the
+             * DSDT and return it to Xen if EIST is seen in the emulated
+             * CPUID information.
              */
-            /* OSXSAVE clear in policy.  Fast-forward CR4 back in. */
-            if ( (curr->arch.pv_vcpu.ctrlreg[4] & X86_CR4_OSXSAVE) ||
-                 (regs->entry_vector == TRAP_invalid_op &&
-                  guest_kernel_mode(curr, regs) &&
-                  (read_cr4() & X86_CR4_OSXSAVE)) )
-                res->c |= cpufeat_mask(X86_FEATURE_OSXSAVE);
-
-            /*
-             * At the time of writing, a PV domain is the only viable option
-             * for Dom0.  Several interactions between dom0 and Xen for real
-             * hardware setup have unfortunately been implemented based on
-             * state which incorrectly leaked into dom0.
-             *
-             * These leaks are retained for backwards compatibility, but
-             * restricted to the hardware domains kernel only.
-             */
-            if ( is_hardware_domain(currd) && guest_kernel_mode(curr, regs) )
-            {
-                /*
-                 * MTRR used to unconditionally leak into PV guests.  They
-                 * cannot MTRR infrastructure at all, and shouldn't be able to
-                 * see the feature.
-                 *
-                 * Modern PVOPS Linux self-clobbers the MTRR feature, to avoid
-                 * trying to use the associated MSRs.  Xenolinux-based PV dom0's
-                 * however use the MTRR feature as an indication of the presence
-                 * of the XENPF_{add,del,read}_memtype hypercalls.
-                 */
-                if ( cpu_has_mtrr )
-                    res->d |= cpufeat_mask(X86_FEATURE_MTRR);
-
-                /*
-                 * MONITOR never leaked into PV guests, as PV guests cannot
-                 * use the MONITOR/MWAIT instructions.  As such, they require
-                 * the feature to not being present in emulated CPUID.
-                 *
-                 * Modern PVOPS Linux try to be cunning and use native CPUID
-                 * to see if the hardware actually supports MONITOR, and by
-                 * extension, deep C states.
-                 *
-                 * If the feature is seen, deep-C state information is
-                 * obtained from the DSDT and handed back to Xen via the
-                 * XENPF_set_processor_pminfo hypercall.
-                 *
-                 * This mechanism is incompatible with an HVM-based hardware
-                 * domain, and also with CPUID Faulting.
-                 *
-                 * Luckily, Xen can be just as 'cunning', and distinguish an
-                 * emulated CPUID from a faulted CPUID by whether a #UD or #GP
-                 * fault is currently being serviced.  Yuck...
-                 */
-                if ( cpu_has_monitor && regs->entry_vector == TRAP_gp_fault )
-                    res->c |= cpufeat_mask(X86_FEATURE_MONITOR);
-
-                /*
-                 * While MONITOR never leaked into PV guests, EIST always used
-                 * to.
-                 *
-                 * Modern PVOPS will only parse P state information from the
-                 * DSDT and return it to Xen if EIST is seen in the emulated
-                 * CPUID information.
-                 */
-                if ( cpu_has_eist )
-                    res->c |= cpufeat_mask(X86_FEATURE_EIST);
-            }
+            if ( cpu_has_eist )
+                res->c |= cpufeat_mask(X86_FEATURE_EIST);
         }
 
         if ( vpmu_enabled(curr) &&
