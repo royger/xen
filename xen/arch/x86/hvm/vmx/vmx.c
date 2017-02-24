@@ -240,7 +240,7 @@ static void vmx_pi_do_resume(struct vcpu *v)
 /* This function is called when pcidevs_lock is held */
 void vmx_pi_hooks_assign(struct domain *d)
 {
-    if ( !iommu_intpost || !has_hvm_container_domain(d) )
+    if ( !iommu_intpost || !is_hvm_domain(d) )
         return;
 
     ASSERT(!d->arch.hvm_domain.pi_ops.vcpu_block);
@@ -254,7 +254,7 @@ void vmx_pi_hooks_assign(struct domain *d)
 /* This function is called when pcidevs_lock is held */
 void vmx_pi_hooks_deassign(struct domain *d)
 {
-    if ( !iommu_intpost || !has_hvm_container_domain(d) )
+    if ( !iommu_intpost || !is_hvm_domain(d) )
         return;
 
     ASSERT(d->arch.hvm_domain.pi_ops.vcpu_block);

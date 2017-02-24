@@ -959,7 +959,7 @@ void guest_cpuid(const struct vcpu *v, uint32_t leaf,
         break;
 
     case 0x80000001:
-        if ( has_hvm_container_domain(d) )
+        if ( is_hvm_domain(d) )
         {
             /* Fast-forward MSR_APIC_BASE.EN. */
             if ( vlapic_hw_disabled(vcpu_vlapic(v)) )
