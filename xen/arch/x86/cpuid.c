@@ -762,7 +762,7 @@ void guest_cpuid(const struct vcpu *v, uint32_t leaf,
                 res->c |= cpufeat_mask(X86_FEATURE_DSCPL);
         }
 
-        if ( has_hvm_container_domain(d) )
+        if ( is_hvm_domain(d) )
         {
             /* OSXSAVE clear in policy.  Fast-forward CR4 back in. */
             if ( v->arch.hvm_vcpu.guest_cr[4] & X86_CR4_OSXSAVE )
@@ -918,11 +918,11 @@ void guest_cpuid(const struct vcpu *v, uint32_t leaf,
     case 0x80000001:
         /* SYSCALL is hidden outside of long mode on Intel. */
         if ( p->x86_vendor == X86_VENDOR_INTEL &&
-             has_hvm_container_domain(d) && !hvm_long_mode_enabled(v) )
+             is_hvm_domain(d) && !hvm_long_mode_enabled(v) )
             res->d &= ~cpufeat_mask(X86_FEATURE_SYSCALL);
 
     common_leaf1_adjustments:
-        if ( has_hvm_container_domain(d) )
+        if ( is_hvm_domain(d) )
         {
             /* Fast-forward MSR_APIC_BASE.EN. */
             if ( vlapic_hw_disabled(vcpu_vlapic(v)) )
