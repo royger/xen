@@ -760,7 +760,15 @@ void parse_config_data(const char *config_source,
         !strncmp(buf, "hvm", strlen(buf)))
         c_info->type = LIBXL_DOMAIN_TYPE_HVM;
 
-    xlu_cfg_get_defbool(config, "pvh", &c_info->pvh, 0);
+    if (!xlu_cfg_get_defbool(config, "pvh", &c_info->pvh, 0)) {
+        /* NB: we need to set the type here, or else we will fall into
+         * the PV path, and the set of options will be completely wrong
+         * (even more because the PV and HVM options are inside an union).
+         */
+        c_info->type = LIBXL_DOMAIN_TYPE_HVM;
+        b_info->device_model_version = LIBXL_DEVICE_MODEL_VERSION_NONE;
+    }
+
     xlu_cfg_get_defbool(config, "hap", &c_info->hap, 0);
 
     if (xlu_cfg_replace_string (config, "name", &c_info->name, 0)) {
