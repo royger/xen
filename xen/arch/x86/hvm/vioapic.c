@@ -533,9 +533,19 @@ void vioapic_reset(struct domain *d)
         memset(vioapic, 0, hvm_vioapic_size(nr_pins));
         for ( j = 0; j < nr_pins; j++ )
             vioapic->redirtbl[j].fields.mask = 1;
-        vioapic->base_address = VIOAPIC_DEFAULT_BASE_ADDRESS +
-                                VIOAPIC_MEM_LENGTH * i;
-        vioapic->id = i;
+
+        if ( !is_hardware_domain(d) )
+        {
+            vioapic->base_address = VIOAPIC_DEFAULT_BASE_ADDRESS +
+                                    VIOAPIC_MEM_LENGTH * i;
+            vioapic->id = i;
+        }
+        else
+        {
+            vioapic->base_address = mp_ioapics[i].mpc_apicaddr;
+            vioapic->id = mp_ioapics[i].mpc_apicid;
+        }
+
         vioapic->nr_pins = nr_pins;
         vioapic->domain = d;
     }
@@ -556,7 +566,7 @@ static void vioapic_free(const struct domain *d, unsigned int nr_vioapics)
 
 int vioapic_init(struct domain *d)
 {
-    unsigned int i, nr_vioapics = 1;
+    unsigned int i, nr_vioapics = is_hardware_domain(d) ? nr_ioapics : 1;
 
     if ( !has_vioapic(d) )
     {
@@ -577,12 +587,12 @@ int vioapic_init(struct domain *d)
             vioapic_free(d, nr_vioapics);
             return -ENOMEM;
         }
-        domain_vioapic(d, i)->nr_pins = VIOAPIC_NUM_PINS;
+        domain_vioapic(d, i)->nr_pins = is_hardware_domain(d) ?
+                                        nr_ioapic_entries[i] : VIOAPIC_NUM_PINS;
     }
 
     d->arch.hvm_domain.nr_vioapics = nr_vioapics;
     vioapic_reset(d);
-
     register_mmio_handler(d, &vioapic_mmio_ops);
 
     return 0;
