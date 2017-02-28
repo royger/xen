@@ -227,14 +227,31 @@ static void dump_pic(void)
 static void dump_ioapic(void) 
 {
     int i;
-    HVM_SAVE_TYPE(IOAPIC) p;
-    READ(p);
+    struct hvm_hw_vioapic p;
+    union vioapic_redir_entry redirtbl[VIOAPIC_NUM_PINS];
+
+    /*
+     * NB: due to the fact that the IO APIC struct can have a variable number
+     * of pins (in order to support PVHv2 Dom0), the migration code needs to
+     * support this structure, although migration of guests with a number of
+     * pins different than VIOAPIC_NUM_PINS is not supported.
+     */
+    memcpy(&p, buf + off, offsetof(struct hvm_hw_vioapic, redirtbl));
+    off += offsetof(struct hvm_hw_vioapic, redirtbl);
+    if ( p.nr_pins != VIOAPIC_NUM_PINS )
+    {
+        printf("Invalid number of IO APIC pins %u\n", p.nr_pins);
+        exit(EXIT_FAILURE);
+    }
+    memcpy(redirtbl, buf + off, sizeof(redirtbl));
+    off += sizeof(redirtbl);
+
     printf("    IOAPIC: base_address %#llx, ioregsel %#x id %#x\n",
            (unsigned long long) p.base_address, p.ioregsel, p.id);
     for ( i = 0; i < VIOAPIC_NUM_PINS; i++ )
     {
         printf("            pin %.2i: 0x%.16llx\n", i, 
-               (unsigned long long) p.redirtbl[i].bits);
+               (unsigned long long) redirtbl[i].bits);
     }
 }
 
@@ -453,7 +470,7 @@ int main(int argc, char **argv)
         case HVM_SAVE_CODE(HEADER): dump_header(); break;
         case HVM_SAVE_CODE(CPU): dump_cpu(); break;
         case HVM_SAVE_CODE(PIC): dump_pic(); break;
-        case HVM_SAVE_CODE(IOAPIC): dump_ioapic(); break;
+        case IOAPIC_CODE: dump_ioapic(); break;
         case HVM_SAVE_CODE(LAPIC): dump_lapic(); break;
         case HVM_SAVE_CODE(LAPIC_REGS): dump_lapic_regs(); break;
         case HVM_SAVE_CODE(PCI_IRQ): dump_pci_irq(); break;
