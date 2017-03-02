@@ -176,9 +176,6 @@ void libxl__domain_common_switch_qemu_logdirty(libxl__egc *egc,
     case LIBXL_DEVICE_MODEL_VERSION_QEMU_XEN:
         domain_suspend_switch_qemu_xen_logdirty(egc, domid, enable, lds);
         break;
-    case LIBXL_DEVICE_MODEL_VERSION_NONE:
-        lds->callback(egc, lds, 0);
-        break;
     default:
         LOGD(ERROR, domid, "logdirty switch failed"
              ", no valid device model version found, abandoning suspend");
@@ -363,10 +360,10 @@ void libxl__domain_save(libxl__egc *egc, libxl__domain_save_state *dss)
     if (rc) goto out;
 
     switch (type) {
-    case LIBXL_DOMAIN_TYPE_HVM: {
+    case LIBXL_DOMAIN_TYPE_HVM:
+    case LIBXL_DOMAIN_TYPE_PVH:
         dss->hvm = 1;
         break;
-    }
     case LIBXL_DOMAIN_TYPE_PV:
         dss->hvm = 0;
         break;

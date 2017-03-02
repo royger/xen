@@ -1064,6 +1064,12 @@ FIFO-based event channel ABI support up to 131,071 event channels.
 Other guests are limited to 4095 (64-bit x86 and ARM) or 1023 (32-bit
 x86).
 
+=item B<pvh=BOOLEAN>
+
+Selects whether to run this PV guest in an HVM container. Default is 0.
+Note that this option is equivalent to setting builder="hvm" and
+device_model_version="none"
+
 =back
 
 =head2 Paravirtualised (PV) Guest Specific Options
@@ -1107,10 +1113,6 @@ to hotplug devices later then you should set this option. Conversely
 if your particular guest kernel does not require this behaviour then
 it is safe to allow this to be enabled but you may wish to disable it
 anyway.
-
-=item B<pvh=BOOLEAN>
-
-Selects whether to run this PV guest in an HVM container. Default is 0.
 
 =back
 

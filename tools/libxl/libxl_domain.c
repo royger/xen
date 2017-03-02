@@ -571,14 +571,11 @@ int libxl_domain_unpause(libxl_ctx *ctx, uint32_t domid)
     }
 
     if (type == LIBXL_DOMAIN_TYPE_HVM) {
-        if (libxl__device_model_version_running(gc, domid) !=
-            LIBXL_DEVICE_MODEL_VERSION_NONE) {
-            rc = libxl__domain_resume_device_model(gc, domid);
-            if (rc < 0) {
-                LOGD(ERROR, domid, "Failed to unpause device model for domain:%d",
-                     rc);
-                goto out;
-            }
+        rc = libxl__domain_resume_device_model(gc, domid);
+        if (rc < 0) {
+            LOGD(ERROR, domid, "Failed to unpause device model for domain:%d",
+                 rc);
+            goto out;
         }
     }
     ret = xc_domain_unpause(ctx->xch, domid);
@@ -1013,6 +1010,7 @@ void libxl__destroy_domid(libxl__egc *egc, libxl__destroy_domid_state *dis)
         }
         /* fall through */
     case LIBXL_DOMAIN_TYPE_PV:
+    case LIBXL_DOMAIN_TYPE_PVH:
         dm_present = libxl__dm_active(gc, domid);
         break;
     case LIBXL_DOMAIN_TYPE_INVALID:
@@ -1349,7 +1347,6 @@ int libxl_set_vcpuonline(libxl_ctx *ctx, uint32_t domid, libxl_bitmap *cpumap)
     case LIBXL_DOMAIN_TYPE_HVM:
         switch (libxl__device_model_version_running(gc, domid)) {
         case LIBXL_DEVICE_MODEL_VERSION_QEMU_XEN_TRADITIONAL:
-        case LIBXL_DEVICE_MODEL_VERSION_NONE:
             break;
         case LIBXL_DEVICE_MODEL_VERSION_QEMU_XEN:
             rc = libxl__set_vcpuonline_qmp(gc, domid, cpumap, &info);
@@ -1359,6 +1356,7 @@ int libxl_set_vcpuonline(libxl_ctx *ctx, uint32_t domid, libxl_bitmap *cpumap)
         }
         break;
     case LIBXL_DOMAIN_TYPE_PV:
+    case LIBXL_DOMAIN_TYPE_PVH:
         break;
     default:
         rc = ERROR_INVAL;
@@ -1584,7 +1582,6 @@ int libxl_retrieve_domain_configuration(libxl_ctx *ctx, uint32_t domid,
                                                    max_vcpus, map);
                 break;
             case LIBXL_DEVICE_MODEL_VERSION_QEMU_XEN_TRADITIONAL:
-            case LIBXL_DEVICE_MODEL_VERSION_NONE:
                 rc = libxl__update_avail_vcpus_xenstore(gc, domid,
                                                         max_vcpus, map);
                 break;
@@ -1593,6 +1590,7 @@ int libxl_retrieve_domain_configuration(libxl_ctx *ctx, uint32_t domid,
             }
             break;
         case LIBXL_DOMAIN_TYPE_PV:
+        case LIBXL_DOMAIN_TYPE_PVH:
             rc = libxl__update_avail_vcpus_xenstore(gc, domid,
                                                     max_vcpus, map);
             break;

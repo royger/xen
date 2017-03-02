@@ -248,7 +248,7 @@ void libxl__stream_read_start(libxl__egc *egc,
 
         chs->legacy_fd = stream->fd;
         chs->hvm =
-            (stream->dcs->guest_config->b_info.type == LIBXL_DOMAIN_TYPE_HVM);
+            (stream->dcs->guest_config->b_info.type != LIBXL_DOMAIN_TYPE_PV);
         chs->completion_callback = conversion_done;
 
         rc = libxl__convert_legacy_stream(egc, &stream->chs);
@@ -584,8 +584,7 @@ static bool process_record(libxl__egc *egc,
         break;
 
     case REC_TYPE_EMULATOR_XENSTORE_DATA:
-        if (dcs->guest_config->b_info.device_model_version ==
-            LIBXL_DEVICE_MODEL_VERSION_NONE) {
+        if (dcs->guest_config->b_info.type == LIBXL_DOMAIN_TYPE_PVH) {
             rc = ERROR_FAIL;
             LOG(ERROR,
                 "Received a xenstore emulator record when none was expected");
@@ -613,8 +612,7 @@ static bool process_record(libxl__egc *egc,
         break;
 
     case REC_TYPE_EMULATOR_CONTEXT:
-        if (dcs->guest_config->b_info.device_model_version ==
-            LIBXL_DEVICE_MODEL_VERSION_NONE) {
+        if (dcs->guest_config->b_info.type == LIBXL_DOMAIN_TYPE_PVH) {
             rc = ERROR_FAIL;
             LOG(ERROR,
                 "Received an emulator context record when none was expected");

@@ -725,6 +725,7 @@ void parse_config_data(const char *config_source,
     int pci_seize = 0;
     int i, e;
     char *kernel_basename;
+    libxl_defbool pvh;
 
     libxl_domain_create_info *c_info = &d_config->c_info;
     libxl_domain_build_info *b_info = &d_config->b_info;
@@ -760,7 +761,9 @@ void parse_config_data(const char *config_source,
         !strncmp(buf, "hvm", strlen(buf)))
         c_info->type = LIBXL_DOMAIN_TYPE_HVM;
 
-    xlu_cfg_get_defbool(config, "pvh", &c_info->pvh, 0);
+    if (!xlu_cfg_get_defbool(config, "pvh", &pvh, 0))
+        c_info->type = LIBXL_DOMAIN_TYPE_PVH;
+
     xlu_cfg_get_defbool(config, "hap", &c_info->hap, 0);
 
     if (xlu_cfg_replace_string (config, "name", &c_info->name, 0)) {
@@ -942,6 +945,7 @@ void parse_config_data(const char *config_source,
 
     switch(b_info->type) {
     case LIBXL_DOMAIN_TYPE_HVM:
+    case LIBXL_DOMAIN_TYPE_PVH:
         kernel_basename = libxl_basename(b_info->kernel);
         if (!strcmp(kernel_basename, "hvmloader")) {
             fprintf(stderr, "WARNING: you seem to be using \"kernel\" "
@@ -1696,8 +1700,6 @@ skip_usbdev:
         } else if (!strcmp(buf, "qemu-xen")) {
             b_info->device_model_version
                 = LIBXL_DEVICE_MODEL_VERSION_QEMU_XEN;
-        } else if (!strcmp(buf, "none")) {
-            b_info->device_model_version = LIBXL_DEVICE_MODEL_VERSION_NONE;
         } else {
             fprintf(stderr,
                     "Unknown device_model_version \"%s\" specified\n", buf);
