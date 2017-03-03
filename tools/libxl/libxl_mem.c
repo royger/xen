@@ -461,6 +461,7 @@ int libxl_domain_need_memory(libxl_ctx *ctx,
     *need_memkb = b_info->target_memkb;
     switch (b_info->type) {
     case LIBXL_DOMAIN_TYPE_HVM:
+    case LIBXL_DOMAIN_TYPE_PVH:
         *need_memkb += b_info->shadow_memkb + LIBXL_HVM_EXTRA_MEMORY;
         if (libxl_defbool_val(b_info->device_model_stubdomain))
             *need_memkb += 32 * 1024;

@@ -181,7 +181,6 @@ static void setup_emulator_write(libxl__egc *egc,
                                  sws_record_done_cb cb)
 {
     assert(stream->emu_sub_hdr.id != EMULATOR_UNKNOWN);
-    assert(stream->device_model_version != LIBXL_DEVICE_MODEL_VERSION_NONE);
     setup_generic_write(egc, stream, what, hdr, emu_hdr, body, cb);
 }
 
@@ -259,10 +258,6 @@ void libxl__stream_write_start(libxl__egc *egc,
 
         case LIBXL_DEVICE_MODEL_VERSION_QEMU_XEN:
             stream->emu_sub_hdr.id = EMULATOR_QEMU_UPSTREAM;
-            break;
-
-        case LIBXL_DEVICE_MODEL_VERSION_NONE:
-            stream->emu_sub_hdr.id = EMULATOR_UNKNOWN;
             break;
 
         default:
@@ -395,11 +390,6 @@ static void write_emulator_xenstore_record(libxl__egc *egc,
     char *buf = NULL;
     uint32_t len = 0;
 
-    if (stream->device_model_version == LIBXL_DEVICE_MODEL_VERSION_NONE) {
-        emulator_xenstore_record_done(egc, stream);
-        return;
-    }
-
     rc = libxl__save_emulator_xenstore_data(dss, &buf, &len);
     if (rc)
         goto err;
@@ -449,9 +439,9 @@ static void write_emulator_context_record(libxl__egc *egc,
     struct stat st;
     int rc;
 
-    assert(dss->type == LIBXL_DOMAIN_TYPE_HVM);
+    assert(dss->type != LIBXL_DOMAIN_TYPE_PV);
 
-    if (stream->device_model_version == LIBXL_DEVICE_MODEL_VERSION_NONE) {
+    if (dss->type == LIBXL_DOMAIN_TYPE_PVH) {
         emulator_context_record_done(egc, stream);
         return;
     }

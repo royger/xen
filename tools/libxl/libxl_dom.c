@@ -38,10 +38,23 @@ libxl_domain_type libxl__domain_type(libxl__gc *gc, uint32_t domid)
         LOG(ERROR, "unable to get domain type for domid=%"PRIu32, domid);
         return LIBXL_DOMAIN_TYPE_INVALID;
     }
-    if (info.flags & XEN_DOMINF_hvm_guest)
-        return LIBXL_DOMAIN_TYPE_HVM;
-    else
+    if (info.flags & XEN_DOMINF_hvm_guest) {
+        char *hvm_path = GCSPRINTF("%s/hvmloader",
+                                   libxl__xs_get_dompath(gc, domid));
+
+        /*
+         * Check if domain has a /local/domain/<domid>/hvmloader path
+         * in order to figure out if it's a HVM or PVH domain, because
+         * from the hypervisor point of view, they are both the same.
+         * (ie: xc_domain_getinfolist is unable to provide this information).
+         */
+        if (libxl__xs_read(gc, XBT_NULL, hvm_path))
+            return LIBXL_DOMAIN_TYPE_HVM;
+        else
+            return LIBXL_DOMAIN_TYPE_PVH;
+    } else {
         return LIBXL_DOMAIN_TYPE_PV;
+    }
 }
 
 int libxl__domain_cpupool(libxl__gc *gc, uint32_t domid)
@@ -432,7 +445,7 @@ int libxl__build_pre(libxl__gc *gc, uint32_t domid,
     state->store_port = xc_evtchn_alloc_unbound(ctx->xch, domid, state->store_domid);
     state->console_port = xc_evtchn_alloc_unbound(ctx->xch, domid, state->console_domid);
 
-    if (info->type == LIBXL_DOMAIN_TYPE_HVM) {
+    if (info->type != LIBXL_DOMAIN_TYPE_PV) {
         hvm_set_conf_params(ctx->xch, domid, info);
 #if defined(__i386__) || defined(__x86_64__)
         rc = hvm_set_viridian_features(gc, domid, info);
@@ -521,7 +534,7 @@ int libxl__build_post(libxl__gc *gc, uint32_t domid,
     if (info->cpuid != NULL)
         libxl_cpuid_set(ctx, domid, info->cpuid);
 
-    if (info->type == LIBXL_DOMAIN_TYPE_HVM
+    if (info->type != LIBXL_DOMAIN_TYPE_PV
         && !libxl_ms_vm_genid_is_zero(&info->u.hvm.ms_vm_genid)) {
         rc = libxl__ms_vm_genid_set(gc, domid,
                                     &info->u.hvm.ms_vm_genid);
@@ -690,7 +703,6 @@ int libxl__build_pv(libxl__gc *gc, uint32_t domid,
         return ERROR_FAIL;
     }
 
-    dom->pvh_enabled = state->pvh_enabled;
     dom->container_type = XC_DOM_PV_CONTAINER;
 
     LOG(DEBUG, "pv kernel mapped %d path %s", state->pv_kernel.mapped, state->pv_kernel.path);
@@ -793,7 +805,7 @@ static int hvm_build_set_params(xc_interface *handle, uint32_t domid,
     uint64_t str_mfn, cons_mfn;
     int i;
 
-    if (info->device_model_version != LIBXL_DEVICE_MODEL_VERSION_NONE) {
+    if (info->type == LIBXL_DOMAIN_TYPE_HVM) {
         va_map = xc_map_foreign_range(handle, domid,
                                       XC_PAGE_SIZE, PROT_READ | PROT_WRITE,
                                       HVM_INFO_PFN);
@@ -848,8 +860,8 @@ static int hvm_build_set_xs_values(libxl__gc *gc,
     }
 
     /* Only one module can be passed. PVHv2 guests do not support this. */
-    if (dom->acpi_modules[0].guest_addr_out && 
-        info->device_model_version !=LIBXL_DEVICE_MODEL_VERSION_NONE) {
+    if (dom->acpi_modules[0].guest_addr_out &&
+        info->type == LIBXL_DOMAIN_TYPE_HVM) {
         path = GCSPRINTF("/local/domain/%d/"HVM_XS_ACPI_PT_ADDRESS, domid);
 
         ret = libxl__xs_printf(gc, XBT_NULL, path, "0x%"PRIx64,
@@ -919,41 +931,36 @@ static int libxl__domain_firmware(libxl__gc *gc,
     void *data;
     const char *bios_filename = NULL;
 
-    if (info->u.hvm.firmware)
-        firmware = info->u.hvm.firmware;
-    else {
-        switch (info->device_model_version)
-        {
-        case LIBXL_DEVICE_MODEL_VERSION_QEMU_XEN_TRADITIONAL:
-            firmware = "hvmloader";
-            break;
-        case LIBXL_DEVICE_MODEL_VERSION_QEMU_XEN:
-            firmware = "hvmloader";
-            break;
-        case LIBXL_DEVICE_MODEL_VERSION_NONE:
-            if (info->kernel == NULL) {
-                LOG(ERROR, "no device model requested without a kernel");
+    if (info->type != LIBXL_DOMAIN_TYPE_PVH) {
+        if (info->u.hvm.firmware)
+            firmware = info->u.hvm.firmware;
+        else {
+            switch (info->device_model_version)
+            {
+            case LIBXL_DEVICE_MODEL_VERSION_QEMU_XEN_TRADITIONAL:
+                firmware = "hvmloader";
+                break;
+            case LIBXL_DEVICE_MODEL_VERSION_QEMU_XEN:
+                firmware = "hvmloader";
+                break;
+            default:
+                LOG(ERROR, "invalid device model version %d",
+                    info->device_model_version);
                 rc = ERROR_FAIL;
                 goto out;
             }
-            break;
-        default:
-            LOG(ERROR, "invalid device model version %d",
-                info->device_model_version);
+        }
+        rc = xc_dom_kernel_file(dom, libxl__abs_path(gc, firmware,
+                                                 libxl__xenfirmwaredir_path()));
+    } else {
+        if (info->kernel == NULL) {
+            LOG(ERROR, "trying to boot a PVH guest without a kernel");
             rc = ERROR_FAIL;
             goto out;
         }
-    }
-
-    if (info->kernel != NULL &&
-        info->device_model_version == LIBXL_DEVICE_MODEL_VERSION_NONE) {
-        /* Try to load a kernel instead of the firmware. */
         rc = xc_dom_kernel_file(dom, info->kernel);
         if (rc == 0 && info->ramdisk != NULL)
             rc = xc_dom_ramdisk_file(dom, info->ramdisk);
-    } else {
-        rc = xc_dom_kernel_file(dom, libxl__abs_path(gc, firmware,
-                                                 libxl__xenfirmwaredir_path()));
     }
 
     if (rc != 0) {
@@ -961,7 +968,8 @@ static int libxl__domain_firmware(libxl__gc *gc,
         goto out;
     }
 
-    if (info->device_model_version == LIBXL_DEVICE_MODEL_VERSION_QEMU_XEN) {
+    if (info->device_model_version == LIBXL_DEVICE_MODEL_VERSION_QEMU_XEN &&
+        info->type == LIBXL_DOMAIN_TYPE_HVM) {
         if (info->u.hvm.system_firmware) {
             bios_filename = info->u.hvm.system_firmware;
         } else {
@@ -1005,7 +1013,7 @@ static int libxl__domain_firmware(libxl__gc *gc,
 
     if (info->u.hvm.acpi_firmware) {
 
-        if (info->device_model_version == LIBXL_DEVICE_MODEL_VERSION_NONE) {
+        if (info->type == LIBXL_DOMAIN_TYPE_PVH) {
             LOGE(ERROR, "PVH guests do not allow loading ACPI modules");
             rc = ERROR_FAIL;
             goto out;
@@ -1043,9 +1051,7 @@ int libxl__build_hvm(libxl__gc *gc, uint32_t domid,
     uint64_t mmio_start, lowmem_end, highmem_end, mem_size;
     libxl_domain_build_info *const info = &d_config->b_info;
     struct xc_dom_image *dom = NULL;
-    bool device_model =
-        info->device_model_version != LIBXL_DEVICE_MODEL_VERSION_NONE ?
-        true : false;
+    bool device_model = info->type == LIBXL_DOMAIN_TYPE_PVH ? false : true;
 
     xc_dom_loginit(ctx->xch);
 

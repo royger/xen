@@ -1200,8 +1200,15 @@ int libxl__device_pci_add(libxl__gc *gc, uint32_t domid, libxl_device_pci *pcide
     libxl_device_pci *assigned;
     int num_assigned, i, rc;
     int stubdomid = 0;
+    libxl_domain_type type = libxl__domain_type(gc, domid);
 
-    if (libxl__domain_type(gc, domid) == LIBXL_DOMAIN_TYPE_HVM) {
+    if (type == LIBXL_DOMAIN_TYPE_PVH) {
+        LOGD(ERROR, domid,
+             "PCI pass-through is not yet supported for PVH guests");
+        return ERROR_FAIL;
+    }
+
+    if (type == LIBXL_DOMAIN_TYPE_HVM) {
         rc = xc_test_assign_device(ctx->xch, domid, pcidev_encode_bdf(pcidev));
         if (rc) {
             LOGD(ERROR, domid,

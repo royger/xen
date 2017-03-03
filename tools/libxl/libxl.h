@@ -718,12 +718,6 @@ typedef struct libxl__ctx libxl_ctx;
 #define LIBXL_HAVE_DOMAIN_CREATE_RESTORE_SEND_BACK_FD 1
 
 /*
- * LIBXL_HAVE_CREATEINFO_PVH
- * If this is defined, then libxl supports creation of a PVH guest.
- */
-#define LIBXL_HAVE_CREATEINFO_PVH 1
-
-/*
  * LIBXL_HAVE_DRIVER_DOMAIN_CREATION 1
  *
  * If this is defined, libxl_domain_create_info contains a driver_domain
@@ -948,14 +942,6 @@ void libxl_mac_copy(libxl_ctx *ctx, libxl_mac *dst, const libxl_mac *src);
 #define LIBXL_HAVE_GFX_PASSTHRU_KIND
 
 /*
- * LIBXL_HAVE_DEVICE_MODEL_VERSION_NONE
- *
- * In the case that LIBXL_HAVE_DEVICE_MODEL_VERSION_NONE is set libxl
- * allows the creation of HVM guests without a device model.
- */
-#define LIBXL_HAVE_DEVICE_MODEL_VERSION_NONE 1
-
-/*
  * LIBXL_HAVE_CHECKPOINTED_STREAM
  *
  * If this is defined, then libxl_checkpointed_stream exists.
@@ -1018,6 +1004,14 @@ void libxl_mac_copy(libxl_ctx *ctx, libxl_mac *dst, const libxl_mac *src);
  * If this is defined QED disk formats can be used for both HVM and PV guests.
  */
 #define LIBXL_HAVE_QED 1
+
+/*
+ * LIBXL_HAVE_DOMAIN_TYPE_PVH
+ *
+ * If this is defined libxl has the LIBXL_DOMAIN_TYPE_PVH enum as part of
+ * libxl_domain_type and is able to create PVH guests.
+ */
+#define LIBXL_HAVE_DOMAIN_TYPE_PVH 1
 
 typedef char **libxl_string_list;
 void libxl_string_list_dispose(libxl_string_list *sl);

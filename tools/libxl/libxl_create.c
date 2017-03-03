@@ -35,12 +35,9 @@ int libxl__domain_create_info_setdefault(libxl__gc *gc,
         return ERROR_INVAL;
     }
 
-    if (c_info->type == LIBXL_DOMAIN_TYPE_HVM) {
+    if (c_info->type != LIBXL_DOMAIN_TYPE_PV) {
         libxl_defbool_setdefault(&c_info->hap, true);
         libxl_defbool_setdefault(&c_info->oos, true);
-    } else {
-        libxl_defbool_setdefault(&c_info->pvh, false);
-        libxl_defbool_setdefault(&c_info->hap, libxl_defbool_val(c_info->pvh));
     }
 
     libxl_defbool_setdefault(&c_info->run_hotplug_scripts, true);
@@ -68,7 +65,8 @@ int libxl__domain_build_info_setdefault(libxl__gc *gc,
     int i;
 
     if (b_info->type != LIBXL_DOMAIN_TYPE_HVM &&
-        b_info->type != LIBXL_DOMAIN_TYPE_PV) {
+        b_info->type != LIBXL_DOMAIN_TYPE_PV &&
+        b_info->type != LIBXL_DOMAIN_TYPE_PVH) {
         LOG(ERROR, "invalid domain type");
         return ERROR_INVAL;
     }
@@ -123,10 +121,8 @@ int libxl__domain_build_info_setdefault(libxl__gc *gc,
                 b_info->u.hvm.bios = LIBXL_BIOS_TYPE_ROMBIOS; break;
             case LIBXL_DEVICE_MODEL_VERSION_QEMU_XEN:
                 b_info->u.hvm.bios = LIBXL_BIOS_TYPE_SEABIOS; break;
-            case LIBXL_DEVICE_MODEL_VERSION_NONE:
-                break;
             default:
-                LOG(ERROR, "unknown device model version");
+                LOG(ERROR, "unknown/invalid device model version");
                 return ERROR_INVAL;
             }
 
@@ -143,8 +139,6 @@ int libxl__domain_build_info_setdefault(libxl__gc *gc,
                 LOG(ERROR, "qemu-xen does not support bios=rombios.");
                 return ERROR_INVAL;
             }
-            break;
-        case LIBXL_DEVICE_MODEL_VERSION_NONE:
             break;
         default:abort();
         }
@@ -219,16 +213,19 @@ int libxl__domain_build_info_setdefault(libxl__gc *gc,
 
     switch (b_info->type) {
     case LIBXL_DOMAIN_TYPE_HVM:
+    case LIBXL_DOMAIN_TYPE_PVH:
         if (b_info->shadow_memkb == LIBXL_MEMKB_DEFAULT)
             b_info->shadow_memkb = 0;
         if (b_info->u.hvm.mmio_hole_memkb == LIBXL_MEMKB_DEFAULT)
             b_info->u.hvm.mmio_hole_memkb = 0;
 
-        if (b_info->u.hvm.vga.kind == LIBXL_VGA_INTERFACE_TYPE_UNKNOWN) {
-            if (b_info->device_model_version == LIBXL_DEVICE_MODEL_VERSION_NONE)
-                b_info->u.hvm.vga.kind = LIBXL_VGA_INTERFACE_TYPE_NONE;
-            else
-                b_info->u.hvm.vga.kind = LIBXL_VGA_INTERFACE_TYPE_CIRRUS;
+        if (b_info->u.hvm.vga.kind == LIBXL_VGA_INTERFACE_TYPE_UNKNOWN &&
+            b_info->type == LIBXL_DOMAIN_TYPE_PVH) {
+            b_info->u.hvm.vga.kind = LIBXL_VGA_INTERFACE_TYPE_NONE;
+            b_info->video_memkb = 0;
+        } else if (b_info->u.hvm.vga.kind ==
+                   LIBXL_VGA_INTERFACE_TYPE_UNKNOWN) {
+            b_info->u.hvm.vga.kind = LIBXL_VGA_INTERFACE_TYPE_CIRRUS;
         }
 
         if (!b_info->u.hvm.hdtype)
@@ -261,14 +258,6 @@ int libxl__domain_build_info_setdefault(libxl__gc *gc,
                     LOG(WARN, "ignoring videoram other than 4 MB for CIRRUS on QEMU_XEN_TRADITIONAL");
                 break;
             }
-            break;
-        case LIBXL_DEVICE_MODEL_VERSION_NONE:
-            if (b_info->u.hvm.vga.kind != LIBXL_VGA_INTERFACE_TYPE_NONE) {
-                LOG(ERROR,
-        "guests without a device model cannot have an emulated video card");
-                return ERROR_INVAL;
-            }
-            b_info->video_memkb = 0;
             break;
         case LIBXL_DEVICE_MODEL_VERSION_QEMU_XEN:
         default:
@@ -441,6 +430,7 @@ int libxl__domain_build(libxl__gc *gc,
 
     switch (info->type) {
     case LIBXL_DOMAIN_TYPE_HVM:
+    case LIBXL_DOMAIN_TYPE_PVH:
         ret = libxl__build_hvm(gc, domid, d_config, state);
         if (ret)
             goto out;
@@ -475,8 +465,6 @@ int libxl__domain_build(libxl__gc *gc,
 
         break;
     case LIBXL_DOMAIN_TYPE_PV:
-        state->pvh_enabled = libxl_defbool_val(d_config->c_info.pvh);
-
         ret = libxl__build_pv(gc, domid, info, state);
         if (ret)
             goto out;
@@ -532,18 +520,10 @@ int libxl__domain_make(libxl__gc *gc, libxl_domain_config *d_config,
     }
 
     flags = 0;
-    if (info->type == LIBXL_DOMAIN_TYPE_HVM) {
+    if (info->type != LIBXL_DOMAIN_TYPE_PV) {
         flags |= XEN_DOMCTL_CDF_hvm_guest;
         flags |= libxl_defbool_val(info->hap) ? XEN_DOMCTL_CDF_hap : 0;
         flags |= libxl_defbool_val(info->oos) ? 0 : XEN_DOMCTL_CDF_oos_off;
-    } else if (libxl_defbool_val(info->pvh)) {
-        flags |= XEN_DOMCTL_CDF_pvh_guest;
-        if (!libxl_defbool_val(info->hap)) {
-            LOGD(ERROR, *domid, "HAP must be on for PVH");
-            rc = ERROR_INVAL;
-            goto out;
-        }
-        flags |= XEN_DOMCTL_CDF_hap;
     }
 
     /* Ultimately, handle is an array of 16 uint8_t, same as uuid */
@@ -862,7 +842,7 @@ static void initiate_domain_create(libxl__egc *egc,
     /* If target_memkb is smaller than max_memkb, the subsequent call
      * to libxc when building HVM domain will enable PoD mode.
      */
-    pod_enabled = (d_config->c_info.type == LIBXL_DOMAIN_TYPE_HVM) &&
+    pod_enabled = (d_config->c_info.type != LIBXL_DOMAIN_TYPE_PV) &&
         (d_config->b_info.target_memkb < d_config->b_info.max_memkb);
 
     /* We cannot have PoD and PCI device assignment at the same time
@@ -871,7 +851,7 @@ static void initiate_domain_create(libxl__egc *egc,
      * guest. To stay on the safe side, we disable PCI device
      * assignment when PoD is enabled.
      */
-    if (d_config->c_info.type == LIBXL_DOMAIN_TYPE_HVM &&
+    if (d_config->c_info.type != LIBXL_DOMAIN_TYPE_PV &&
         d_config->num_pcidevs && pod_enabled) {
         ret = ERROR_INVAL;
         LOGD(ERROR, domid,
@@ -910,7 +890,7 @@ static void initiate_domain_create(libxl__egc *egc,
         goto error_out;
     }
 
-    if (d_config->c_info.type == LIBXL_DOMAIN_TYPE_HVM &&
+    if (d_config->c_info.type != LIBXL_DOMAIN_TYPE_PV &&
         (libxl_defbool_val(d_config->b_info.u.hvm.nested_hvm) &&
          libxl_defbool_val(d_config->b_info.u.hvm.altp2m))) {
         ret = ERROR_INVAL;
@@ -918,7 +898,7 @@ static void initiate_domain_create(libxl__egc *egc,
         goto error_out;
     }
 
-    if (d_config->c_info.type == LIBXL_DOMAIN_TYPE_HVM &&
+    if (d_config->c_info.type != LIBXL_DOMAIN_TYPE_PV &&
         libxl_defbool_val(d_config->b_info.u.hvm.altp2m) &&
         pod_enabled) {
         ret = ERROR_INVAL;
@@ -1157,6 +1137,7 @@ static void domcreate_stream_done(libxl__egc *egc,
 
     switch (info->type) {
     case LIBXL_DOMAIN_TYPE_HVM:
+    case LIBXL_DOMAIN_TYPE_PVH:
         vments = libxl__calloc(gc, 7, sizeof(char *));
         vments[0] = "rtc/timeoffset";
         vments[1] = (info->u.hvm.timeoffset) ? info->u.hvm.timeoffset : "";
@@ -1344,12 +1325,6 @@ static void domcreate_launch_dm(libxl__egc *egc, libxl__multidev *multidev,
         libxl__device_console_add(gc, domid, &console, state, &device);
         libxl__device_console_dispose(&console);
 
-        if (d_config->b_info.device_model_version ==
-            LIBXL_DEVICE_MODEL_VERSION_NONE) {
-            domcreate_devmodel_started(egc, &dcs->sdss.dm, 0);
-            return;
-        }
-
         libxl_device_vkb_init(&vkb);
         libxl__device_vkb_add(gc, domid, &vkb);
         libxl_device_vkb_dispose(&vkb);
@@ -1371,6 +1346,7 @@ static void domcreate_launch_dm(libxl__egc *egc, libxl__multidev *multidev,
         return;
     }
     case LIBXL_DOMAIN_TYPE_PV:
+    case LIBXL_DOMAIN_TYPE_PVH:
     {
         libxl__device_console console;
         libxl__device device;
