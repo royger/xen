@@ -488,6 +488,10 @@ static void irq_dump(struct domain *d)
 {
     struct hvm_irq *hvm_irq = &d->arch.hvm_domain.irq;
     int i; 
+
+    if ( domain_vioapic(d)->nr_pins != VIOAPIC_NUM_PINS )
+        return;
+
     printk("Domain %d:\n", d->domain_id);
     printk("PCI 0x%16.16"PRIx64"%16.16"PRIx64
            " ISA 0x%8.8"PRIx32" ROUTE %u %u %u %u\n",
@@ -545,6 +549,9 @@ static int irq_save_pci(struct domain *d, hvm_domain_context_t *h)
     unsigned int asserted, pdev, pintx;
     int rc;
 
+    if ( domain_vioapic(d)->nr_pins != VIOAPIC_NUM_PINS )
+        return -EOPNOTSUPP;
+
     spin_lock(&d->arch.hvm_domain.irq_lock);
 
     pdev  = hvm_irq->callback_via.pci.dev;
@@ -595,6 +602,9 @@ static int irq_load_pci(struct domain *d, hvm_domain_context_t *h)
     /* Load the PCI IRQ lines */
     if ( hvm_load_entry(PCI_IRQ, h, &hvm_irq->pci_intx) != 0 )
         return -EINVAL;
+
+    if ( domain_vioapic(d)->nr_pins != VIOAPIC_NUM_PINS )
+        return -EOPNOTSUPP;
 
     /* Clear the PCI link assert counts */
     for ( link = 0; link < 4; link++ )

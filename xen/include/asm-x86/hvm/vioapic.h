@@ -49,13 +49,15 @@
 
 struct hvm_vioapic {
     struct domain *domain;
+    uint32_t nr_pins;
     /* Layout below must match hvm_hw_vioapic. */
     uint64_t base_address;
     uint32_t ioregsel;
     uint32_t id;
-    union vioapic_redir_entry redirtbl[VIOAPIC_NUM_PINS];
+    union vioapic_redir_entry redirtbl[];
 };
 
+#define hvm_vioapic_size(cnt) offsetof(struct hvm_vioapic, redirtbl[cnt])
 #define domain_vioapic(d) ((d)->arch.hvm_domain.vioapic)
 #define vioapic_domain(v) ((v)->domain)
 
