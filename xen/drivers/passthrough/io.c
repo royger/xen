@@ -156,6 +156,21 @@ static int pt_irq_guest_eoi(struct domain *d, struct hvm_pirq_dpci *pirq_dpci,
     return 0;
 }
 
+static void pt_girq_time_out(struct domain *d, unsigned int guest_gsi)
+{
+    const struct hvm_irq_dpci *dpci = domain_get_irq_dpci(d);
+    const struct hvm_girq_dpci_mapping *girq;
+
+    ASSERT(dpci);
+
+    list_for_each_entry ( girq, &dpci->girq[guest_gsi], list )
+    {
+        struct pirq *pirq = pirq_info(d, girq->machine_gsi);
+
+        pirq_dpci(pirq)->flags |= HVM_IRQ_DPCI_EOI_LATCH;
+    }
+}
+
 static void pt_irq_time_out(void *data)
 {
     struct hvm_pirq_dpci *irq_map = data;
@@ -173,16 +188,16 @@ static void pt_irq_time_out(void *data)
     }
     list_for_each_entry ( digl, &irq_map->digl_list, list )
     {
-        unsigned int guest_gsi = hvm_pci_intx_gsi(digl->device, digl->intx);
-        const struct hvm_girq_dpci_mapping *girq;
-
-        list_for_each_entry ( girq, &dpci->girq[guest_gsi], list )
-        {
-            struct pirq *pirq = pirq_info(irq_map->dom, girq->machine_gsi);
-
-            pirq_dpci(pirq)->flags |= HVM_IRQ_DPCI_EOI_LATCH;
-        }
+        pt_girq_time_out(irq_map->dom,
+                         hvm_pci_intx_gsi(digl->device, digl->intx));
         hvm_pci_intx_deassert(irq_map->dom, digl->device, digl->intx);
+    }
+
+    if ( irq_map->guest_gsi != DPCI_INVALID_GSI )
+    {
+        ASSERT(is_hardware_domain(irq_map->dom));
+        pt_girq_time_out(irq_map->dom, irq_map->guest_gsi);
+        hvm_gsi_deassert(irq_map->dom, irq_map->guest_gsi);
     }
 
     pt_pirq_iterate(irq_map->dom, pt_irq_guest_eoi, NULL);
@@ -316,6 +331,9 @@ int pt_irq_create_bind(
     if ( pirq < 0 || pirq >= d->nr_pirqs )
         return -EINVAL;
 
+    if ( pt_irq_bind->irq_type == PT_IRQ_TYPE_GSI && !is_hardware_domain(d) )
+        return -EPERM;
+
  restart:
     spin_lock(&d->event_lock);
 
@@ -361,6 +379,7 @@ int pt_irq_create_bind(
         goto restart;
     }
 
+    pirq_dpci->guest_gsi = DPCI_INVALID_GSI;
     switch ( pt_irq_bind->irq_type )
     {
     case PT_IRQ_TYPE_MSI:
@@ -464,32 +483,56 @@ int pt_irq_create_bind(
         break;
     }
 
+    case PT_IRQ_TYPE_GSI:
     case PT_IRQ_TYPE_PCI:
     case PT_IRQ_TYPE_MSI_TRANSLATE:
     {
-        unsigned int bus = pt_irq_bind->u.pci.bus;
-        unsigned int device = pt_irq_bind->u.pci.device;
-        unsigned int intx = pt_irq_bind->u.pci.intx;
-        unsigned int guest_gsi = hvm_pci_intx_gsi(device, intx);
-        unsigned int link = hvm_pci_intx_link(device, intx);
-        struct dev_intx_gsi_link *digl = xmalloc(struct dev_intx_gsi_link);
+        unsigned int bus, device, intx, guest_gsi, link;
+        struct dev_intx_gsi_link *digl = NULL;
         struct hvm_girq_dpci_mapping *girq =
             xmalloc(struct hvm_girq_dpci_mapping);
 
-        if ( !digl || !girq )
+        if ( !girq )
         {
             spin_unlock(&d->event_lock);
-            xfree(girq);
-            xfree(digl);
             return -ENOMEM;
         }
 
-        hvm_irq_dpci->link_cnt[link]++;
+        if ( pt_irq_bind->irq_type != PT_IRQ_TYPE_GSI )
+        {
+            digl = xmalloc(struct dev_intx_gsi_link);
+            if ( !digl )
+            {
+                spin_unlock(&d->event_lock);
+                xfree(girq);
+                return -ENOMEM;
+            }
 
-        digl->bus = bus;
-        digl->device = device;
-        digl->intx = intx;
-        list_add_tail(&digl->list, &pirq_dpci->digl_list);
+            digl->bus = bus = pt_irq_bind->u.pci.bus;
+            digl->device = device = pt_irq_bind->u.pci.device;
+            digl->intx = intx = pt_irq_bind->u.pci.intx;
+            list_add_tail(&digl->list, &pirq_dpci->digl_list);
+
+            guest_gsi = hvm_pci_intx_gsi(device, intx);
+            link = hvm_pci_intx_link(device, intx);
+
+            hvm_irq_dpci->link_cnt[link]++;
+        }
+        else
+        {
+            guest_gsi = pt_irq_bind->u.gsi.gsi;
+
+            /* PT_IRQ_TYPE_GSI should only be used for identity bindings */
+            ASSERT(guest_gsi == pirq);
+            ASSERT(guest_gsi < hvm_domain_irq(d)->nr_gsis);
+
+            /*
+             * The actual PCI device(s) that use this GSI are unknown, Xen
+             * relies on machine_gsi to be identity bound into the guest.
+             */
+            bus = device = intx = 0;
+            pirq_dpci->guest_gsi = guest_gsi;
+        }
 
         girq->bus = bus;
         girq->device = device;
@@ -512,12 +555,15 @@ int pt_irq_create_bind(
                                    HVM_IRQ_DPCI_TRANSLATE;
                 share = 0;
             }
-            else    /* PT_IRQ_TYPE_PCI */
+            else    /* PT_IRQ_TYPE_PCI or PT_IRQ_TYPE_GSI */
             {
                 pirq_dpci->flags = HVM_IRQ_DPCI_MAPPED |
                                    HVM_IRQ_DPCI_MACH_PCI |
                                    HVM_IRQ_DPCI_GUEST_PCI;
-                share = BIND_PIRQ__WILL_SHARE;
+                if ( pt_irq_bind->irq_type == PT_IRQ_TYPE_PCI )
+                    share = BIND_PIRQ__WILL_SHARE;
+                else
+                    share = io_apic_get_gsi_trigger(pirq);
             }
 
             /* Init timer before binding */
@@ -535,8 +581,11 @@ int pt_irq_create_bind(
                  */
                 pirq_dpci->dom = NULL;
                 list_del(&girq->list);
-                list_del(&digl->list);
-                hvm_irq_dpci->link_cnt[link]--;
+                if ( pt_irq_bind->irq_type != PT_IRQ_TYPE_GSI)
+                {
+                    list_del(&digl->list);
+                    hvm_irq_dpci->link_cnt[link]--;
+                }
                 pirq_dpci->flags = 0;
                 pirq_cleanup_check(info, d);
                 spin_unlock(&d->event_lock);
@@ -610,13 +659,25 @@ int pt_irq_destroy_bind(
 
     if ( pt_irq_bind->irq_type != PT_IRQ_TYPE_MSI )
     {
-        unsigned int bus = pt_irq_bind->u.pci.bus;
-        unsigned int device = pt_irq_bind->u.pci.device;
-        unsigned int intx = pt_irq_bind->u.pci.intx;
-        unsigned int guest_gsi = hvm_pci_intx_gsi(device, intx);
-        unsigned int link = hvm_pci_intx_link(device, intx);
+        unsigned int bus, device, intx, guest_gsi, link;
         struct hvm_girq_dpci_mapping *girq;
         struct dev_intx_gsi_link *digl, *tmp;
+
+        if ( pt_irq_bind->irq_type == PT_IRQ_TYPE_GSI )
+        {
+            bus = device = intx = 0;
+            guest_gsi = pt_irq_bind->u.gsi.gsi;
+        }
+        else
+        {
+             bus = pt_irq_bind->u.pci.bus;
+             device = pt_irq_bind->u.pci.device;
+             intx = pt_irq_bind->u.pci.intx;
+             guest_gsi = hvm_pci_intx_gsi(device, intx);
+             link = hvm_pci_intx_link(device, intx);
+        }
+
+
 
         list_for_each_entry ( girq, &hvm_irq_dpci->girq[guest_gsi], list )
         {
@@ -638,7 +699,8 @@ int pt_irq_destroy_bind(
             return -EINVAL;
         }
 
-        hvm_irq_dpci->link_cnt[link]--;
+        if ( pt_irq_bind->irq_type != PT_IRQ_TYPE_GSI )
+            hvm_irq_dpci->link_cnt[link]--;
 
         /* clear the mirq info */
         if ( pirq_dpci && (pirq_dpci->flags & HVM_IRQ_DPCI_MAPPED) )
@@ -654,6 +716,7 @@ int pt_irq_destroy_bind(
                 }
             }
             what = list_empty(&pirq_dpci->digl_list) ? "final" : "partial";
+            pirq_dpci->guest_gsi = DPCI_INVALID_GSI;
         }
         else
             what = "bogus";
@@ -835,6 +898,11 @@ static void hvm_dirq_assist(struct domain *d, struct hvm_pirq_dpci *pirq_dpci)
             hvm_pci_intx_assert(d, digl->device, digl->intx);
             pirq_dpci->pending++;
         }
+        if ( pirq_dpci->guest_gsi != DPCI_INVALID_GSI )
+        {
+            hvm_gsi_assert(d, pirq_dpci->guest_gsi);
+            pirq_dpci->pending++;
+        }
 
         if ( pirq_dpci->flags & HVM_IRQ_DPCI_TRANSLATE )
         {
@@ -862,12 +930,15 @@ static void __hvm_dpci_eoi(struct domain *d,
                            const union vioapic_redir_entry *ent)
 {
     struct pirq *pirq = pirq_info(d, girq->machine_gsi);
-    struct hvm_pirq_dpci *pirq_dpci;
+    struct hvm_pirq_dpci *pirq_dpci = pirq_dpci(pirq);
 
     if ( !hvm_domain_use_pirq(d, pirq) )
-        hvm_pci_intx_deassert(d, girq->device, girq->intx);
-
-    pirq_dpci = pirq_dpci(pirq);
+    {
+        if ( pirq_dpci->guest_gsi == DPCI_INVALID_GSI )
+            hvm_pci_intx_deassert(d, girq->device, girq->intx);
+        else
+            hvm_gsi_deassert(d, pirq_dpci->guest_gsi);
+    }
 
     /*
      * No need to get vector lock for timer
@@ -891,7 +962,7 @@ void hvm_dpci_eoi(struct domain *d, unsigned int guest_gsi,
     if ( !iommu_enabled )
         return;
 
-    if ( guest_gsi < NR_ISAIRQS )
+    if ( guest_gsi < NR_ISAIRQS && !is_hardware_domain(d) )
     {
         hvm_dpci_isairq_eoi(d, guest_gsi);
         return;

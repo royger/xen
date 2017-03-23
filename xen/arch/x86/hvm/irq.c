@@ -118,6 +118,31 @@ void hvm_pci_intx_deassert(
     spin_unlock(&d->arch.hvm_domain.irq_lock);
 }
 
+void hvm_gsi_assert(struct domain *d, unsigned int gsi)
+{
+    struct hvm_irq *hvm_irq = hvm_domain_irq(d);
+
+    ASSERT(gsi < hvm_irq->nr_gsis);
+    ASSERT(!has_vpic(d));
+    spin_lock(&d->arch.hvm_domain.irq_lock);
+    if ( hvm_irq->gsi_assert_count[gsi]++ == 0 )
+        assert_gsi(d, gsi);
+    spin_unlock(&d->arch.hvm_domain.irq_lock);
+}
+
+void hvm_gsi_deassert(struct domain *d, unsigned int gsi)
+{
+    struct hvm_irq *hvm_irq = hvm_domain_irq(d);
+
+    ASSERT(gsi < hvm_irq->nr_gsis);
+    ASSERT(!has_vpic(d));
+    spin_lock(&d->arch.hvm_domain.irq_lock);
+    if ( hvm_irq->gsi_assert_count[gsi] )
+        hvm_irq->gsi_assert_count[gsi]--;
+    spin_unlock(&d->arch.hvm_domain.irq_lock);
+}
+
+
 void hvm_isa_irq_assert(
     struct domain *d, unsigned int isa_irq)
 {
