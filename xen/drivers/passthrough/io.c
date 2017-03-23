@@ -322,15 +322,17 @@ int pt_irq_create_bind(
     hvm_irq_dpci = domain_get_irq_dpci(d);
     if ( hvm_irq_dpci == NULL )
     {
-        unsigned int i;
+        unsigned int i, nr_gsis;
 
-        hvm_irq_dpci = xzalloc(struct hvm_irq_dpci);
+        nr_gsis = is_hardware_domain(d) ? hvm_domain_irq(d)->nr_gsis
+                                        : NR_HVM_IRQS;
+        hvm_irq_dpci = xzalloc_bytes(hvm_irq_dpci_size(nr_gsis));
         if ( hvm_irq_dpci == NULL )
         {
             spin_unlock(&d->event_lock);
             return -ENOMEM;
         }
-        for ( i = 0; i < NR_HVM_IRQS; i++ )
+        for ( i = 0; i < nr_gsis; i++ )
             INIT_LIST_HEAD(&hvm_irq_dpci->girq[i]);
 
         d->arch.hvm_domain.irq->dpci = hvm_irq_dpci;
