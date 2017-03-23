@@ -179,6 +179,7 @@ extern int io_apic_get_unique_id (int ioapic, int apic_id);
 extern int io_apic_get_version (int ioapic);
 extern int io_apic_get_redir_entries (int ioapic);
 extern int io_apic_set_pci_routing (int ioapic, int pin, int irq, int edge_level, int active_high_low);
+extern unsigned int io_apic_get_gsi_trigger(unsigned int gsi);
 
 extern void init_ioapic_mappings(void);
 
