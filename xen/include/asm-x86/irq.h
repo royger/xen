@@ -147,6 +147,11 @@ int map_domain_emuirq_pirq(struct domain *d, int pirq, int irq);
 int unmap_domain_pirq_emuirq(struct domain *d, int pirq);
 bool_t hvm_domain_use_pirq(const struct domain *, const struct pirq *);
 
+struct msi_info;
+int physdev_map_pirq(domid_t, int type, int *index, int *pirq_p,
+                     struct msi_info *);
+int physdev_unmap_pirq(domid_t, int pirq);
+
 /* Reset irq affinities to match the given CPU mask. */
 void fixup_irqs(const cpumask_t *mask, bool_t verbose);
 void fixup_eoi(void);
