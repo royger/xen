@@ -595,6 +595,7 @@ static int hvm_print_line(
 
 int hvm_domain_initialise(struct domain *d)
 {
+    unsigned int nr_gsis;
     int rc;
 
     if ( !hvm_enabled )
@@ -615,19 +616,20 @@ int hvm_domain_initialise(struct domain *d)
     if ( rc != 0 )
         goto fail0;
 
+    nr_gsis = is_hardware_domain(d) ? nr_irqs_gsi : VIOAPIC_NUM_PINS;
     d->arch.hvm_domain.pl_time = xzalloc(struct pl_time);
     d->arch.hvm_domain.params = xzalloc_array(uint64_t, HVM_NR_PARAMS);
     d->arch.hvm_domain.io_handler = xzalloc_array(struct hvm_io_handler,
                                                   NR_IO_HANDLERS);
-    d->arch.hvm_domain.irq = xzalloc_bytes(hvm_irq_size(VIOAPIC_NUM_PINS));
+    d->arch.hvm_domain.irq = xzalloc_bytes(hvm_irq_size(nr_gsis));
 
     rc = -ENOMEM;
     if ( !d->arch.hvm_domain.pl_time || !d->arch.hvm_domain.irq ||
          !d->arch.hvm_domain.params  || !d->arch.hvm_domain.io_handler )
         goto fail1;
 
-    /* Set the default number of GSIs */
-    hvm_domain_irq(d)->nr_gsis = VIOAPIC_NUM_PINS;
+    /* Set the number of GSIs */
+    hvm_domain_irq(d)->nr_gsis = nr_gsis;
 
     /* need link to containing domain */
     d->arch.hvm_domain.pl_time->domain = d;
