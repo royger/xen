@@ -815,7 +815,7 @@ static int pci_clean_dpci_irqs(struct domain *d)
             return ret;
         }
 
-        d->arch.hvm_domain.irq.dpci = NULL;
+        d->arch.hvm_domain.irq->dpci = NULL;
         free_hvm_irq_dpci(hvm_irq_dpci);
     }
     spin_unlock(&d->event_lock);

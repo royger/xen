@@ -69,6 +69,7 @@ static void __hvm_pci_intx_assert(
         return;
 
     gsi = hvm_pci_intx_gsi(device, intx);
+    ASSERT(gsi < hvm_irq->nr_gsis);
     if ( hvm_irq->gsi_assert_count[gsi]++ == 0 )
         assert_gsi(d, gsi);
 
@@ -99,6 +100,7 @@ static void __hvm_pci_intx_deassert(
         return;
 
     gsi = hvm_pci_intx_gsi(device, intx);
+    ASSERT(gsi < hvm_irq->nr_gsis);
     --hvm_irq->gsi_assert_count[gsi];
 
     link    = hvm_pci_intx_link(device, intx);
@@ -122,7 +124,7 @@ void hvm_isa_irq_assert(
     struct hvm_irq *hvm_irq = hvm_domain_irq(d);
     unsigned int gsi = hvm_isa_irq_to_gsi(isa_irq);
 
-    ASSERT(isa_irq <= 15);
+    ASSERT(isa_irq <= 15 && isa_irq < hvm_irq->nr_gsis);
 
     spin_lock(&d->arch.hvm_domain.irq_lock);
 
@@ -139,7 +141,7 @@ void hvm_isa_irq_deassert(
     struct hvm_irq *hvm_irq = hvm_domain_irq(d);
     unsigned int gsi = hvm_isa_irq_to_gsi(isa_irq);
 
-    ASSERT(isa_irq <= 15);
+    ASSERT(isa_irq <= 15 && isa_irq < hvm_irq->nr_gsis);
 
     spin_lock(&d->arch.hvm_domain.irq_lock);
 
@@ -363,7 +365,7 @@ void hvm_set_callback_via(struct domain *d, uint64_t via)
     {
     case HVMIRQ_callback_gsi:
         gsi = hvm_irq->callback_via.gsi = (uint8_t)via;
-        if ( (gsi == 0) || (gsi >= ARRAY_SIZE(hvm_irq->gsi_assert_count)) )
+        if ( (gsi == 0) || (gsi >= hvm_irq->nr_gsis) )
             hvm_irq->callback_via_type = HVMIRQ_callback_none;
         else if ( hvm_irq->callback_via_asserted &&
                   (hvm_irq->gsi_assert_count[gsi]++ == 0) )
@@ -419,9 +421,9 @@ struct hvm_intack hvm_vcpu_has_pending_irq(struct vcpu *v)
     if ( unlikely(v->mce_pending) )
         return hvm_intack_mce;
 
-    if ( (plat->irq.callback_via_type == HVMIRQ_callback_vector)
+    if ( (plat->irq->callback_via_type == HVMIRQ_callback_vector)
          && vcpu_info(v, evtchn_upcall_pending) )
-        return hvm_intack_vector(plat->irq.callback_via.vector);
+        return hvm_intack_vector(plat->irq->callback_via.vector);
 
     if ( vlapic_accept_pic_intr(v) && plat->vpic[0].int_output )
         return hvm_intack_pic(0);
@@ -495,7 +497,7 @@ static void irq_dump(struct domain *d)
            (uint32_t) hvm_irq->isa_irq.pad[0], 
            hvm_irq->pci_link.route[0], hvm_irq->pci_link.route[1],
            hvm_irq->pci_link.route[2], hvm_irq->pci_link.route[3]);
-    for ( i = 0 ; i < VIOAPIC_NUM_PINS; i += 8 )
+    for ( i = 0; i < hvm_irq->nr_gsis && i + 8 <= hvm_irq->nr_gsis; i += 8 )
         printk("GSI [%x - %x] %2.2"PRIu8" %2.2"PRIu8" %2.2"PRIu8" %2.2"PRIu8
                " %2.2"PRIu8" %2.2"PRIu8" %2.2"PRIu8" %2.2"PRIu8"\n",
                i, i+7,
@@ -507,6 +509,13 @@ static void irq_dump(struct domain *d)
                hvm_irq->gsi_assert_count[i+5],
                hvm_irq->gsi_assert_count[i+6],
                hvm_irq->gsi_assert_count[i+7]);
+    if ( i != hvm_irq->nr_gsis )
+    {
+        printk("GSI [%x - %x]", i, hvm_irq->nr_gsis - 1);
+        for ( ; i < hvm_irq->nr_gsis; i++)
+            printk(" %2.2"PRIu8, hvm_irq->gsi_assert_count[i]);
+        printk("\n");
+    }
     printk("Link %2.2"PRIu8" %2.2"PRIu8" %2.2"PRIu8" %2.2"PRIu8"\n",
            hvm_irq->pci_link_assert_count[0],
            hvm_irq->pci_link_assert_count[1],
@@ -544,6 +553,9 @@ static int irq_save_pci(struct domain *d, hvm_domain_context_t *h)
     struct hvm_irq *hvm_irq = hvm_domain_irq(d);
     unsigned int asserted, pdev, pintx;
     int rc;
+
+    if ( hvm_irq->nr_gsis != VIOAPIC_NUM_PINS )
+        return -EOPNOTSUPP;
 
     spin_lock(&d->arch.hvm_domain.irq_lock);
 
@@ -591,6 +603,9 @@ static int irq_load_pci(struct domain *d, hvm_domain_context_t *h)
 {
     struct hvm_irq *hvm_irq = hvm_domain_irq(d);
     int link, dev, intx, gsi;
+
+    if ( hvm_irq->nr_gsis != VIOAPIC_NUM_PINS )
+        return -EOPNOTSUPP;
 
     /* Load the PCI IRQ lines */
     if ( hvm_load_entry(PCI_IRQ, h, &hvm_irq->pci_intx) != 0 )
