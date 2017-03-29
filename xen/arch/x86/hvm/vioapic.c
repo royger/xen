@@ -534,10 +534,20 @@ void vioapic_reset(struct domain *d)
         memset(vioapic, 0, hvm_vioapic_size(nr_pins));
         for ( j = 0; j < nr_pins; j++ )
             vioapic->redirtbl[j].fields.mask = 1;
-        ASSERT(!i);
-        vioapic->base_address = VIOAPIC_DEFAULT_BASE_ADDRESS +
-                                VIOAPIC_MEM_LENGTH * i;
-        vioapic->id = i;
+
+        if ( !is_hardware_domain(d) )
+        {
+            ASSERT(!i);
+            vioapic->base_address = VIOAPIC_DEFAULT_BASE_ADDRESS +
+                                    VIOAPIC_MEM_LENGTH * i;
+            vioapic->id = i;
+        }
+        else
+        {
+            vioapic->base_address = mp_ioapics[i].mpc_apicaddr;
+            vioapic->id = mp_ioapics[i].mpc_apicid;
+        }
+
         vioapic->nr_pins = nr_pins;
         vioapic->domain = d;
     }
@@ -554,14 +564,15 @@ static void vioapic_free(const struct domain *d, unsigned int nr_vioapics)
 
 int vioapic_init(struct domain *d)
 {
-    unsigned int i, nr_vioapics = 1;
-    unsigned int nr_pins = ARRAY_SIZE(domain_vioapic(d, 0)->domU.redirtbl);
+    unsigned int i, nr_vioapics, nr_gsis = 0;
 
     if ( !has_vioapic(d) )
     {
         ASSERT(!d->arch.hvm_domain.nr_vioapics);
         return 0;
     }
+
+    nr_vioapics = is_hardware_domain(d) ? nr_ioapics : 1;
 
     if ( (d->arch.hvm_domain.vioapic == NULL) &&
          ((d->arch.hvm_domain.vioapic =
@@ -570,6 +581,9 @@ int vioapic_init(struct domain *d)
 
     for ( i = 0; i < nr_vioapics; i++ )
     {
+        unsigned int nr_pins = is_hardware_domain(d) ? nr_ioapic_entries[i] :
+            ARRAY_SIZE(domain_vioapic(d, 0)->domU.redirtbl);
+
         if ( (domain_vioapic(d, i) =
               xmalloc_bytes(hvm_vioapic_size(nr_pins))) == NULL )
         {
@@ -577,7 +591,10 @@ int vioapic_init(struct domain *d)
             return -ENOMEM;
         }
         domain_vioapic(d, i)->nr_pins = nr_pins;
+        nr_gsis += nr_pins;
     }
+
+    ASSERT(hvm_domain_irq(d)->nr_gsis == nr_gsis);
 
     d->arch.hvm_domain.nr_vioapics = nr_vioapics;
     vioapic_reset(d);
