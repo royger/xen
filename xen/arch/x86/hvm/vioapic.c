@@ -42,7 +42,57 @@
 /* HACK: Route IRQ0 only to VCPU0 to prevent time jumps. */
 #define IRQ0_SPECIAL_ROUTING 1
 
-static void vioapic_deliver(struct hvm_vioapic *vioapic, int irq);
+static void vioapic_deliver(struct hvm_vioapic *vioapic, unsigned int irq);
+
+static struct hvm_vioapic *addr_vioapic(const struct domain *d,
+                                        unsigned long addr)
+{
+    unsigned int i;
+
+    for ( i = 0; i < d->arch.hvm_domain.nr_vioapics; i++ )
+    {
+        struct hvm_vioapic *vioapic = domain_vioapic(d, i);
+
+        if ( addr >= vioapic->base_address &&
+             addr < vioapic->base_address + VIOAPIC_MEM_LENGTH )
+            return vioapic;
+    }
+
+    return NULL;
+}
+
+struct hvm_vioapic *gsi_vioapic(const struct domain *d, unsigned int gsi,
+                                unsigned int *pin)
+{
+    unsigned int i, base_gsi = 0;
+
+    for ( i = 0; i < d->arch.hvm_domain.nr_vioapics; i++ )
+    {
+        struct hvm_vioapic *vioapic = domain_vioapic(d, i);
+
+        if ( gsi >= base_gsi && gsi < base_gsi + vioapic->nr_pins )
+        {
+            *pin = gsi - base_gsi;
+            return vioapic;
+        }
+
+        base_gsi += vioapic->nr_pins;
+    }
+
+    return NULL;
+}
+
+static unsigned int base_gsi(const struct domain *d,
+                             const struct hvm_vioapic *vioapic)
+{
+    const struct hvm_vioapic *tmp;
+    unsigned int base_gsi = 0, nr_vioapics = d->arch.hvm_domain.nr_vioapics;
+
+    for ( tmp = domain_vioapic(d, 0); --nr_vioapics && tmp != vioapic; tmp++ )
+        base_gsi += tmp->nr_pins;
+
+    return base_gsi;
+}
 
 static uint32_t vioapic_read_indirect(const struct hvm_vioapic *vioapic)
 {
@@ -94,10 +144,13 @@ static int vioapic_read(
     struct vcpu *v, unsigned long addr,
     unsigned int length, unsigned long *pval)
 {
-    const struct hvm_vioapic *vioapic = domain_vioapic(v->domain);
+    const struct hvm_vioapic *vioapic;
     uint32_t result;
 
     HVM_DBG_LOG(DBG_LEVEL_IOAPIC, "addr %lx", addr);
+
+    vioapic = addr_vioapic(v->domain, addr);
+    ASSERT(vioapic);
 
     switch ( addr & 0xff )
     {
@@ -126,6 +179,7 @@ static void vioapic_write_redirent(
     struct hvm_irq *hvm_irq = hvm_domain_irq(d);
     union vioapic_redir_entry *pent, ent;
     int unmasked = 0;
+    unsigned int gsi = base_gsi(d, vioapic) + idx;
 
     spin_lock(&d->arch.hvm_domain.irq_lock);
 
@@ -149,7 +203,7 @@ static void vioapic_write_redirent(
 
     *pent = ent;
 
-    if ( idx == 0 )
+    if ( gsi == 0 )
     {
         vlapic_adjust_i8259_target(d);
     }
@@ -165,7 +219,7 @@ static void vioapic_write_redirent(
 
     spin_unlock(&d->arch.hvm_domain.irq_lock);
 
-    if ( idx == 0 || unmasked )
+    if ( gsi == 0 || unmasked )
         pt_may_unmask_irq(d, NULL);
 }
 
@@ -215,7 +269,10 @@ static int vioapic_write(
     struct vcpu *v, unsigned long addr,
     unsigned int length, unsigned long val)
 {
-    struct hvm_vioapic *vioapic = domain_vioapic(v->domain);
+    struct hvm_vioapic *vioapic;
+
+    vioapic = addr_vioapic(v->domain, addr);
+    ASSERT(vioapic);
 
     switch ( addr & 0xff )
     {
@@ -242,10 +299,7 @@ static int vioapic_write(
 
 static int vioapic_range(struct vcpu *v, unsigned long addr)
 {
-    struct hvm_vioapic *vioapic = domain_vioapic(v->domain);
-
-    return ((addr >= vioapic->base_address &&
-             (addr < vioapic->base_address + VIOAPIC_MEM_LENGTH)));
+    return !!addr_vioapic(v->domain, addr);
 }
 
 static const struct hvm_mmio_ops vioapic_mmio_ops = {
@@ -275,16 +329,17 @@ static inline int pit_channel0_enabled(void)
     return pt_active(&current->domain->arch.vpit.pt0);
 }
 
-static void vioapic_deliver(struct hvm_vioapic *vioapic, int irq)
+static void vioapic_deliver(struct hvm_vioapic *vioapic, unsigned int pin)
 {
-    uint16_t dest = vioapic->redirtbl[irq].fields.dest_id;
-    uint8_t dest_mode = vioapic->redirtbl[irq].fields.dest_mode;
-    uint8_t delivery_mode = vioapic->redirtbl[irq].fields.delivery_mode;
-    uint8_t vector = vioapic->redirtbl[irq].fields.vector;
-    uint8_t trig_mode = vioapic->redirtbl[irq].fields.trig_mode;
+    uint16_t dest = vioapic->redirtbl[pin].fields.dest_id;
+    uint8_t dest_mode = vioapic->redirtbl[pin].fields.dest_mode;
+    uint8_t delivery_mode = vioapic->redirtbl[pin].fields.delivery_mode;
+    uint8_t vector = vioapic->redirtbl[pin].fields.vector;
+    uint8_t trig_mode = vioapic->redirtbl[pin].fields.trig_mode;
     struct domain *d = vioapic_domain(vioapic);
     struct vlapic *target;
     struct vcpu *v;
+    unsigned int irq = base_gsi(d, vioapic) + pin;
 
     ASSERT(spin_is_locked(&d->arch.hvm_domain.irq_lock));
 
@@ -361,64 +416,71 @@ static void vioapic_deliver(struct hvm_vioapic *vioapic, int irq)
 
 void vioapic_irq_positive_edge(struct domain *d, unsigned int irq)
 {
-    struct hvm_vioapic *vioapic = domain_vioapic(d);
+    unsigned int pin;
+    struct hvm_vioapic *vioapic = gsi_vioapic(d, irq, &pin);
     union vioapic_redir_entry *ent;
 
     ASSERT(has_vioapic(d));
 
     HVM_DBG_LOG(DBG_LEVEL_IOAPIC, "irq %x", irq);
 
-    ASSERT(irq < vioapic->nr_pins);
+    ASSERT(pin < vioapic->nr_pins);
     ASSERT(spin_is_locked(&d->arch.hvm_domain.irq_lock));
 
-    ent = &vioapic->redirtbl[irq];
+    ent = &vioapic->redirtbl[pin];
     if ( ent->fields.mask )
         return;
 
     if ( ent->fields.trig_mode == VIOAPIC_EDGE_TRIG )
     {
-        vioapic_deliver(vioapic, irq);
+        vioapic_deliver(vioapic, pin);
     }
     else if ( !ent->fields.remote_irr )
     {
         ent->fields.remote_irr = 1;
-        vioapic_deliver(vioapic, irq);
+        vioapic_deliver(vioapic, pin);
     }
 }
 
 void vioapic_update_EOI(struct domain *d, u8 vector)
 {
-    struct hvm_vioapic *vioapic = domain_vioapic(d);
     struct hvm_irq *hvm_irq = hvm_domain_irq(d);
     union vioapic_redir_entry *ent;
-    int gsi;
+    unsigned int i, base_gsi = 0;
 
     ASSERT(has_vioapic(d));
 
     spin_lock(&d->arch.hvm_domain.irq_lock);
 
-    for ( gsi = 0; gsi < vioapic->nr_pins; gsi++ )
+    for ( i = 0; i < d->arch.hvm_domain.nr_vioapics; i++ )
     {
-        ent = &vioapic->redirtbl[gsi];
-        if ( ent->fields.vector != vector )
-            continue;
+        struct hvm_vioapic *vioapic = domain_vioapic(d, i);
+        unsigned int j;
 
-        ent->fields.remote_irr = 0;
-
-        if ( iommu_enabled )
+        for ( j = 0; j < vioapic->nr_pins; j++ )
         {
-            spin_unlock(&d->arch.hvm_domain.irq_lock);
-            hvm_dpci_eoi(d, gsi, ent);
-            spin_lock(&d->arch.hvm_domain.irq_lock);
-        }
+            ent = &vioapic->redirtbl[j];
+            if ( ent->fields.vector != vector )
+                continue;
 
-        if ( (ent->fields.trig_mode == VIOAPIC_LEVEL_TRIG) &&
-             !ent->fields.mask &&
-             hvm_irq->gsi_assert_count[gsi] )
-        {
-            ent->fields.remote_irr = 1;
-            vioapic_deliver(vioapic, gsi);
+            ent->fields.remote_irr = 0;
+
+            if ( iommu_enabled )
+            {
+                spin_unlock(&d->arch.hvm_domain.irq_lock);
+                hvm_dpci_eoi(d, base_gsi + j, ent);
+                spin_lock(&d->arch.hvm_domain.irq_lock);
+            }
+
+            if ( (ent->fields.trig_mode == VIOAPIC_LEVEL_TRIG) &&
+                 !ent->fields.mask &&
+                 hvm_irq->gsi_assert_count[base_gsi + j] )
+            {
+                ent->fields.remote_irr = 1;
+                vioapic_deliver(vioapic, j);
+            }
         }
+        base_gsi += vioapic->nr_pins;
     }
 
     spin_unlock(&d->arch.hvm_domain.irq_lock);
@@ -426,12 +488,13 @@ void vioapic_update_EOI(struct domain *d, u8 vector)
 
 static int ioapic_save(struct domain *d, hvm_domain_context_t *h)
 {
-    struct hvm_vioapic *s = domain_vioapic(d);
+    struct hvm_vioapic *s = domain_vioapic(d, 0);
 
     if ( !has_vioapic(d) )
         return 0;
 
-    if ( s->nr_pins != ARRAY_SIZE(s->domU.redirtbl) )
+    if ( s->nr_pins != ARRAY_SIZE(s->domU.redirtbl) ||
+         d->arch.hvm_domain.nr_vioapics != 1 )
         return -EOPNOTSUPP;
 
     return hvm_save_entry(IOAPIC, 0, h, &s->domU);
@@ -439,12 +502,13 @@ static int ioapic_save(struct domain *d, hvm_domain_context_t *h)
 
 static int ioapic_load(struct domain *d, hvm_domain_context_t *h)
 {
-    struct hvm_vioapic *s = domain_vioapic(d);
+    struct hvm_vioapic *s = domain_vioapic(d, 0);
 
     if ( !has_vioapic(d) )
         return -ENODEV;
 
-    if ( s->nr_pins != ARRAY_SIZE(s->domU.redirtbl) )
+    if ( s->nr_pins != ARRAY_SIZE(s->domU.redirtbl) ||
+         d->arch.hvm_domain.nr_vioapics != 1 )
         return -EOPNOTSUPP;
 
     return hvm_load_entry(IOAPIC, h, &s->domU);
@@ -454,32 +518,68 @@ HVM_REGISTER_SAVE_RESTORE(IOAPIC, ioapic_save, ioapic_load, 1, HVMSR_PER_DOM);
 
 void vioapic_reset(struct domain *d)
 {
-    struct hvm_vioapic *vioapic = domain_vioapic(d);
-    uint32_t nr_pins = vioapic->nr_pins;
-    int i;
+    unsigned int i;
 
     if ( !has_vioapic(d) )
+    {
+        ASSERT(!d->arch.hvm_domain.nr_vioapics);
         return;
+    }
 
-    memset(vioapic, 0, hvm_vioapic_size(nr_pins));
-    vioapic->domain = d;
-    vioapic->nr_pins = nr_pins;
-    for ( i = 0; i < nr_pins; i++ )
-        vioapic->redirtbl[i].fields.mask = 1;
-    vioapic->base_address = VIOAPIC_DEFAULT_BASE_ADDRESS;
+    for ( i = 0; i < d->arch.hvm_domain.nr_vioapics; i++ )
+    {
+        struct hvm_vioapic *vioapic = domain_vioapic(d, i);
+        unsigned int j, nr_pins = vioapic->nr_pins;
+
+        memset(vioapic, 0, hvm_vioapic_size(nr_pins));
+        for ( j = 0; j < nr_pins; j++ )
+            vioapic->redirtbl[j].fields.mask = 1;
+        ASSERT(!i);
+        vioapic->base_address = VIOAPIC_DEFAULT_BASE_ADDRESS +
+                                VIOAPIC_MEM_LENGTH * i;
+        vioapic->id = i;
+        vioapic->nr_pins = nr_pins;
+        vioapic->domain = d;
+    }
+}
+
+static void vioapic_free(const struct domain *d, unsigned int nr_vioapics)
+{
+    unsigned int i;
+
+    for ( i = 0; i < nr_vioapics; i++)
+        xfree(domain_vioapic(d, i));
+    xfree(d->arch.hvm_domain.vioapic);
 }
 
 int vioapic_init(struct domain *d)
 {
+    unsigned int i, nr_vioapics = 1;
+    unsigned int nr_pins = ARRAY_SIZE(domain_vioapic(d, 0)->domU.redirtbl);
+
     if ( !has_vioapic(d) )
+    {
+        ASSERT(!d->arch.hvm_domain.nr_vioapics);
         return 0;
+    }
 
     if ( (d->arch.hvm_domain.vioapic == NULL) &&
-         ((d->arch.hvm_domain.vioapic = xmalloc(struct hvm_vioapic)) == NULL) )
+         ((d->arch.hvm_domain.vioapic =
+           xzalloc_array(struct hvm_vioapic *, nr_vioapics)) == NULL) )
         return -ENOMEM;
 
-    d->arch.hvm_domain.vioapic->domain = d;
-    domain_vioapic(d)->nr_pins = ARRAY_SIZE(domain_vioapic(d)->domU.redirtbl);
+    for ( i = 0; i < nr_vioapics; i++ )
+    {
+        if ( (domain_vioapic(d, i) =
+              xmalloc_bytes(hvm_vioapic_size(nr_pins))) == NULL )
+        {
+            vioapic_free(d, nr_vioapics);
+            return -ENOMEM;
+        }
+        domain_vioapic(d, i)->nr_pins = nr_pins;
+    }
+
+    d->arch.hvm_domain.nr_vioapics = nr_vioapics;
     vioapic_reset(d);
 
     register_mmio_handler(d, &vioapic_mmio_ops);
@@ -490,8 +590,10 @@ int vioapic_init(struct domain *d)
 void vioapic_deinit(struct domain *d)
 {
     if ( !has_vioapic(d) )
+    {
+        ASSERT(!d->arch.hvm_domain.nr_vioapics);
         return;
+    }
 
-    xfree(d->arch.hvm_domain.vioapic);
-    d->arch.hvm_domain.vioapic = NULL;
+    vioapic_free(d, d->arch.hvm_domain.nr_vioapics);
 }
