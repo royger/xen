@@ -46,6 +46,29 @@ int xen_vpci_write(unsigned int seg, unsigned int bus, unsigned int devfn,
 struct vpci {
     /* Root pointer for the tree of vPCI handlers. */
     struct rb_root handlers;
+
+#ifdef __XEN__
+    /* Hide the rest of the vpci struct from the user-space test harness. */
+    struct vpci_header {
+        /* Cached value of the command register. */
+        uint16_t command;
+        /* Information about the PCI BARs of this device. */
+        struct vpci_bar {
+            enum {
+                VPCI_BAR_EMPTY,
+                VPCI_BAR_IO,
+                VPCI_BAR_MEM,
+                VPCI_BAR_MEM64_LO,
+                VPCI_BAR_MEM64_HI,
+            } type;
+            paddr_t addr;
+            paddr_t mapped_addr;
+            size_t size;
+            unsigned int attributes:4;
+            bool sizing;
+        } bars[6];
+    } header;
+#endif
 };
 
 #endif
