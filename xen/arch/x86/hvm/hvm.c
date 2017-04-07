@@ -611,6 +611,7 @@ int hvm_domain_initialise(struct domain *d)
     spin_lock_init(&d->arch.hvm_domain.write_map.lock);
     INIT_LIST_HEAD(&d->arch.hvm_domain.write_map.list);
     INIT_LIST_HEAD(&d->arch.hvm_domain.g2m_ioport_list);
+    INIT_LIST_HEAD(&d->arch.hvm_domain.ecam_regions);
 
     hvm_init_cacheattr_region_list(d);
 

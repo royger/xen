@@ -157,6 +157,10 @@ void register_g2m_portio_handler(struct domain *d);
 /* HVM port IO handler for PCI accesses. */
 void register_vpci_portio_handler(struct domain *d);
 
+/* HVM MMIO handler for PCI ECAM accesses. */
+int register_vpci_ecam_handler(struct domain *d, paddr_t addr, size_t size,
+                               unsigned int seg);
+
 #endif /* __ASM_X86_HVM_IO_H__ */
 
 
