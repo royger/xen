@@ -202,6 +202,34 @@ static void vioapic_write_redirent(
         unmasked = unmasked && !ent.fields.mask;
     }
 
+    if ( is_hardware_domain(d) && unmasked )
+    {
+        xen_domctl_bind_pt_irq_t pt_irq_bind = {
+            .irq_type = PT_IRQ_TYPE_GSI,
+            .machine_irq = gsi,
+            .u.gsi.gsi = gsi,
+            .hvm_domid = DOMID_SELF,
+        };
+        int ret, pirq = gsi;
+
+        /* Interrupt has been unmasked, bind it now. */
+        ret = mp_register_gsi(gsi, ent.fields.trig_mode, ent.fields.polarity);
+        if ( ret && ret != -EEXIST )
+        {
+            gdprintk(XENLOG_WARNING,
+                     "%s: error registering GSI %u: %d\n", __func__, gsi, ret);
+        }
+        if ( !ret )
+        {
+            ret = physdev_map_pirq(DOMID_SELF, MAP_PIRQ_TYPE_GSI, &pirq, &pirq,
+                                   NULL);
+            BUG_ON(ret);
+
+            ret = pt_irq_create_bind(d, &pt_irq_bind);
+            BUG_ON(ret);
+        }
+    }
+
     *pent = ent;
 
     if ( gsi == 0 )
