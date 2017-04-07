@@ -2261,6 +2261,28 @@ int io_apic_set_pci_routing (int ioapic, int pin, int irq, int edge_level, int a
     return 0;
 }
 
+unsigned int io_apic_get_gsi_trigger(unsigned int gsi)
+{
+    struct IO_APIC_route_entry entry;
+    unsigned int ioapic, base_gsi;
+
+    ASSERT(gsi < nr_irqs_gsi);
+
+    /* For GSI type find if the GSI is level or edge triggered */
+    for ( ioapic = 0; ioapic < nr_ioapics; ioapic++ )
+    {
+        base_gsi = io_apic_gsi_base(ioapic);
+
+        if ( gsi >= base_gsi && gsi < base_gsi + nr_ioapic_entries[ioapic] )
+            break;
+    }
+    ASSERT(ioapic < nr_ioapics);
+
+    entry = ioapic_read_entry(ioapic, gsi - base_gsi, 0);
+
+    return entry.trigger;
+}
+
 static int ioapic_physbase_to_id(unsigned long physbase)
 {
     int apic;
