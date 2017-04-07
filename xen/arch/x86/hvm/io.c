@@ -25,6 +25,7 @@
 #include <xen/trace.h>
 #include <xen/event.h>
 #include <xen/hypercall.h>
+#include <xen/vpci.h>
 #include <asm/current.h>
 #include <asm/cpufeature.h>
 #include <asm/processor.h>
@@ -255,6 +256,123 @@ void register_g2m_portio_handler(struct domain *d)
 
     handler->type = IOREQ_TYPE_PIO;
     handler->ops = &g2m_portio_ops;
+}
+
+/* Do some sanity checks. */
+static int vpci_access_check(unsigned int reg, unsigned int len)
+{
+    /* Check read size */
+    if ( len > 4 || len == 3 )
+    {
+        gdprintk(XENLOG_WARNING, "invalid length (reg: %#x, len: %u)\n",
+                 reg, len);
+        return -EINVAL;
+    }
+
+    /* Check offset alignment */
+    if ( reg & (len - 1) )
+    {
+        gdprintk(XENLOG_WARNING,
+                 "invalid access size alignment (reg: %#x, len: %u)\n",
+                 reg, len);
+        return -EINVAL;
+    }
+
+    return 0;
+}
+
+/* Helper to decode a PCI address. */
+static void vpci_decode_addr(unsigned int cf8, unsigned int addr,
+                             unsigned int *bus, unsigned int *devfn,
+                             unsigned int *reg)
+{
+    unsigned long bdf;
+
+    bdf = CF8_BDF(cf8);
+    *bus = PCI_BUS(bdf);
+    *devfn = PCI_DEVFN(PCI_SLOT(bdf), PCI_FUNC(bdf));
+    /*
+     * NB: the lower 2 bits of the register address are fetched from the
+     * offset into the 0xcfc register when reading/writing to it.
+     */
+    *reg = (cf8 & 0xfc) | (addr & 3);
+}
+
+/* vPCI config space IO ports handlers (0xcf8/0xcfc). */
+static bool_t vpci_portio_accept(const struct hvm_io_handler *handler,
+                                 const ioreq_t *p)
+{
+    return (p->addr == 0xcf8 && p->size == 4) || (p->addr & 0xfffc) == 0xcfc;
+}
+
+static int vpci_portio_read(const struct hvm_io_handler *handler,
+                            uint64_t addr, uint32_t size, uint64_t *data)
+{
+    struct domain *d = current->domain;
+    unsigned int bus, devfn, reg;
+    uint32_t data32;
+    int rc;
+
+    if ( addr == 0xcf8 )
+    {
+        ASSERT(size == 4);
+        *data = d->arch.hvm_domain.pci_cf8;
+        return X86EMUL_OKAY;
+    }
+
+    /* Decode the PCI address. */
+    vpci_decode_addr(d->arch.hvm_domain.pci_cf8, addr, &bus, &devfn, &reg);
+
+    if ( vpci_access_check(reg, size) || reg >= 0xff )
+        return X86EMUL_UNHANDLEABLE;
+
+    rc = xen_vpci_read(0, bus, devfn, reg, size, &data32);
+    if ( !rc )
+        *data = data32;
+
+     return rc ? X86EMUL_UNHANDLEABLE : X86EMUL_OKAY;
+}
+
+static int vpci_portio_write(const struct hvm_io_handler *handler,
+                             uint64_t addr, uint32_t size, uint64_t data)
+{
+    struct domain *d = current->domain;
+    unsigned int bus, devfn, reg;
+    int rc;
+
+    if ( addr == 0xcf8 )
+    {
+        ASSERT(size == 4);
+        d->arch.hvm_domain.pci_cf8 = data;
+        return X86EMUL_OKAY;
+    }
+
+    /* Decode the PCI address. */
+    vpci_decode_addr(d->arch.hvm_domain.pci_cf8, addr, &bus, &devfn, &reg);
+
+    if ( vpci_access_check(reg, size) || reg >= 0xff )
+        return X86EMUL_UNHANDLEABLE;
+
+    rc = xen_vpci_write(0, bus, devfn, reg, size, data);
+
+    return rc ? X86EMUL_UNHANDLEABLE : X86EMUL_OKAY;
+}
+
+static const struct hvm_io_ops vpci_portio_ops = {
+    .accept = vpci_portio_accept,
+    .read = vpci_portio_read,
+    .write = vpci_portio_write,
+};
+
+void register_vpci_portio_handler(struct domain *d)
+{
+    struct hvm_io_handler *handler = hvm_next_io_handler(d);
+
+    if ( !has_vpci(d) || handler == NULL )
+        return;
+
+    handler->type = IOREQ_TYPE_PIO;
+    handler->ops = &vpci_portio_ops;
 }
 
 /*

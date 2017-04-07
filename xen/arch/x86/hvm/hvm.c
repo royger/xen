@@ -37,6 +37,7 @@
 #include <xen/vm_event.h>
 #include <xen/monitor.h>
 #include <xen/warning.h>
+#include <xen/vpci.h>
 #include <asm/shadow.h>
 #include <asm/hap.h>
 #include <asm/current.h>
@@ -653,6 +654,7 @@ int hvm_domain_initialise(struct domain *d)
         d->arch.hvm_domain.io_bitmap = hvm_io_bitmap;
 
     register_g2m_portio_handler(d);
+    register_vpci_portio_handler(d);
 
     hvm_ioreq_init(d);
 

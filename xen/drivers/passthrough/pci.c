@@ -30,6 +30,7 @@
 #include <xen/radix-tree.h>
 #include <xen/softirq.h>
 #include <xen/tasklet.h>
+#include <xen/vpci.h>
 #include <xsm/xsm.h>
 #include <asm/msi.h>
 #include "ats.h"
@@ -1061,6 +1062,8 @@ static void setup_one_hwdom_device(const struct setup_hwdom *ctxt,
         devfn += pdev->phantom_stride;
     } while ( devfn != pdev->devfn &&
               PCI_SLOT(devfn) == PCI_SLOT(pdev->devfn) );
+
+    xen_vpci_add_handlers(pdev);
 }
 
 static int __hwdom_init _setup_hwdom_pci_devices(struct pci_seg *pseg, void *arg)

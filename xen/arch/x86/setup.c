@@ -1563,7 +1563,8 @@ void __init noreturn __start_xen(unsigned long mbi_p)
         domcr_flags |= DOMCRF_hvm |
                        ((hvm_funcs.hap_supported && !opt_dom0_shadow) ?
                          DOMCRF_hap : 0);
-        config.emulation_flags = XEN_X86_EMU_LAPIC|XEN_X86_EMU_IOAPIC;
+        config.emulation_flags = XEN_X86_EMU_LAPIC|XEN_X86_EMU_IOAPIC|
+                                 XEN_X86_EMU_VPCI;
     }
 
     /* Create initial domain 0. */
