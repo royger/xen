@@ -13,4 +13,8 @@ int unmap_mmio_regions(struct domain *d,
                        unsigned long nr,
                        mfn_t mfn);
 
+
+int modify_identity_mmio(struct domain *d, unsigned long pfn,
+                         unsigned long nr_pages, const bool map);
+
 #endif /* _XEN_P2M_COMMON_H */
