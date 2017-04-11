@@ -92,6 +92,7 @@ struct hvm_irq_dpci {
 
 #define hvm_irq_dpci_size(cnt) offsetof(struct hvm_irq_dpci, girq[cnt])
 
+#define DPCI_INVALID_GSI UINT_MAX
 /* Machine IRQ to guest device/intx mapping. */
 struct hvm_pirq_dpci {
     uint32_t flags;
@@ -99,6 +100,7 @@ struct hvm_pirq_dpci {
     bool_t masked;
     uint16_t pending;
     struct list_head digl_list;
+    unsigned int guest_gsi;
     struct domain *dom;
     struct hvm_gmsi_info gmsi;
     struct timer timer;
@@ -124,6 +126,10 @@ void hvm_isa_irq_assert(
     struct domain *d, unsigned int isa_irq);
 void hvm_isa_irq_deassert(
     struct domain *d, unsigned int isa_irq);
+
+/* Modify state of GSIs. */
+void hvm_gsi_assert(struct domain *d, unsigned int gsi);
+void hvm_gsi_deassert(struct domain *d, unsigned int gsi);
 
 int hvm_set_pci_link_route(struct domain *d, u8 link, u8 isa_irq);
 
