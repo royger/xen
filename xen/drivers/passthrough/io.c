@@ -276,15 +276,15 @@ int pt_irq_create_bind(
     hvm_irq_dpci = domain_get_irq_dpci(d);
     if ( hvm_irq_dpci == NULL )
     {
-        unsigned int i;
+        unsigned int i, nr_gsis = hvm_domain_irq(d)->nr_gsis;
 
-        hvm_irq_dpci = xzalloc(struct hvm_irq_dpci);
+        hvm_irq_dpci = xzalloc_bytes(hvm_irq_dpci_size(nr_gsis));
         if ( hvm_irq_dpci == NULL )
         {
             spin_unlock(&d->event_lock);
             return -ENOMEM;
         }
-        for ( i = 0; i < NR_HVM_DOMU_IRQS; i++ )
+        for ( i = 0; i < nr_gsis; i++ )
             INIT_LIST_HEAD(&hvm_irq_dpci->girq[i]);
 
         hvm_domain_irq(d)->dpci = hvm_irq_dpci;

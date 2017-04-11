@@ -54,7 +54,7 @@ static int physdev_hvm_map_pirq(
         {
             const struct hvm_girq_dpci_mapping *girq;
 
-            BUILD_BUG_ON(ARRAY_SIZE(hvm_irq_dpci->girq) < NR_HVM_DOMU_IRQS);
+            ASSERT(hvm_domain_irq(d)->nr_gsis == NR_HVM_DOMU_IRQS);
             list_for_each_entry ( girq,
                                   &hvm_irq_dpci->girq[*index],
                                   list )

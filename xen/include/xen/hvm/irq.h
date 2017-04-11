@@ -82,13 +82,15 @@ struct hvm_girq_dpci_mapping {
 
 /* Protected by domain's event_lock */
 struct hvm_irq_dpci {
-    /* Guest IRQ to guest device/intx mapping. */
-    struct list_head girq[NR_HVM_DOMU_IRQS];
     /* Record of mapped ISA IRQs */
     DECLARE_BITMAP(isairq_map, NR_ISAIRQS);
     /* Record of mapped Links */
     uint8_t link_cnt[NR_LINK];
+    /* Guest IRQ to guest device/intx mapping. */
+    struct list_head girq[];
 };
+
+#define hvm_irq_dpci_size(cnt) offsetof(struct hvm_irq_dpci, girq[cnt])
 
 /* Machine IRQ to guest device/intx mapping. */
 struct hvm_pirq_dpci {
