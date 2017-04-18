@@ -500,7 +500,8 @@ static bool emulation_flags_ok(const struct domain *d, uint32_t emflags)
     if ( is_hvm_domain(d) )
     {
         if ( is_hardware_domain(d) &&
-             emflags != (XEN_X86_EMU_LAPIC|XEN_X86_EMU_IOAPIC) )
+             emflags != (XEN_X86_EMU_LAPIC|XEN_X86_EMU_IOAPIC|
+                         XEN_X86_EMU_VPCI) )
             return false;
         if ( !is_hardware_domain(d) && emflags &&
              emflags != XEN_X86_EMU_ALL && emflags != XEN_X86_EMU_LAPIC )
