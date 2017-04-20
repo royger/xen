@@ -109,7 +109,7 @@ static int vpci_index_capabilities(struct pci_dev *pdev)
     return 0;
 }
 
-static void vpci_mask_capability(struct pci_dev *pdev, uint8_t cap_id)
+void xen_vpci_mask_capability(struct pci_dev *pdev, uint8_t cap_id)
 {
     struct vpci_capability *cap;
     uint8_t cap_offset;
@@ -138,9 +138,8 @@ static int vpci_capabilities_init(struct pci_dev *pdev)
     if ( rc )
         return rc;
 
-    /* Mask MSI and MSI-X capabilities until Xen handles them. */
-    vpci_mask_capability(pdev, PCI_CAP_ID_MSI);
-    vpci_mask_capability(pdev, PCI_CAP_ID_MSIX);
+    /* Mask MSI-X capability until Xen handles it. */
+    xen_vpci_mask_capability(pdev, PCI_CAP_ID_MSIX);
 
     return 0;
 }

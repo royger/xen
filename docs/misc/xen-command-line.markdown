@@ -660,7 +660,7 @@ affinities to prefer but be not limited to the specified node(s).
 Pin dom0 vcpus to their respective pcpus
 
 ### dom0
-> `= List of [ pvh | shadow ]`
+> `= List of [ pvh | shadow | msi ]`
 
 > Sub-options:
 
@@ -676,6 +676,13 @@ Flag that makes a dom0 boot in PVHv2 mode.
 
 Flag that makes a dom0 use shadow paging. Only works when "pvh" is
 enabled.
+
+> `msi`
+
+> Default: `true`
+
+Enable or disable (using the `no-` prefix) the MSI emulation inside of
+Xen for a PVH Dom0. Note that this option has no effect on a PV Dom0.
 
 ### dtuart (ARM)
 > `= path [:options]`

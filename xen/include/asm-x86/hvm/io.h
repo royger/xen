@@ -126,6 +126,10 @@ void hvm_dpci_eoi(struct domain *d, unsigned int guest_irq,
 void msix_write_completion(struct vcpu *);
 void msixtbl_init(struct domain *d);
 
+/* Get the vector/flags from a MSI address/data fields. */
+unsigned int msi_vector(uint16_t data);
+unsigned int msi_flags(uint16_t data, uint64_t addr);
+
 enum stdvga_cache_state {
     STDVGA_CACHE_UNINITIALIZED,
     STDVGA_CACHE_ENABLED,
