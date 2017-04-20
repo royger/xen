@@ -11,7 +11,7 @@ int libxl__arch_domain_prepare_config(libxl__gc *gc,
     if (d_config->c_info.type == LIBXL_DOMAIN_TYPE_HVM) {
         if (d_config->b_info.device_model_version !=
             LIBXL_DEVICE_MODEL_VERSION_NONE) {
-            xc_config->emulation_flags = XEN_X86_EMU_ALL;
+            xc_config->emulation_flags = (XEN_X86_EMU_ALL & ~XEN_X86_EMU_VPCI);
         } else if (libxl_defbool_val(d_config->b_info.u.hvm.apic)) {
             /*
              * HVM guests without device model may want

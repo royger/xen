@@ -13,6 +13,7 @@
 #include <xen/irq.h>
 #include <xen/pci_regs.h>
 #include <xen/pfn.h>
+#include <xen/rbtree.h>
 #include <asm/device.h>
 #include <asm/numa.h>
 #include <asm/pci.h>
@@ -88,6 +89,9 @@ struct pci_dev {
 #define PT_FAULT_THRESHOLD 10
     } fault;
     u64 vf_rlen[6];
+
+    /* Data for vPCI. */
+    struct vpci *vpci;
 };
 
 #define for_each_pdev(domain, pdev) \
