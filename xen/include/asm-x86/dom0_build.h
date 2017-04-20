@@ -2,10 +2,12 @@
 #define _DOM0_BUILD_H_
 
 #include <xen/sched.h>
+#include <xen/libelf.h>
 
 #include <asm/setup.h>
 
 extern unsigned int dom0_memflags;
+extern bool dom0_msi;
 
 unsigned long dom0_compute_nr_pages(struct domain *d,
                                     struct elf_dom_parms *parms,

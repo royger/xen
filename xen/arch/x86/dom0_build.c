@@ -176,29 +176,37 @@ struct vcpu *__init alloc_dom0_vcpu0(struct domain *dom0)
 bool __initdata opt_dom0_shadow;
 #endif
 bool __initdata dom0_pvh;
+bool __initdata dom0_msi = true;
 
 /*
  * List of parameters that affect Dom0 creation:
  *
  *  - pvh               Create a PVHv2 Dom0.
  *  - shadow            Use shadow paging for Dom0.
+ *  - msi               MSI functionality.
  */
 static void __init parse_dom0_param(char *s)
 {
     char *ss;
+    bool enabled;
 
     do {
+        enabled = !!strncmp(s, "no-", 3);
+        if ( !enabled )
+            s += 3;
 
         ss = strchr(s, ',');
         if ( ss )
             *ss = '\0';
 
         if ( !strcmp(s, "pvh") )
-            dom0_pvh = true;
+            dom0_pvh = enabled;
 #ifdef CONFIG_SHADOW_PAGING
         else if ( !strcmp(s, "shadow") )
-            opt_dom0_shadow = true;
+            opt_dom0_shadow = enabled;
 #endif
+        else if ( !strcmp(s, "msi") )
+            dom0_msi = enabled;
 
         s = ss + 1;
     } while ( ss );

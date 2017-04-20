@@ -622,3 +622,24 @@ void msix_write_completion(struct vcpu *v)
     if ( msixtbl_write(v, ctrl_address, 4, 0) != X86EMUL_OKAY )
         gdprintk(XENLOG_WARNING, "MSI-X write completion failure\n");
 }
+
+unsigned int msi_vector(uint16_t data)
+{
+    return (data & MSI_DATA_VECTOR_MASK) >> MSI_DATA_VECTOR_SHIFT;
+}
+
+unsigned int msi_flags(uint16_t data, uint64_t addr)
+{
+    unsigned int rh, dm, dest_id, deliv_mode, trig_mode;
+
+    rh = (addr >> MSI_ADDR_REDIRECTION_SHIFT) & 0x1;
+    dm = (addr >> MSI_ADDR_DESTMODE_SHIFT) & 0x1;
+    dest_id = (addr & MSI_ADDR_DEST_ID_MASK) >> MSI_ADDR_DEST_ID_SHIFT;
+    deliv_mode = (data >> MSI_DATA_DELIVERY_MODE_SHIFT) & 0x7;
+    trig_mode = (data >> MSI_DATA_TRIGGER_SHIFT) & 0x1;
+
+    return dest_id | (rh << GFLAGS_SHIFT_RH) | (dm << GFLAGS_SHIFT_DM) |
+           (deliv_mode << GFLAGS_SHIFT_DELIV_MODE) |
+           (trig_mode << GFLAGS_SHIFT_TRG_MODE);
+}
+
