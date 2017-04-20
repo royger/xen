@@ -1438,6 +1438,40 @@ int prepare_ring_for_helper(
     return 0;
 }
 
+int modify_mmio(struct domain *d, unsigned long gfn, unsigned long pfn,
+                unsigned long nr_pages, const bool map)
+{
+    int rc;
+
+    /*
+     * Make sure this function is only used by the hardware domain, because it
+     * can take an arbitrary long time, and could DoS the whole system.
+     */
+    ASSERT(is_hardware_domain(d));
+
+    for ( ; ; )
+    {
+        rc = (map ? map_mmio_regions : unmap_mmio_regions)
+             (d, _gfn(gfn), nr_pages, _mfn(pfn));
+        if ( rc == 0 )
+            break;
+        if ( rc < 0 )
+        {
+            printk(XENLOG_WARNING
+                   "Failed to %smap [%#lx, %#lx) -> [%#lx,%#lx) for d%d: %d\n",
+                   map ? "" : "un", gfn, gfn + nr_pages, pfn, pfn + nr_pages,
+                   d->domain_id, rc);
+            break;
+        }
+        nr_pages -= rc;
+        pfn += rc;
+        gfn += rc;
+        process_pending_softirqs();
+    }
+
+    return rc;
+}
+
 /*
  * Local variables:
  * mode: C
