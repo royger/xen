@@ -130,21 +130,7 @@ void xen_vpci_mask_capability(struct pci_dev *pdev, uint8_t cap_id)
     }
 }
 
-static int vpci_capabilities_init(struct pci_dev *pdev)
-{
-    int rc;
-
-    rc = vpci_index_capabilities(pdev);
-    if ( rc )
-        return rc;
-
-    /* Mask MSI-X capability until Xen handles it. */
-    xen_vpci_mask_capability(pdev, PCI_CAP_ID_MSIX);
-
-    return 0;
-}
-
-REGISTER_VPCI_INIT(vpci_capabilities_init, true);
+REGISTER_VPCI_INIT(vpci_index_capabilities, true);
 
 /*
  * Local variables:
