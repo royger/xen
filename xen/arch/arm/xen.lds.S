@@ -79,6 +79,9 @@ SECTIONS
        __start_schedulers_array = .;
        *(.data.schedulers)
        __end_schedulers_array = .;
+       __start_vpci_array = .;
+       *(.data.vpci)
+       __end_vpci_array = .;
        *(.data.rel)
        *(.data.rel.*)
        CONSTRUCTORS
