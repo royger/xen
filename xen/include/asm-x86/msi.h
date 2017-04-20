@@ -252,5 +252,6 @@ void end_nonmaskable_msi_irq(struct irq_desc *, u8 vector);
 void set_msi_affinity(struct irq_desc *, const cpumask_t *);
 
 extern bool dom0_msi;
+extern bool dom0_msix;
 
 #endif /* __ASM_MSI_H */

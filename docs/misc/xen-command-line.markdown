@@ -684,6 +684,13 @@ enabled.
 Enable or disable (using the `no-` prefix) the MSI emulation inside of
 Xen for a PVH Dom0. Note that this option has no effect on a PV Dom0.
 
+> `msix`
+
+> Default: `true`
+
+Enable or disable (using the `no-` prefix) the MSI-X emulation inside of
+Xen for a PVH Dom0. Note that this option has no effect on a PV Dom0.
+
 ### dtuart (ARM)
 > `= path [:options]`
 
