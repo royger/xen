@@ -31,8 +31,8 @@ vpci.c: $(XEN_ROOT)/xen/drivers/vpci/vpci.c
 	# Trick the compiler so it doesn't complain about missing symbols
 	sed -e '/#include/d' \
 	    -e '1s;^;#include "emul.h"\
-	             const vpci_register_init_t __start_vpci_array[1]\;\
-	             const vpci_register_init_t __end_vpci_array[1]\;\
+	             const struct vpci_register_init __start_vpci_array[1]\;\
+	             const struct vpci_register_init __end_vpci_array[1]\;\
 	             ;' <$< >$@
 
 rbtree.h: $(XEN_ROOT)/xen/include/xen/rbtree.h

@@ -29,8 +29,17 @@ typedef int (*vpci_write_t)(struct pci_dev *pdev, unsigned int reg,
 
 typedef int (*vpci_register_init_t)(struct pci_dev *dev);
 
-#define REGISTER_VPCI_INIT(x) \
-  static const vpci_register_init_t x##_entry __used_section(".data.vpci") = x
+struct vpci_register_init {
+    vpci_register_init_t init;
+    bool priority;
+};
+
+#define REGISTER_VPCI_INIT(f, p)                                        \
+  static const struct vpci_register_init                                \
+                      x##_entry __used_section(".data.vpci") = {        \
+    .init = f,                                                          \
+    .priority = p,                                                      \
+}
 
 /* Add vPCI handlers to device. */
 int xen_vpci_add_handlers(struct pci_dev *dev);
