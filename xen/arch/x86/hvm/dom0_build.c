@@ -64,27 +64,7 @@ static struct acpi_madt_nmi_source __initdata *nmisrc;
 static int __init modify_identity_mmio(struct domain *d, unsigned long pfn,
                                        unsigned long nr_pages, const bool map)
 {
-    int rc;
-
-    for ( ; ; )
-    {
-        rc = (map ? map_mmio_regions : unmap_mmio_regions)
-             (d, _gfn(pfn), nr_pages, _mfn(pfn));
-        if ( rc == 0 )
-            break;
-        if ( rc < 0 )
-        {
-            printk(XENLOG_WARNING
-                   "Failed to identity %smap [%#lx,%#lx) for d%d: %d\n",
-                   map ? "" : "un", pfn, pfn + nr_pages, d->domain_id, rc);
-            break;
-        }
-        nr_pages -= rc;
-        pfn += rc;
-        process_pending_softirqs();
-    }
-
-    return rc;
+    return modify_mmio(d, pfn, pfn, nr_pages, map);
 }
 
 /* Populate a HVM memory range using the biggest possible order. */
