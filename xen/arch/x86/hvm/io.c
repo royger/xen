@@ -391,6 +391,145 @@ void register_vpci_portio_handler(struct domain *d)
     handler->ops = &vpci_portio_ops;
 }
 
+/* Handlers to trap PCI ECAM config accesses. */
+static struct hvm_ecam *vpci_ecam_find(struct domain *d, unsigned long addr)
+{
+    struct hvm_ecam *ecam = NULL;
+
+    ASSERT(vpci_locked(d));
+    list_for_each_entry ( ecam, &d->arch.hvm_domain.ecam_regions, next )
+        if ( addr >= ecam->addr && addr < ecam->addr + ecam->size )
+            return ecam;
+
+    return NULL;
+}
+
+static void vpci_ecam_decode_addr(struct hvm_ecam *ecam, unsigned long addr,
+                                  unsigned int *bus, unsigned int *devfn,
+                                  unsigned int *reg)
+{
+    addr -= ecam->addr;
+    *bus = ((addr >> 20) & 0xff) + ecam->bus;
+    *devfn = (addr >> 12) & 0xff;
+    *reg = addr & 0xfff;
+}
+
+static int vpci_ecam_accept(struct vcpu *v, unsigned long addr)
+{
+    struct domain *d = v->domain;
+    int found;
+
+    vpci_lock(d);
+    found = !!vpci_ecam_find(v->domain, addr);
+    vpci_unlock(d);
+
+    return found;
+}
+
+static int vpci_ecam_read(struct vcpu *v, unsigned long addr,
+                          unsigned int len, unsigned long *data)
+{
+    struct domain *d = v->domain;
+    struct hvm_ecam *ecam;
+    unsigned int bus, devfn, reg;
+    uint32_t data32;
+    int rc;
+
+    vpci_lock(d);
+    ecam = vpci_ecam_find(d, addr);
+    if ( !ecam )
+    {
+        vpci_unlock(d);
+        return X86EMUL_UNHANDLEABLE;
+    }
+
+    vpci_ecam_decode_addr(ecam, addr, &bus, &devfn, &reg);
+
+    if ( vpci_access_check(reg, len) || reg >= 0xfff )
+    {
+        vpci_unlock(d);
+        return X86EMUL_UNHANDLEABLE;
+    }
+
+    rc = xen_vpci_read(ecam->segment, bus, devfn, reg, len, &data32);
+    if ( !rc )
+        *data = data32;
+    vpci_unlock(d);
+
+    return rc ? X86EMUL_UNHANDLEABLE : X86EMUL_OKAY;
+}
+
+static int vpci_ecam_write(struct vcpu *v, unsigned long addr,
+                           unsigned int len, unsigned long data)
+{
+    struct domain *d = v->domain;
+    struct hvm_ecam *ecam;
+    unsigned int bus, devfn, reg;
+    int rc;
+
+    vpci_lock(d);
+    ecam = vpci_ecam_find(d, addr);
+    if ( !ecam )
+    {
+        vpci_unlock(d);
+        return X86EMUL_UNHANDLEABLE;
+    }
+
+    vpci_ecam_decode_addr(ecam, addr, &bus, &devfn, &reg);
+
+    if ( vpci_access_check(reg, len) || reg >= 0xfff )
+    {
+        vpci_unlock(d);
+        return X86EMUL_UNHANDLEABLE;
+    }
+
+    rc = xen_vpci_write(ecam->segment, bus, devfn, reg, len, data);
+    vpci_unlock(d);
+
+    return rc ? X86EMUL_UNHANDLEABLE : X86EMUL_OKAY;
+}
+
+static const struct hvm_mmio_ops vpci_ecam_ops = {
+    .check = vpci_ecam_accept,
+    .read = vpci_ecam_read,
+    .write = vpci_ecam_write,
+};
+
+int register_vpci_ecam_handler(struct domain *d, paddr_t addr,
+                               unsigned int start_bus, unsigned int end_bus,
+                               unsigned int seg)
+{
+    struct hvm_ecam *ecam;
+
+    ASSERT(is_hardware_domain(d));
+
+    vpci_lock(d);
+    if ( vpci_ecam_find(d, addr) )
+    {
+        vpci_unlock(d);
+        return -EEXIST;
+    }
+
+    ecam = xzalloc(struct hvm_ecam);
+    if ( !ecam )
+    {
+        vpci_unlock(d);
+        return -ENOMEM;
+    }
+
+    if ( list_empty(&d->arch.hvm_domain.ecam_regions) )
+        register_mmio_handler(d, &vpci_ecam_ops);
+
+    ecam->addr = addr + (start_bus << 20);
+    ecam->bus = start_bus;
+    ecam->segment = seg;
+    ecam->size = (end_bus - start_bus + 1) << 20;
+    list_add(&ecam->next, &d->arch.hvm_domain.ecam_regions);
+    vpci_unlock(d);
+
+    return 0;
+}
+
 /*
  * Local variables:
  * mode: C

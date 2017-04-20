@@ -100,6 +100,14 @@ struct hvm_pi_ops {
     void (*do_resume)(struct vcpu *v);
 };
 
+struct hvm_ecam {
+    paddr_t addr;
+    size_t size;
+    unsigned int bus;
+    unsigned int segment;
+    struct list_head next;
+};
+
 struct hvm_domain {
     /* Guest page range used for non-default ioreq servers */
     struct {
@@ -186,6 +194,9 @@ struct hvm_domain {
 
     /* Lock for the PCI emulation layer (vPCI). */
     spinlock_t vpci_lock;
+
+    /* List of ECAM (MMCFG) regions trapped by Xen. */
+    struct list_head ecam_regions;
 
     /* List of permanently write-mapped pages. */
     struct {
