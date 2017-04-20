@@ -76,6 +76,9 @@ struct vpci {
             bool sizing;
         } bars[6];
     } header;
+
+    /* List of capabilities supported by the device. */
+    struct list_head cap_list;
 #endif
 };
 
