@@ -177,6 +177,7 @@ bool __initdata opt_dom0_shadow;
 #endif
 bool __initdata dom0_pvh;
 bool __initdata dom0_msi = true;
+bool __initdata dom0_msix = true;
 
 /*
  * List of parameters that affect Dom0 creation:
@@ -184,6 +185,7 @@ bool __initdata dom0_msi = true;
  *  - pvh               Create a PVHv2 Dom0.
  *  - shadow            Use shadow paging for Dom0.
  *  - msi               MSI functionality.
+ *  - msix              MSI-X functionality.
  */
 static void __init parse_dom0_param(char *s)
 {
@@ -207,6 +209,8 @@ static void __init parse_dom0_param(char *s)
 #endif
         else if ( !strcmp(s, "msi") )
             dom0_msi = enabled;
+        else if ( !strcmp(s, "msix") )
+            dom0_msix = enabled;
 
         s = ss + 1;
     } while ( ss );
