@@ -158,6 +158,62 @@ static int vioapic_read(
     return X86EMUL_OKAY;
 }
 
+static int vioapic_dom0_map_gsi(unsigned int gsi, unsigned int trig,
+                                unsigned int pol)
+{
+    struct domain *d = current->domain;
+    xen_domctl_bind_pt_irq_t pt_irq_bind = {
+        .irq_type = PT_IRQ_TYPE_PCI,
+        .machine_irq = gsi,
+        .hvm_domid = DOMID_SELF,
+    };
+    int ret, pirq = gsi;
+
+    ASSERT(is_hardware_domain(d));
+
+    /* Interrupt has been unmasked, bind it now. */
+    ret = mp_register_gsi(gsi, trig, pol);
+    if ( ret && ret != -EEXIST )
+    {
+        gdprintk(XENLOG_WARNING, "vioapic: error registering GSI %u: %d\n",
+                 gsi, ret);
+        goto error;
+    }
+    else if ( ret )
+        /* Already in use. */
+        return 0;
+
+    ret = allocate_and_map_gsi_pirq(d, &pirq, &pirq);
+    if ( ret )
+    {
+        gdprintk(XENLOG_WARNING, "vioapic: error mapping GSI %u: %d\n",
+                 gsi, ret);
+        goto error;
+    }
+
+    pcidevs_lock();
+    ret = pt_irq_create_bind(d, &pt_irq_bind);
+    pcidevs_unlock();
+    if ( ret )
+    {
+        gdprintk(XENLOG_WARNING, "vioapic: error binding GSI %u: %d\n",
+                 gsi, ret);
+        goto error_unmap;
+    }
+
+    return 0;
+
+ error_unmap:
+    pcidevs_lock();
+    spin_lock(&d->event_lock);
+    unmap_domain_pirq(d, pirq);
+    spin_unlock(&d->event_lock);
+    pcidevs_unlock();
+ error:
+    ASSERT(ret);
+    return ret;
+}
+
 static void vioapic_write_redirent(
     struct hvm_vioapic *vioapic, unsigned int idx,
     int top_word, uint32_t val)
@@ -186,6 +242,20 @@ static void vioapic_write_redirent(
         ent.fields.delivery_status = 0;
         ent.fields.remote_irr = pent->fields.remote_irr;
         unmasked = unmasked && !ent.fields.mask;
+    }
+
+    if ( is_hardware_domain(d) && unmasked )
+    {
+        int ret;
+
+        ret = vioapic_dom0_map_gsi(gsi, ent.fields.trig_mode,
+                                   ent.fields.polarity);
+        if ( ret )
+        {
+            /* Mask the entry again. */
+            ent.fields.mask = 1;
+            unmasked = 0;
+        }
     }
 
     *pent = ent;
