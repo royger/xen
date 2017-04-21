@@ -1083,7 +1083,7 @@ wait descriptor timed out', try increasing this value.
 ### iommu\_inclusive\_mapping (VT-d)
 > `= <boolean>`
 
-> Default: `false`
+> Default: `true`
 
 Use this to work around firmware issues providing correct RMRR entries. Rather
 than only mapping RAM pages for IOMMU accesses for Dom0, with this option all
