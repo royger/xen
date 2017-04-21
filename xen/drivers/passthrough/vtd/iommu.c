@@ -1293,6 +1293,8 @@ static void __hwdom_init intel_iommu_hwdom_init(struct domain *d)
         /* Set up 1:1 page table for hardware domain. */
         vtd_set_hwdom_mapping(d);
     }
+    else if ( is_hvm_domain(d) )
+        vtd_set_pvh_hwdom_mapping(d);
 
     setup_hwdom_pci_devices(d, setup_hwdom_device);
     setup_hwdom_rmrr(d);
