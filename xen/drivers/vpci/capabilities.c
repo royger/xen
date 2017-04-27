@@ -145,7 +145,7 @@ static int vpci_capabilities_init(struct pci_dev *pdev)
     return 0;
 }
 
-REGISTER_VPCI_INIT(vpci_capabilities_init);
+REGISTER_VPCI_INIT(vpci_capabilities_init, true);
 
 /*
  * Local variables:

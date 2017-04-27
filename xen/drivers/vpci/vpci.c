@@ -20,7 +20,7 @@
 #include <xen/sched.h>
 #include <xen/vpci.h>
 
-extern const vpci_register_init_t __start_vpci_array[], __end_vpci_array[];
+extern const struct vpci_register_init __start_vpci_array[], __end_vpci_array[];
 #define NUM_VPCI_INIT (__end_vpci_array - __start_vpci_array)
 #define vpci_init __start_vpci_array
 
@@ -37,6 +37,7 @@ struct vpci_register {
 int xen_vpci_add_handlers(struct pci_dev *pdev)
 {
     int i, rc = 0;
+    bool priority = true;
 
     if ( !has_vpci(pdev->domain) )
         return 0;
@@ -47,9 +48,13 @@ int xen_vpci_add_handlers(struct pci_dev *pdev)
 
     pdev->vpci->handlers = RB_ROOT;
 
+ again:
     for ( i = 0; i < NUM_VPCI_INIT; i++ )
     {
-        rc = vpci_init[i](pdev);
+        if ( priority != vpci_init[i].priority )
+            continue;
+
+        rc = vpci_init[i].init(pdev);
         if ( rc )
             break;
     }
@@ -68,6 +73,11 @@ int xen_vpci_add_handlers(struct pci_dev *pdev)
             xfree(r);
         }
         xfree(pdev->vpci);
+    }
+    else if ( priority )
+    {
+        priority = false;
+        goto again;
     }
 
     return rc;
