@@ -21,10 +21,12 @@
 #include <xen/softirq.h>
 #include <xen/domain_page.h>
 #include <asm/paging.h>
+#include <xen/iocap.h>
 #include <xen/iommu.h>
 #include <xen/irq.h>
 #include <xen/numa.h>
 #include <asm/fixmap.h>
+#include <asm/p2m.h>
 #include <asm/setup.h>
 #include "../iommu.h"
 #include "../dmar.h"
@@ -156,6 +158,43 @@ void __hwdom_init vtd_set_hwdom_mapping(struct domain *d)
 
         if (!(i & (0xfffff >> (PAGE_SHIFT - PAGE_SHIFT_4K))))
             process_pending_softirqs();
+    }
+}
+
+void __hwdom_init vtd_set_pvh_hwdom_mapping(struct domain *d)
+{
+    unsigned long pfn;
+
+    BUG_ON(!is_hardware_domain(d));
+
+    if ( !iommu_inclusive_mapping )
+        return;
+
+    /* NB: the low 1MB is already mapped in pvh_setup_p2m. */
+    for ( pfn = PFN_DOWN(MB(1)); pfn < PFN_DOWN(GB(4)); pfn++ )
+    {
+        p2m_access_t a;
+        int rc;
+
+        if ( !(pfn & 0xfff) )
+            process_pending_softirqs();
+
+        /* Skip RAM, ACPI and unusable regions. */
+        if ( page_is_ram_type(pfn, RAM_TYPE_CONVENTIONAL) ||
+             page_is_ram_type(pfn, RAM_TYPE_UNUSABLE) ||
+             page_is_ram_type(pfn, RAM_TYPE_ACPI) ||
+             !iomem_access_permitted(d, pfn, pfn) )
+            continue;
+
+        ASSERT(!xen_in_range(pfn));
+
+        a = rangeset_contains_range(mmio_ro_ranges, pfn, pfn) ? p2m_access_r
+                                                              : p2m_access_rw;
+        rc = set_identity_p2m_entry(d, pfn, a, 0);
+        if ( rc )
+           printk(XENLOG_WARNING VTDPREFIX
+                  " d%d: IOMMU mapping failed pfn %#lx: %d\n",
+                  d->domain_id, pfn, rc);
     }
 }
 
