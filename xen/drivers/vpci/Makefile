@@ -1,1 +1,1 @@
-obj-y += vpci.o header.o capabilities.o
+obj-y += vpci.o header.o capabilities.o msi.o

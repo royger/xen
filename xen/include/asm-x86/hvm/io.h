@@ -20,6 +20,7 @@
 #define __ASM_X86_HVM_IO_H__
 
 #include <xen/mm.h>
+#include <xen/pci.h>
 #include <asm/hvm/vpic.h>
 #include <asm/hvm/vioapic.h>
 #include <public/hvm/ioreq.h>
@@ -125,6 +126,24 @@ void hvm_dpci_eoi(struct domain *d, unsigned int guest_irq,
                   const union vioapic_redir_entry *ent);
 void msix_write_completion(struct vcpu *);
 void msixtbl_init(struct domain *d);
+
+/* Is emulated MSI enabled? */
+extern bool dom0_msi;
+#define vpci_msi_enabled(d) (!is_hardware_domain((d)) || dom0_msi)
+
+/* Arch-specific MSI data for vPCI. */
+struct vpci_arch_msi {
+    int pirq;
+};
+
+/* Arch-specific vPCI MSI helpers. */
+void vpci_msi_mask(struct vpci_arch_msi *arch, unsigned int entry, bool mask);
+int vpci_msi_enable(struct vpci_arch_msi *arch, struct pci_dev *pdev,
+                    uint64_t address, uint32_t data, unsigned int vectors);
+int vpci_msi_disable(struct vpci_arch_msi *arch, struct pci_dev *pdev,
+                     unsigned int vectors);
+int vpci_msi_arch_init(struct vpci_arch_msi *arch);
+void vpci_msi_arch_print(struct vpci_arch_msi *arch);
 
 enum stdvga_cache_state {
     STDVGA_CACHE_UNINITIALIZED,

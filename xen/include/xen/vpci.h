@@ -89,8 +89,34 @@ struct vpci {
 
     /* List of capabilities supported by the device. */
     struct list_head cap_list;
+
+    /* MSI data. */
+    struct vpci_msi {
+        /* Maximum number of vectors supported by the device. */
+        unsigned int max_vectors;
+        /* Current guest-written number of vectors. */
+        unsigned int guest_vectors;
+        /* Number of vectors configured. */
+        unsigned int vectors;
+        /* Address and data fields. */
+        uint64_t address;
+        uint16_t data;
+        /* Mask bitfield. */
+        uint32_t mask;
+        /* Enabled? */
+        bool enabled;
+        /* Supports per-vector masking? */
+        bool masking;
+        /* 64-bit address capable? */
+        bool address64;
+        /* Arch-specific data. */
+        struct vpci_arch_msi arch;
+    } *msi;
 #endif
 };
+
+/* Mask a PCI capability. */
+void xen_vpci_mask_capability(struct pci_dev *pdev, uint8_t cap_id);
 
 #endif
 
