@@ -131,6 +131,10 @@ void msixtbl_init(struct domain *d);
 extern bool dom0_msi;
 #define vpci_msi_enabled(d) (!is_hardware_domain((d)) || dom0_msi)
 
+/* Is emulated MSI enabled? */
+extern bool dom0_msix;
+#define vpci_msix_enabled(d) (!is_hardware_domain((d)) || dom0_msix)
+
 /* Arch-specific MSI data for vPCI. */
 struct vpci_arch_msi {
     int pirq;
@@ -144,6 +148,20 @@ int vpci_msi_disable(struct vpci_arch_msi *arch, struct pci_dev *pdev,
                      unsigned int vectors);
 int vpci_msi_arch_init(struct vpci_arch_msi *arch);
 void vpci_msi_arch_print(struct vpci_arch_msi *arch);
+
+/* Arch-specific MSI-X entry data for vPCI. */
+struct vpci_arch_msix_entry {
+    int pirq;
+};
+
+/* Arch-specific vPCI MSI-X helpers. */
+void vpci_msix_mask(struct vpci_arch_msix_entry *arch, bool mask);
+int vpci_msix_enable(struct vpci_arch_msix_entry *arch, struct pci_dev *pdev,
+                     uint64_t address, uint32_t data, unsigned int entry_nr,
+                     paddr_t table_base);
+int vpci_msix_disable(struct vpci_arch_msix_entry *arch);
+int vpci_msix_arch_init(struct vpci_arch_msix_entry *arch);
+void vpci_msix_arch_print(struct vpci_arch_msix_entry *arch);
 
 enum stdvga_cache_state {
     STDVGA_CACHE_UNINITIALIZED,

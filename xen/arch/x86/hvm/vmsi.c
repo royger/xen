@@ -643,15 +643,15 @@ static unsigned int msi_flags(uint16_t data, uint64_t addr)
            (trig_mode << GFLAGS_SHIFT_TRG_MODE);
 }
 
-void vpci_msi_mask(struct vpci_arch_msi *arch, unsigned int entry, bool mask)
+static void vpci_mask_pirq(int pirq, bool mask)
 {
     struct pirq *pinfo;
     struct irq_desc *desc;
     unsigned long flags;
     int irq;
 
-    ASSERT(arch->pirq != -1);
-    pinfo = pirq_info(current->domain, arch->pirq + entry);
+    ASSERT(pirq != -1);
+    pinfo = pirq_info(current->domain, pirq);
     ASSERT(pinfo);
 
     irq = pinfo->arch.irq;
@@ -663,6 +663,11 @@ void vpci_msi_mask(struct vpci_arch_msi *arch, unsigned int entry, bool mask)
     spin_lock_irqsave(&desc->lock, flags);
     guest_mask_msi_irq(desc, mask);
     spin_unlock_irqrestore(&desc->lock, flags);
+}
+
+void vpci_msi_mask(struct vpci_arch_msi *arch, unsigned int entry, bool mask)
+{
+    vpci_mask_pirq(arch->pirq + entry, mask);
 }
 
 int vpci_msi_enable(struct vpci_arch_msi *arch, struct pci_dev *pdev,
@@ -761,5 +766,108 @@ int vpci_msi_arch_init(struct vpci_arch_msi *arch)
 void vpci_msi_arch_print(struct vpci_arch_msi *arch)
 {
     printk("PIRQ: %d\n", arch->pirq);
+}
+
+void vpci_msix_mask(struct vpci_arch_msix_entry *arch, bool mask)
+{
+    vpci_mask_pirq(arch->pirq, mask);
+}
+
+int vpci_msix_enable(struct vpci_arch_msix_entry *arch, struct pci_dev *pdev,
+                     uint64_t address, uint32_t data, unsigned int entry_nr,
+                     paddr_t table_base)
+{
+    struct domain *d = pdev->domain;
+    xen_domctl_bind_pt_irq_t bind = {
+        .hvm_domid = DOMID_SELF,
+        .irq_type = PT_IRQ_TYPE_MSI,
+        .u.msi.gvec = msi_vector(data),
+        .u.msi.gflags = msi_flags(data, address),
+    };
+    int rc;
+
+    if ( arch->pirq == -1 )
+    {
+        struct msi_info msi_info = {
+            .seg = pdev->seg,
+            .bus = pdev->bus,
+            .devfn = pdev->devfn,
+            .table_base = table_base,
+            .entry_nr = entry_nr,
+        };
+        int index = -1;
+
+        /* Map PIRQ. */
+        rc = allocate_and_map_msi_pirq(pdev->domain, &index, &arch->pirq,
+                                       &msi_info);
+        if ( rc )
+        {
+            gdprintk(XENLOG_ERR,
+                     "%04x:%02x:%02x.%u: unable to map MSI-X PIRQ entry %u: %d\n",
+                     pdev->seg, pdev->bus, PCI_SLOT(pdev->devfn),
+                     PCI_FUNC(pdev->devfn), entry_nr, rc);
+            return rc;
+        }
+    }
+
+    bind.machine_irq = arch->pirq;
+    pcidevs_lock();
+    rc = pt_irq_create_bind(d, &bind);
+    if ( rc )
+    {
+        gdprintk(XENLOG_ERR,
+                 "%04x:%02x:%02x.%u: unable to create MSI-X bind %u: %d\n",
+                 pdev->seg, pdev->bus, PCI_SLOT(pdev->devfn),
+                 PCI_FUNC(pdev->devfn), entry_nr, rc);
+        spin_lock(&pdev->domain->event_lock);
+        unmap_domain_pirq(pdev->domain, arch->pirq);
+        spin_unlock(&pdev->domain->event_lock);
+        arch->pirq = -1;
+    }
+    pcidevs_unlock();
+
+    return 0;
+}
+
+int vpci_msix_disable(struct vpci_arch_msix_entry *arch)
+{
+    xen_domctl_bind_pt_irq_t bind = {
+        .hvm_domid = DOMID_SELF,
+        .irq_type = PT_IRQ_TYPE_MSI,
+        .machine_irq = arch->pirq,
+    };
+    int rc;
+
+    if ( arch->pirq == -1 )
+        return 0;
+
+    pcidevs_lock();
+    rc = pt_irq_destroy_bind(current->domain, &bind);
+    if ( rc )
+    {
+        pcidevs_unlock();
+        return rc;
+    }
+
+    spin_lock(&current->domain->event_lock);
+    unmap_domain_pirq(current->domain, arch->pirq);
+    spin_unlock(&current->domain->event_lock);
+    pcidevs_unlock();
+
+    arch->pirq = -1;
+
+    return 0;
+}
+
+int vpci_msix_arch_init(struct vpci_arch_msix_entry *arch)
+{
+    arch->pirq = -1;
+    return 0;
+}
+
+void vpci_msix_arch_print(struct vpci_arch_msix_entry *arch)
+{
+    /* No newline, it will be added by the generic debug handler. */
+    printk("pirq: %d", arch->pirq);
 }
 

@@ -32,16 +32,47 @@ static int vpci_modify_bars(struct pci_dev *pdev, const bool map)
         paddr_t gaddr = map ? header->bars[i].gaddr
                             : header->bars[i].mapped_addr;
         paddr_t paddr = header->bars[i].paddr;
+        size_t size = header->bars[i].size;
 
         if ( header->bars[i].type != VPCI_BAR_MEM &&
              header->bars[i].type != VPCI_BAR_MEM64_LO )
             continue;
 
-        rc = modify_mmio(pdev->domain, _gfn(PFN_DOWN(gaddr)),
-                         _mfn(PFN_DOWN(paddr)), PFN_UP(header->bars[i].size),
-                         map);
-        if ( rc )
-            break;
+        if ( pdev->vpci->msix != NULL && pdev->vpci->msix->bir == i )
+        {
+            /* There's an MSI-X table inside of this BAR. */
+            paddr_t msix_gaddr = gaddr + pdev->vpci->msix->offset;
+            paddr_t msix_paddr = paddr + pdev->vpci->msix->offset;
+            size_t msix_size = pdev->vpci->msix->max_entries *
+                               PCI_MSIX_ENTRY_SIZE;
+
+            ASSERT(IS_ALIGNED(msix_gaddr, PAGE_SIZE) &&
+                   IS_ALIGNED(msix_paddr, PAGE_SIZE));
+
+            rc = modify_mmio(pdev->domain, _gfn(PFN_DOWN(gaddr)),
+                             _mfn(PFN_DOWN(paddr)),
+                             PFN_DOWN(msix_paddr - paddr), map);
+            if ( rc )
+                break;
+
+            rc = modify_mmio(pdev->domain,
+                             _gfn(PFN_UP(msix_gaddr + msix_size)),
+                             _mfn(PFN_UP(msix_paddr + msix_size)),
+                             PFN_UP(paddr + size -
+                                    round_pgup(msix_paddr + msix_size)), map);
+            if ( rc )
+                break;
+
+            if ( map )
+                pdev->vpci->msix->addr = msix_gaddr;
+        }
+        else
+        {
+            rc = modify_mmio(pdev->domain, _gfn(PFN_DOWN(gaddr)),
+                             _mfn(PFN_DOWN(paddr)), PFN_UP(size), map);
+            if ( rc )
+                break;
+        }
 
         header->bars[i].mapped_addr = map ? gaddr : 0;
     }

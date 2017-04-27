@@ -112,6 +112,33 @@ struct vpci {
         /* Arch-specific data. */
         struct vpci_arch_msi arch;
     } *msi;
+
+    /* MSI-X data. */
+    struct vpci_msix {
+        struct pci_dev *pdev;
+        /* Maximum number of vectors supported by the device. */
+        unsigned int max_entries;
+        /* MSI-X table offset. */
+        unsigned int offset;
+        /* MSI-X table BIR. */
+        unsigned int bir;
+        /* Table addr. */
+        paddr_t addr;
+        /* MSI-X enabled? */
+        bool enabled;
+        /* Masked? */
+        bool masked;
+        /* List link. */
+        struct list_head next;
+        /* Entries. */
+        struct vpci_msix_entry {
+                unsigned int nr;
+                uint64_t addr;
+                uint32_t data;
+                bool masked;
+                struct vpci_arch_msix_entry arch;
+          } entries[];
+    } *msix;
 #endif
 };
 
