@@ -18,6 +18,8 @@
 #include <asm/p2m.h>
 #include <asm/setup.h>
 
+#include "x86_64/mmconfig.h"
+
 static long __initdata dom0_nrpages;
 static long __initdata dom0_min_nrpages;
 static long __initdata dom0_max_nrpages = LONG_MAX;
@@ -450,6 +452,22 @@ int __init dom0_setup_permissions(struct domain *d)
             rc |= iomem_deny_access(d, mfn, mfn + 15);
         else if ( ro_hpet )
             rc |= rangeset_add_singleton(mmio_ro_ranges, mfn);
+    }
+
+    /* For PVH prevent access to the MMCFG areas. */
+    if ( dom0_pvh && pci_mmcfg_config_num )
+    {
+        unsigned int i;
+
+        for ( i = 0; i < pci_mmcfg_config_num; i++ )
+        {
+            paddr_t addr = pci_mmcfg_config[i].address +
+                           (pci_mmcfg_config[i].start_bus_number << 20);
+            size_t size = (pci_mmcfg_config[i].end_bus_number -
+                           pci_mmcfg_config[i].start_bus_number + 1) << 20;
+
+            rc |= iomem_deny_access(d, PFN_DOWN(addr), PFN_UP(addr + size));
+        }
     }
 
     return rc;
