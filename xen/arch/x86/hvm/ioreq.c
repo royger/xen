@@ -1177,6 +1177,9 @@ struct hvm_ioreq_server *hvm_select_ioreq_server(struct domain *d,
          CF8_ENABLED(cf8) )
     {
         uint32_t sbdf, x86_fam;
+        unsigned int bus, devfn, reg;
+
+        hvm_pci_decode_addr(cf8, p->addr, &bus, &devfn, &reg);
 
         /* PCI config data cycle */
 
@@ -1186,9 +1189,7 @@ struct hvm_ioreq_server *hvm_select_ioreq_server(struct domain *d,
                                  PCI_FUNC(CF8_BDF(cf8)));
 
         type = XEN_DMOP_IO_RANGE_PCI;
-        addr = ((uint64_t)sbdf << 32) |
-               CF8_ADDR_LO(cf8) |
-               (p->addr & 3);
+        addr = ((uint64_t)sbdf << 32) | reg;
         /* AMD extended configuration space access? */
         if ( CF8_ADDR_HI(cf8) &&
              d->arch.cpuid->x86_vendor == X86_VENDOR_AMD &&

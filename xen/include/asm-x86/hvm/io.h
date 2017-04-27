@@ -149,11 +149,19 @@ void stdvga_deinit(struct domain *d);
 
 extern void hvm_dpci_msi_eoi(struct domain *d, int vector);
 
+/* Decode a PCI port IO access into a bus/devfn/reg. */
+void hvm_pci_decode_addr(unsigned int cf8, unsigned int addr,
+                         unsigned int *bus, unsigned int *devfn,
+                         unsigned int *reg);
+
 /*
  * HVM port IO handler that performs forwarding of guest IO ports into machine
  * IO ports.
  */
 void register_g2m_portio_handler(struct domain *d);
+
+/* HVM port IO handler for PCI accesses. */
+void register_vpci_portio_handler(struct domain *d);
 
 #endif /* __ASM_X86_HVM_IO_H__ */
 
