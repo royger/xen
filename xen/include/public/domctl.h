@@ -559,7 +559,6 @@ typedef enum pt_irq_type_e {
 struct xen_domctl_bind_pt_irq {
     uint32_t machine_irq;
     pt_irq_type_t irq_type;
-    uint32_t hvm_domid;
 
     union {
         struct {
