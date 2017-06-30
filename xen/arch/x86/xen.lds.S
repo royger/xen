@@ -76,6 +76,9 @@ SECTIONS
 
   __2M_rodata_start = .;       /* Start of 2M superpages, mapped RO. */
   .rodata : {
+       __start_vpci_array = .;
+       *(.rodata.vpci)
+       __end_vpci_array = .;
        _srodata = .;
        /* Bug frames table */
        __start_bug_frames = .;
