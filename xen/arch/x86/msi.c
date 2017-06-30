@@ -1539,6 +1539,7 @@ static void dump_msi(unsigned char key)
     }
 
     vpci_dump_msi();
+    vpci_dump_msix();
 }
 
 static int __init msi_setup_keyhandler(void)

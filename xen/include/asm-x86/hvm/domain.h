@@ -190,6 +190,9 @@ struct hvm_domain {
     /* List of ECAM (MMCFG) regions trapped by Xen. */
     struct list_head mmcfg_regions;
 
+    /* List of MSI-X tables. */
+    struct list_head msix_tables;
+
     /* List of permanently write-mapped pages. */
     struct {
         spinlock_t lock;
