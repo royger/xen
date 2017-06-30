@@ -261,11 +261,11 @@ void register_g2m_portio_handler(struct domain *d)
 static int vpci_access_check(unsigned int reg, unsigned int len)
 {
     /* Check access size. */
-    if ( len != 1 && len != 2 && len != 4 )
+    if ( len != 1 && len != 2 && len != 4 && len != 8 )
         return -EINVAL;
 
-    /* Check if access crosses a double-word boundary. */
-    if ( (reg & 3) + len > 4 )
+    /* Check if access crosses a double-word boundary or it's not aligned. */
+    if ( (len <= 4 && (reg & 3) + len > 4) || (len == 8 && (reg & 3) != 0) )
         return -EINVAL;
 
     return 0;
@@ -396,6 +396,188 @@ void register_vpci_portio_handler(struct domain *d)
     spin_lock_init(&d->arch.hvm_domain.vpci_lock);
     handler->type = IOREQ_TYPE_PIO;
     handler->ops = &vpci_portio_ops;
+}
+
+struct hvm_mmcfg {
+    paddr_t addr;
+    size_t size;
+    unsigned int bus;
+    unsigned int segment;
+    struct list_head next;
+};
+
+/* Handlers to trap PCI ECAM config accesses. */
+static const struct hvm_mmcfg *vpci_mmcfg_find(struct domain *d,
+                                               unsigned long addr)
+{
+    const struct hvm_mmcfg *mmcfg;
+
+    ASSERT(vpci_locked(d));
+    list_for_each_entry ( mmcfg, &d->arch.hvm_domain.mmcfg_regions, next )
+        if ( addr >= mmcfg->addr && addr < mmcfg->addr + mmcfg->size )
+            return mmcfg;
+
+    return NULL;
+}
+
+static void vpci_mmcfg_decode_addr(const struct hvm_mmcfg *mmcfg,
+                                   unsigned long addr, unsigned int *bus,
+                                   unsigned int *slot, unsigned int *func,
+                                   unsigned int *reg)
+{
+    addr -= mmcfg->addr;
+    *bus = ((addr >> 20) & 0xff) + mmcfg->bus;
+    *slot = (addr >> 15) & 0x1f;
+    *func = (addr >> 12) & 0x7;
+    *reg = addr & 0xfff;
+}
+
+static int vpci_mmcfg_accept(struct vcpu *v, unsigned long addr)
+{
+    struct domain *d = v->domain;
+    bool found;
+
+    vpci_lock(d);
+    found = vpci_mmcfg_find(d, addr);
+    vpci_unlock(d);
+
+    return found;
+}
+
+static int vpci_mmcfg_read(struct vcpu *v, unsigned long addr,
+                           unsigned int len, unsigned long *data)
+{
+    struct domain *d = v->domain;
+    const struct hvm_mmcfg *mmcfg;
+    unsigned int bus, slot, func, reg;
+
+    *data = ~(unsigned long)0;
+
+    vpci_lock(d);
+    mmcfg = vpci_mmcfg_find(d, addr);
+    if ( !mmcfg )
+    {
+        vpci_unlock(d);
+        return X86EMUL_OKAY;
+    }
+
+    vpci_mmcfg_decode_addr(mmcfg, addr, &bus, &slot, &func, &reg);
+
+    if ( vpci_access_check(reg, len) )
+    {
+        vpci_unlock(d);
+        return X86EMUL_OKAY;
+    }
+
+    pcidevs_lock();
+    if ( len == 8 )
+    {
+        /*
+         * According to the PCIe 3.1A specification:
+         *  - Configuration Reads and Writes must usually be DWORD or smaller
+         *    in size.
+         *  - Because Root Complex implementations are not required to support
+         *    accesses to a RCRB that cross DW boundaries [...] software
+         *    should take care not to cause the generation of such accesses
+         *    when accessing a RCRB unless the Root Complex will support the
+         *    access.
+         *  Xen however supports 8byte accesses by splitting them into two
+         *  4byte accesses.
+         */
+        *data = vpci_read(mmcfg->segment, bus, slot, func, reg, 4);
+        *data |= (uint64_t)vpci_read(mmcfg->segment, bus, slot, func,
+                                     reg + 4, 4) << 32;
+    }
+    else
+        *data = vpci_read(mmcfg->segment, bus, slot, func, reg, len);
+    pcidevs_unlock();
+    vpci_unlock(d);
+
+    return X86EMUL_OKAY;
+}
+
+static int vpci_mmcfg_write(struct vcpu *v, unsigned long addr,
+                            unsigned int len, unsigned long data)
+{
+    struct domain *d = v->domain;
+    const struct hvm_mmcfg *mmcfg;
+    unsigned int bus, slot, func, reg;
+
+    vpci_lock(d);
+    mmcfg = vpci_mmcfg_find(d, addr);
+    if ( !mmcfg )
+        return X86EMUL_OKAY;
+
+    vpci_mmcfg_decode_addr(mmcfg, addr, &bus, &slot, &func, &reg);
+
+    if ( vpci_access_check(reg, len) )
+        return X86EMUL_OKAY;
+
+    pcidevs_lock();
+    if ( len == 8 )
+    {
+        vpci_write(mmcfg->segment, bus, slot, func, reg, 4, data);
+        vpci_write(mmcfg->segment, bus, slot, func, reg + 4, 4, data >> 32);
+    }
+    else
+        vpci_write(mmcfg->segment, bus, slot, func, reg, len, data);
+    pcidevs_unlock();
+    vpci_unlock(d);
+
+    return X86EMUL_OKAY;
+}
+
+static const struct hvm_mmio_ops vpci_mmcfg_ops = {
+    .check = vpci_mmcfg_accept,
+    .read = vpci_mmcfg_read,
+    .write = vpci_mmcfg_write,
+};
+
+int register_vpci_mmcfg_handler(struct domain *d, paddr_t addr,
+                                unsigned int start_bus, unsigned int end_bus,
+                                unsigned int seg)
+{
+    struct hvm_mmcfg *mmcfg;
+
+    ASSERT(is_hardware_domain(d));
+
+    vpci_lock(d);
+    if ( vpci_mmcfg_find(d, addr) )
+    {
+        vpci_unlock(d);
+        return -EEXIST;
+    }
+
+    mmcfg = xmalloc(struct hvm_mmcfg);
+    if ( !mmcfg )
+    {
+        vpci_unlock(d);
+        return -ENOMEM;
+    }
+
+    if ( list_empty(&d->arch.hvm_domain.mmcfg_regions) )
+        register_mmio_handler(d, &vpci_mmcfg_ops);
+
+    mmcfg->addr = addr + (start_bus << 20);
+    mmcfg->bus = start_bus;
+    mmcfg->segment = seg;
+    mmcfg->size = (end_bus - start_bus + 1) << 20;
+    list_add(&mmcfg->next, &d->arch.hvm_domain.mmcfg_regions);
+    vpci_unlock(d);
+
+    return 0;
+}
+
+void destroy_vpci_mmcfg(struct list_head *domain_mmcfg)
+{
+    while ( !list_empty(domain_mmcfg) )
+    {
+        struct hvm_mmcfg *mmcfg = list_first_entry(domain_mmcfg,
+                                                   struct hvm_mmcfg, next);
+
+        list_del(&mmcfg->next);
+        xfree(mmcfg);
+    }
 }
 
 /*
