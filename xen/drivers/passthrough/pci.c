@@ -924,7 +924,7 @@ out:
     return ret;
 }
 
-bool_t __init pci_device_detect(u16 seg, u8 bus, u8 dev, u8 func)
+bool pci_device_detect(u16 seg, u8 bus, u8 dev, u8 func)
 {
     u32 vendor;
 
@@ -971,7 +971,7 @@ void pci_check_disable_device(u16 seg, u8 bus, u8 devfn)
  * scan pci devices to add all existed PCI devices to alldevs_list,
  * and setup pci hierarchy in array bus2bridge.
  */
-static int __init _scan_pci_devices(struct pci_seg *pseg, void *arg)
+static int _scan_pci_devices(struct pci_seg *pseg, void *arg)
 {
     struct pci_dev *pdev;
     int bus, dev, func;
@@ -1050,7 +1050,7 @@ static void setup_one_hwdom_device(const struct setup_hwdom *ctxt,
                ctxt->d->domain_id, err);
 }
 
-static int __hwdom_init _setup_hwdom_pci_devices(struct pci_seg *pseg, void *arg)
+static int _setup_hwdom_pci_devices(struct pci_seg *pseg, void *arg)
 {
     struct setup_hwdom *ctxt = arg;
     int bus, devfn;
@@ -1108,6 +1108,37 @@ void __hwdom_init setup_hwdom_pci_devices(
     pcidevs_lock();
     pci_segments_iterate(_setup_hwdom_pci_devices, &ctxt);
     pcidevs_unlock();
+}
+
+static int add_device(uint8_t devfn, struct pci_dev *pdev)
+{
+    return iommu_add_device(pdev);
+}
+
+int pci_scan_and_setup_segment(uint16_t segment)
+{
+    struct pci_seg *pseg = get_pseg(segment);
+    struct setup_hwdom ctxt = {
+        .d = current->domain,
+        .handler = add_device,
+    };
+    int ret;
+
+    if ( !pseg )
+        return -EINVAL;
+
+    pcidevs_lock();
+    ret = _scan_pci_devices(pseg, NULL);
+    if ( ret )
+        goto out;
+
+    ret = _setup_hwdom_pci_devices(pseg, &ctxt);
+    if ( ret )
+        goto out;
+
+ out:
+    pcidevs_unlock();
+    return ret;
 }
 
 #ifdef CONFIG_ACPI

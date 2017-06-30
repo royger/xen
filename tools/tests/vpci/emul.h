@@ -58,8 +58,6 @@ extern struct pci_dev test_pdev;
 
 #include "vpci.h"
 
-#define __hwdom_init
-
 #define has_vpci(d) true
 
 /* Define our own locks. */

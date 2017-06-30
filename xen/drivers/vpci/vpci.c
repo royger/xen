@@ -33,12 +33,12 @@ struct vpci_register {
     struct list_head node;
 };
 
-int __hwdom_init vpci_add_handlers(struct pci_dev *pdev)
+int vpci_add_handlers(struct pci_dev *pdev)
 {
     unsigned int i;
     int rc = 0;
 
-    if ( !has_vpci(pdev->domain) )
+    if ( !has_vpci(pdev->domain) || pdev->vpci )
         return 0;
 
     pdev->vpci = xzalloc(struct vpci);

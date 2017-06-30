@@ -559,6 +559,25 @@ ret_t do_physdev_op(int cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
 
         ret = pci_mmcfg_reserved(info.address, info.segment,
                                  info.start_bus, info.end_bus, info.flags);
+        if ( ret || !is_hvm_domain(currd) )
+            break;
+
+        /*
+         * For HVM (PVH) domains try to add the newly found MMCFG to the
+         * domain.
+         */
+        ret = register_vpci_mmcfg_handler(currd, info.address, info.start_bus,
+                                          info.end_bus, info.segment);
+        if ( ret == -EEXIST )
+        {
+            ret = 0;
+            break;
+        }
+        if ( ret )
+            break;
+
+        ret = pci_scan_and_setup_segment(info.segment);
+
         break;
     }
 
