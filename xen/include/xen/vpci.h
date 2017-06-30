@@ -13,6 +13,7 @@
  * of just returning whether the lock is hold by any CPU).
  */
 #define vpci_lock(d) spin_lock_recursive(&(d)->arch.hvm_domain.vpci_lock)
+#define vpci_trylock(d) spin_trylock_recursive(&(d)->arch.hvm_domain.vpci_lock)
 #define vpci_unlock(d) spin_unlock_recursive(&(d)->arch.hvm_domain.vpci_lock)
 #define vpci_locked(d) spin_is_locked(&(d)->arch.hvm_domain.vpci_lock)
 
@@ -85,8 +86,33 @@ struct vpci {
         } bars[7]; /* At most 6 BARS + 1 expansion ROM BAR. */
         /* FIXME: currently there's no support for SR-IOV. */
     } header;
+
+    /* MSI data. */
+    struct vpci_msi {
+        /* Offset of the capability in the config space. */
+        unsigned int pos;
+        /* Maximum number of vectors supported by the device. */
+        unsigned int max_vectors;
+        /* Number of vectors configured. */
+        unsigned int vectors;
+        /* Address and data fields. */
+        uint64_t address;
+        uint16_t data;
+        /* Mask bitfield. */
+        uint32_t mask;
+        /* Enabled? */
+        bool enabled;
+        /* Supports per-vector masking? */
+        bool masking;
+        /* 64-bit address capable? */
+        bool address64;
+        /* Arch-specific data. */
+        struct vpci_arch_msi arch;
+    } *msi;
 #endif
 };
+
+void vpci_dump_msi(void);
 
 #endif
 
