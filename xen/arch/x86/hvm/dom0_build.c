@@ -61,32 +61,6 @@ static struct acpi_madt_interrupt_override __initdata *intsrcovr;
 static unsigned int __initdata acpi_nmi_sources;
 static struct acpi_madt_nmi_source __initdata *nmisrc;
 
-static int __init modify_identity_mmio(struct domain *d, unsigned long pfn,
-                                       unsigned long nr_pages, const bool map)
-{
-    int rc;
-
-    for ( ; ; )
-    {
-        rc = (map ? map_mmio_regions : unmap_mmio_regions)
-             (d, _gfn(pfn), nr_pages, _mfn(pfn));
-        if ( rc == 0 )
-            break;
-        if ( rc < 0 )
-        {
-            printk(XENLOG_WARNING
-                   "Failed to identity %smap [%#lx,%#lx) for d%d: %d\n",
-                   map ? "" : "un", pfn, pfn + nr_pages, d->domain_id, rc);
-            break;
-        }
-        nr_pages -= rc;
-        pfn += rc;
-        process_pending_softirqs();
-    }
-
-    return rc;
-}
-
 /* Populate a HVM memory range using the biggest possible order. */
 static int __init pvh_populate_memory_range(struct domain *d,
                                             unsigned long start,
@@ -397,7 +371,7 @@ static int __init pvh_setup_p2m(struct domain *d)
      * Memory below 1MB is identity mapped.
      * NB: this only makes sense when booted from legacy BIOS.
      */
-    rc = modify_identity_mmio(d, 0, MB1_PAGES, true);
+    rc = modify_mmio(d, _gfn(0), _mfn(0), MB1_PAGES, true);
     if ( rc )
     {
         printk("Failed to identity map low 1MB: %d\n", rc);
@@ -971,7 +945,7 @@ static int __init pvh_setup_acpi(struct domain *d, paddr_t start_info)
         nr_pages = PFN_UP((d->arch.e820[i].addr & ~PAGE_MASK) +
                           d->arch.e820[i].size);
 
-        rc = modify_identity_mmio(d, pfn, nr_pages, true);
+        rc = modify_mmio(d, _gfn(pfn), _mfn(pfn), nr_pages, true);
         if ( rc )
         {
             printk("Failed to map ACPI region [%#lx, %#lx) into Dom0 memory map\n",

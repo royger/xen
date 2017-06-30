@@ -1465,6 +1465,46 @@ int prepare_ring_for_helper(
     return 0;
 }
 
+#if defined(CONFIG_X86) || defined(CONFIG_HAS_PCI)
+int modify_mmio(struct domain *d, gfn_t gfn, mfn_t mfn, unsigned long nr_pages,
+                const bool map)
+{
+    int rc;
+
+    /*
+     * ATM this function should only be used by the hardware domain
+     * because it doesn't support preemption/continuation, and as such
+     * can take a non-trivial amount of time. Note that it periodically calls
+     * process_pending_softirqs in order to avoid stalling the system.
+     */
+    ASSERT(is_hardware_domain(d));
+
+    for ( ; ; )
+    {
+        rc = (map ? map_mmio_regions : unmap_mmio_regions)
+             (d, gfn, nr_pages, mfn);
+        if ( rc == 0 )
+            break;
+        if ( rc < 0 )
+        {
+            printk(XENLOG_G_WARNING
+                   "Failed to %smap [%" PRI_gfn ", %" PRI_gfn ") -> "
+                   "[%" PRI_mfn ", %" PRI_mfn ") for d%d: %d\n",
+                   map ? "" : "un", gfn_x(gfn), gfn_x(gfn_add(gfn, nr_pages)),
+                   mfn_x(mfn), mfn_x(mfn_add(mfn, nr_pages)), d->domain_id,
+                   rc);
+            break;
+        }
+        nr_pages -= rc;
+        mfn = mfn_add(mfn, rc);
+        gfn = gfn_add(gfn, rc);
+        process_pending_softirqs();
+    }
+
+    return rc;
+}
+#endif
+
 /*
  * Local variables:
  * mode: C
