@@ -42,7 +42,7 @@ SECTIONS
   . = ALIGN(PAGE_SIZE);
   .rodata : {
        __start_vpci_array = .;
-       *(.rodata.vpci)
+       *(SORT(.rodata.vpci.*))
        __end_vpci_array = .;
         _srodata = .;          /* Read-only data */
         /* Bug frames table */
