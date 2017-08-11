@@ -30,6 +30,7 @@
 #include <xen/radix-tree.h>
 #include <xen/softirq.h>
 #include <xen/tasklet.h>
+#include <xen/vpci.h>
 #include <xsm/xsm.h>
 #include <asm/msi.h>
 #include "ats.h"
@@ -1030,9 +1031,10 @@ static void __hwdom_init setup_one_hwdom_device(const struct setup_hwdom *ctxt,
                                                 struct pci_dev *pdev)
 {
     u8 devfn = pdev->devfn;
+    int err;
 
     do {
-        int err = ctxt->handler(devfn, pdev);
+        err = ctxt->handler(devfn, pdev);
 
         if ( err )
         {
@@ -1045,6 +1047,11 @@ static void __hwdom_init setup_one_hwdom_device(const struct setup_hwdom *ctxt,
         devfn += pdev->phantom_stride;
     } while ( devfn != pdev->devfn &&
               PCI_SLOT(devfn) == PCI_SLOT(pdev->devfn) );
+
+    err = vpci_add_handlers(pdev);
+    if ( err )
+        printk(XENLOG_ERR "setup of vPCI for d%d failed: %d\n",
+               ctxt->d->domain_id, err);
 }
 
 static int __hwdom_init _setup_hwdom_pci_devices(struct pci_seg *pseg, void *arg)
