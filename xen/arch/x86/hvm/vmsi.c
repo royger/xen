@@ -622,3 +622,159 @@ void msix_write_completion(struct vcpu *v)
     if ( msixtbl_write(v, ctrl_address, 4, 0) != X86EMUL_OKAY )
         gdprintk(XENLOG_WARNING, "MSI-X write completion failure\n");
 }
+
+static unsigned int msi_vector(uint16_t data)
+{
+    return MASK_EXTR(data, MSI_DATA_VECTOR_MASK);
+}
+
+static unsigned int msi_flags(uint16_t data, uint64_t addr)
+{
+    unsigned int rh, dm, dest_id, deliv_mode, trig_mode;
+
+    rh = MASK_EXTR(addr, MSI_ADDR_REDIRECTION_MASK);
+    dm = MASK_EXTR(addr, MSI_ADDR_DESTMODE_MASK);
+    dest_id = MASK_EXTR(addr, MSI_ADDR_DEST_ID_MASK);
+    deliv_mode = MASK_EXTR(data, MSI_DATA_DELIVERY_MODE_MASK);
+    trig_mode = MASK_EXTR(data, MSI_DATA_TRIGGER_MASK);
+
+    return (dest_id << GFLAGS_SHIFT_DEST_ID) | (rh << GFLAGS_SHIFT_RH) |
+           (dm << GFLAGS_SHIFT_DM) | (deliv_mode << GFLAGS_SHIFT_DELIV_MODE) |
+           (trig_mode << GFLAGS_SHIFT_TRG_MODE);
+}
+
+void vpci_msi_arch_mask(struct vpci_arch_msi *arch, struct pci_dev *pdev,
+                        unsigned int entry, bool mask)
+{
+    struct domain *d = pdev->domain;
+    const struct pirq *pinfo;
+    struct irq_desc *desc;
+    unsigned long flags;
+    int irq;
+
+    ASSERT(arch->pirq >= 0);
+    pinfo = pirq_info(d, arch->pirq + entry);
+    if ( !pinfo )
+        return;
+
+    irq = pinfo->arch.irq;
+    if ( irq >= nr_irqs || irq < 0)
+        return;
+
+    desc = irq_to_desc(irq);
+    if ( !desc )
+        return;
+
+    spin_lock_irqsave(&desc->lock, flags);
+    guest_mask_msi_irq(desc, mask);
+    spin_unlock_irqrestore(&desc->lock, flags);
+}
+
+int vpci_msi_arch_enable(struct vpci_arch_msi *arch, struct pci_dev *pdev,
+                         uint64_t address, uint32_t data, unsigned int vectors)
+{
+    struct msi_info msi_info = {
+        .seg = pdev->seg,
+        .bus = pdev->bus,
+        .devfn = pdev->devfn,
+        .entry_nr = vectors,
+    };
+    unsigned int i;
+    int rc;
+
+    ASSERT(arch->pirq == INVALID_PIRQ);
+
+    /* Get a PIRQ. */
+    rc = allocate_and_map_msi_pirq(pdev->domain, -1, &arch->pirq,
+                                   MAP_PIRQ_TYPE_MULTI_MSI, &msi_info);
+    if ( rc )
+    {
+        gdprintk(XENLOG_ERR, "%04x:%02x:%02x.%u: failed to map PIRQ: %d\n",
+                 pdev->seg, pdev->bus, PCI_SLOT(pdev->devfn),
+                 PCI_FUNC(pdev->devfn), rc);
+        return rc;
+    }
+
+    for ( i = 0; i < vectors; i++ )
+    {
+        xen_domctl_bind_pt_irq_t bind = {
+            .machine_irq = arch->pirq + i,
+            .irq_type = PT_IRQ_TYPE_MSI,
+            .u.msi.gvec = msi_vector(data) + i,
+            .u.msi.gflags = msi_flags(data, address),
+        };
+
+        pcidevs_lock();
+        rc = pt_irq_create_bind(pdev->domain, &bind);
+        if ( rc )
+        {
+            gdprintk(XENLOG_ERR,
+                     "%04x:%02x:%02x.%u: failed to bind PIRQ %u: %d\n",
+                     pdev->seg, pdev->bus, PCI_SLOT(pdev->devfn),
+                     PCI_FUNC(pdev->devfn), arch->pirq + i, rc);
+            while ( bind.machine_irq-- )
+                pt_irq_destroy_bind(pdev->domain, &bind);
+            spin_lock(&pdev->domain->event_lock);
+            unmap_domain_pirq(pdev->domain, arch->pirq);
+            spin_unlock(&pdev->domain->event_lock);
+            pcidevs_unlock();
+            arch->pirq = -1;
+            return rc;
+        }
+        pcidevs_unlock();
+    }
+
+    return 0;
+}
+
+int vpci_msi_arch_disable(struct vpci_arch_msi *arch, struct pci_dev *pdev,
+                          unsigned int vectors)
+{
+    unsigned int i;
+
+    ASSERT(arch->pirq != INVALID_PIRQ);
+
+    pcidevs_lock();
+    for ( i = 0; i < vectors; i++ )
+    {
+        xen_domctl_bind_pt_irq_t bind = {
+            .machine_irq = arch->pirq + i,
+            .irq_type = PT_IRQ_TYPE_MSI,
+        };
+        int rc;
+
+        rc = pt_irq_destroy_bind(pdev->domain, &bind);
+        gdprintk(XENLOG_ERR,
+                 "%04x:%02x:%02x.%u: failed to unbind PIRQ %u: %d\n",
+                 pdev->seg, pdev->bus, PCI_SLOT(pdev->devfn),
+                 PCI_FUNC(pdev->devfn), arch->pirq + i, rc);
+    }
+
+    spin_lock(&pdev->domain->event_lock);
+    unmap_domain_pirq(pdev->domain, arch->pirq);
+    spin_unlock(&pdev->domain->event_lock);
+    pcidevs_unlock();
+
+    arch->pirq = INVALID_PIRQ;
+
+    return 0;
+}
+
+void vpci_msi_arch_init(struct vpci_arch_msi *arch)
+{
+    arch->pirq = INVALID_PIRQ;
+}
+
+void vpci_msi_arch_print(const struct vpci_arch_msi *arch, uint16_t data,
+                         uint64_t addr)
+{
+    printk("vec=%#02x%7s%6s%3sassert%5s%7s dest_id=%lu pirq: %d\n",
+           MASK_EXTR(data, MSI_DATA_VECTOR_MASK),
+           data & MSI_DATA_DELIVERY_LOWPRI ? "lowest" : "fixed",
+           data & MSI_DATA_TRIGGER_LEVEL ? "level" : "edge",
+           data & MSI_DATA_LEVEL_ASSERT ? "" : "de",
+           addr & MSI_ADDR_DESTMODE_LOGIC ? "log" : "phys",
+           addr & MSI_ADDR_REDIRECTION_LOWPRI ? "lowest" : "fixed",
+           MASK_EXTR(addr, MSI_ADDR_DEST_ID_MASK),
+           arch->pirq);
+}
