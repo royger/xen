@@ -605,13 +605,6 @@ static int __init pvh_setup_cpus(struct domain *d, paddr_t entry,
         return rc;
     }
 
-    rc = dom0_setup_permissions(d);
-    if ( rc )
-    {
-        panic("Unable to setup Dom0 permissions: %d\n", rc);
-        return rc;
-    }
-
     update_domain_wallclock_time(d);
 
     clear_bit(_VPF_down, &v->pause_flags);
@@ -1059,7 +1052,12 @@ int __init dom0_construct_pvh(struct domain *d, const module_t *image,
 
     printk("** Building a PVH Dom0 **\n");
 
-    iommu_hwdom_init(d);
+    rc = dom0_setup_permissions(d);
+    if ( rc )
+    {
+        printk("Unable to setup Dom0 permissions: %d\n", rc);
+        return rc;
+    }
 
     rc = pvh_setup_p2m(d);
     if ( rc )
@@ -1067,6 +1065,8 @@ int __init dom0_construct_pvh(struct domain *d, const module_t *image,
         printk("Failed to setup Dom0 physical memory map\n");
         return rc;
     }
+
+    iommu_hwdom_init(d);
 
     rc = pvh_load_kernel(d, image, image_headroom, initrd, bootstrap_map(image),
                          cmdline, &entry, &start_info);
