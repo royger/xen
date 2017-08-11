@@ -524,10 +524,9 @@ static const struct hvm_mmio_ops vpci_mmcfg_ops = {
     .write = vpci_mmcfg_write,
 };
 
-int __hwdom_init register_vpci_mmcfg_handler(struct domain *d, paddr_t addr,
-                                             unsigned int start_bus,
-                                             unsigned int end_bus,
-                                             unsigned int seg)
+int register_vpci_mmcfg_handler(struct domain *d, paddr_t addr,
+                                unsigned int start_bus, unsigned int end_bus,
+                                unsigned int seg)
 {
     struct hvm_mmcfg *mmcfg;
 
