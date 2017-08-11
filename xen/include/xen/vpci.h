@@ -65,6 +65,29 @@ void vpci_write(unsigned int seg, unsigned int bus, unsigned int slot,
 struct vpci {
     /* List of vPCI handlers for a device. */
     struct list_head handlers;
+
+#ifdef __XEN__
+    /* Hide the rest of the vpci struct from the user-space test harness. */
+    struct vpci_header {
+        /* Information about the PCI BARs of this device. */
+        struct vpci_bar {
+            enum {
+                VPCI_BAR_EMPTY,
+                VPCI_BAR_IO,
+                VPCI_BAR_MEM32,
+                VPCI_BAR_MEM64_LO,
+                VPCI_BAR_MEM64_HI,
+                VPCI_BAR_ROM,
+            } type;
+            paddr_t addr;
+            uint64_t size;
+            bool prefetchable;
+            bool enabled;
+            bool sizing;
+        } bars[7]; /* At most 6 BARS + 1 expansion ROM BAR. */
+        /* FIXME: currently there's no support for SR-IOV. */
+    } header;
+#endif
 };
 
 #endif
