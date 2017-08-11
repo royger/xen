@@ -402,7 +402,7 @@ int __init dom0_setup_permissions(struct domain *d)
     for ( i = 0; i < nr_ioapics; i++ )
     {
         mfn = paddr_to_pfn(mp_ioapics[i].mpc_apicaddr);
-        if ( !rangeset_contains_singleton(mmio_ro_ranges, mfn) )
+        if ( dom0_pvh || !rangeset_contains_singleton(mmio_ro_ranges, mfn) )
             rc |= iomem_deny_access(d, mfn, mfn);
     }
     /* MSI range. */
