@@ -41,6 +41,11 @@ SECTIONS
 
   . = ALIGN(PAGE_SIZE);
   .rodata : {
+#if defined(CONFIG_HAS_PCI) && defined(CONFIG_LATE_HWDOM)
+       __start_vpci_array = .;
+       *(.rodata.vpci)
+       __end_vpci_array = .;
+#endif
         _srodata = .;          /* Read-only data */
         /* Bug frames table */
        __start_bug_frames = .;
@@ -131,6 +136,11 @@ SECTIONS
   } :text
   . = ALIGN(PAGE_SIZE);
   .init.data : {
+#if defined(CONFIG_HAS_PCI) && !defined(CONFIG_LATE_HWDOM)
+       __start_vpci_array = .;
+       *(.init.rodata.vpci)
+       __end_vpci_array = .;
+#endif
        *(.init.rodata)
        *(.init.rodata.rel)
        *(.init.rodata.str*)

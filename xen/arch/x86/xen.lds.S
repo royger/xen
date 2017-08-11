@@ -76,6 +76,11 @@ SECTIONS
 
   __2M_rodata_start = .;       /* Start of 2M superpages, mapped RO. */
   .rodata : {
+#if defined(CONFIG_HAS_PCI) && defined(CONFIG_LATE_HWDOM)
+       __start_vpci_array = .;
+       *(.rodata.vpci)
+       __end_vpci_array = .;
+#endif
        _srodata = .;
        /* Bug frames table */
        __start_bug_frames = .;
@@ -167,6 +172,11 @@ SECTIONS
        _einittext = .;
   } :text
   .init.data : {
+#if defined(CONFIG_HAS_PCI) && !defined(CONFIG_LATE_HWDOM)
+       __start_vpci_array = .;
+       *(.init.rodata.vpci)
+       __end_vpci_array = .;
+#endif
        *(.init.rodata)
        *(.init.rodata.rel)
        *(.init.rodata.str*)
