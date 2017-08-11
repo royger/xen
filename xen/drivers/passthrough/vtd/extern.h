@@ -100,5 +100,6 @@ bool_t platform_supports_intremap(void);
 bool_t platform_supports_x2apic(void);
 
 void vtd_set_hwdom_mapping(struct domain *d);
+void vtd_set_pvh_hwdom_mapping(struct domain *d);
 
 #endif // _VTD_EXTERN_H_
