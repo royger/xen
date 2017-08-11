@@ -78,6 +78,10 @@ struct vpci {
         struct vpci_bar {
             paddr_t addr;
             uint64_t size;
+#define VPCI_BAR_MSIX_TABLE     0
+#define VPCI_BAR_MSIX_PBA       1
+#define VPCI_BAR_MSIX_NUM       2
+            struct vpci_msix_mem *msix[VPCI_BAR_MSIX_NUM];
             enum {
                 VPCI_BAR_EMPTY,
                 VPCI_BAR_IO,
@@ -122,6 +126,41 @@ struct vpci {
         /* 64-bit address capable? */
         bool address64;
     } *msi;
+
+    /* MSI-X data. */
+    struct vpci_msix {
+        struct pci_dev *pdev;
+        /* List link. */
+        struct list_head next;
+        /* Table information. */
+        struct vpci_msix_mem {
+            /* MSI-X table offset. */
+            unsigned int offset;
+            /* MSI-X table BIR. */
+            unsigned int bir;
+            /* Table addr. */
+            paddr_t addr;
+            /* Table size. */
+            unsigned int size;
+        } table;
+        /* PBA */
+        struct vpci_msix_mem pba;
+        /* Maximum number of vectors supported by the device. */
+        unsigned int max_entries;
+        /* MSI-X enabled? */
+        bool enabled;
+        /* Masked? */
+        bool masked;
+        /* Entries. */
+        struct vpci_msix_entry {
+            uint64_t addr;
+            uint32_t data;
+            unsigned int nr;
+            struct vpci_arch_msix_entry arch;
+            bool masked;
+            bool updated;
+        } entries[];
+    } *msix;
 #endif
 };
 
