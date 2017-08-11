@@ -38,6 +38,8 @@
 #include <public/hvm/hvm_info_table.h>
 #include <public/hvm/hvm_vcpu.h>
 
+#include "../x86_64/mmconfig.h"
+
 /*
  * Have the TSS cover the ISA port range, which makes it
  * - 104 bytes base structure
@@ -1041,6 +1043,26 @@ static int __init pvh_setup_acpi(struct domain *d, paddr_t start_info)
     return 0;
 }
 
+int __hwdom_init pvh_setup_mmcfg(struct domain *d)
+{
+    unsigned int i;
+    int rc;
+
+    for ( i = 0; i < pci_mmcfg_config_num; i++ )
+    {
+        rc = register_vpci_mmcfg_handler(d, pci_mmcfg_config[i].address,
+                                         pci_mmcfg_config[i].start_bus_number,
+                                         pci_mmcfg_config[i].end_bus_number,
+                                         pci_mmcfg_config[i].pci_segment);
+        if ( rc )
+            printk("Unable to setup MMCFG handler at %#lx for segment %u\n",
+                   pci_mmcfg_config[i].address,
+                   pci_mmcfg_config[i].pci_segment);
+    }
+
+    return 0;
+}
+
 int __init dom0_construct_pvh(struct domain *d, const module_t *image,
                               unsigned long image_headroom,
                               module_t *initrd,
@@ -1087,6 +1109,13 @@ int __init dom0_construct_pvh(struct domain *d, const module_t *image,
     if ( rc )
     {
         printk("Failed to setup Dom0 ACPI tables: %d\n", rc);
+        return rc;
+    }
+
+    rc = pvh_setup_mmcfg(d);
+    if ( rc )
+    {
+        printk("Failed to setup Dom0 PCI MMCFG areas: %d\n", rc);
         return rc;
     }
 

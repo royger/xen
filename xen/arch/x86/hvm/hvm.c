@@ -583,6 +583,7 @@ int hvm_domain_initialise(struct domain *d, unsigned long domcr_flags,
     spin_lock_init(&d->arch.hvm_domain.write_map.lock);
     INIT_LIST_HEAD(&d->arch.hvm_domain.write_map.list);
     INIT_LIST_HEAD(&d->arch.hvm_domain.g2m_ioport_list);
+    INIT_LIST_HEAD(&d->arch.hvm_domain.mmcfg_regions);
 
     rc = create_perdomain_mapping(d, PERDOMAIN_VIRT_START, 0, NULL, NULL);
     if ( rc )
@@ -728,6 +729,8 @@ void hvm_domain_destroy(struct domain *d)
         list_del(&ioport->list);
         xfree(ioport);
     }
+
+    destroy_vpci_mmcfg(&d->arch.hvm_domain.mmcfg_regions);
 }
 
 static int hvm_save_tsc_adjust(struct domain *d, hvm_domain_context_t *h)
