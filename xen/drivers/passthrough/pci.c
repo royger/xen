@@ -594,15 +594,18 @@ static int iommu_remove_device(struct pci_dev *pdev);
 
 int pci_size_mem_bar(unsigned int seg, unsigned int bus, unsigned int slot,
                      unsigned int func, unsigned int pos, bool last,
-                     uint64_t *paddr, uint64_t *psize, bool vf)
+                     uint64_t *paddr, uint64_t *psize, bool vf, bool rom)
 {
     uint32_t hi = 0, bar = pci_conf_read32(seg, bus, slot, func, pos);
     uint64_t addr, size;
+    bool is64bits = !rom && (bar & PCI_BASE_ADDRESS_MEM_TYPE_MASK) ==
+                    PCI_BASE_ADDRESS_MEM_TYPE_64;
 
-    ASSERT((bar & PCI_BASE_ADDRESS_SPACE) == PCI_BASE_ADDRESS_SPACE_MEMORY);
+    ASSERT(!(rom && vf));
+    ASSERT(rom ||
+           (bar & PCI_BASE_ADDRESS_SPACE) == PCI_BASE_ADDRESS_SPACE_MEMORY);
     pci_conf_write32(seg, bus, slot, func, pos, ~0);
-    if ( (bar & PCI_BASE_ADDRESS_MEM_TYPE_MASK) ==
-         PCI_BASE_ADDRESS_MEM_TYPE_64 )
+    if ( is64bits )
     {
         if ( last )
         {
@@ -616,9 +619,8 @@ int pci_size_mem_bar(unsigned int seg, unsigned int bus, unsigned int slot,
         pci_conf_write32(seg, bus, slot, func, pos + 4, ~0);
     }
     size = pci_conf_read32(seg, bus, slot, func, pos) &
-           PCI_BASE_ADDRESS_MEM_MASK;
-    if ( (bar & PCI_BASE_ADDRESS_MEM_TYPE_MASK) ==
-         PCI_BASE_ADDRESS_MEM_TYPE_64 )
+           (rom ? PCI_ROM_ADDRESS_MASK : PCI_BASE_ADDRESS_MEM_MASK);
+    if ( is64bits )
     {
         size |= (uint64_t)pci_conf_read32(seg, bus, slot, func, pos + 4) << 32;
         pci_conf_write32(seg, bus, slot, func, pos + 4, hi);
@@ -627,14 +629,14 @@ int pci_size_mem_bar(unsigned int seg, unsigned int bus, unsigned int slot,
         size |= (uint64_t)~0 << 32;
     pci_conf_write32(seg, bus, slot, func, pos, bar);
     size = -size;
-    addr = (bar & PCI_BASE_ADDRESS_MEM_MASK) | ((uint64_t)hi << 32);
+    addr = (bar & (rom ? PCI_ROM_ADDRESS_MASK : PCI_BASE_ADDRESS_MEM_MASK)) |
+           ((uint64_t)hi << 32);
 
     if ( paddr )
         *paddr = addr;
     *psize = size;
 
-    if ( (bar & PCI_BASE_ADDRESS_MEM_TYPE_MASK) ==
-         PCI_BASE_ADDRESS_MEM_TYPE_64 )
+    if ( is64bits )
         return 2;
 
     return 1;
@@ -716,7 +718,7 @@ int pci_add_device(u16 seg, u8 bus, u8 devfn,
                 }
                 ret = pci_size_mem_bar(seg, bus, slot, func, idx,
                                        i == PCI_SRIOV_NUM_BARS - 1, NULL,
-                                       &pdev->vf_rlen[i], true);
+                                       &pdev->vf_rlen[i], true, false);
                 if ( ret < 0 )
                     break;
 
