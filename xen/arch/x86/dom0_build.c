@@ -440,6 +440,10 @@ int __init dom0_setup_permissions(struct domain *d)
             rc |= rangeset_add_singleton(mmio_ro_ranges, mfn);
     }
 
+    /* For PVH prevent access to the MMCFG areas. */
+    if ( dom0_pvh )
+        rc |= pci_mmcfg_set_domain_permissions(d);
+
     return rc;
 }
 

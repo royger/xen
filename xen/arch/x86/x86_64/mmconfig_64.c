@@ -15,6 +15,8 @@
 #include <xen/pci_regs.h>
 #include <xen/iommu.h>
 #include <xen/rangeset.h>
+#include <xen/sched.h>
+#include <xen/iocap.h>
 
 #include "mmconfig.h"
 
@@ -173,6 +175,25 @@ void pci_mmcfg_arch_disable(unsigned int idx)
     mcfg_ioremap(cfg, idx, 0);
     printk(KERN_WARNING "PCI: Not using MCFG for segment %04x bus %02x-%02x\n",
            cfg->pci_segment, cfg->start_bus_number, cfg->end_bus_number);
+}
+
+int pci_mmcfg_set_domain_permissions(struct domain *d)
+{
+    unsigned int idx;
+    int rc = 0;
+
+    for ( idx = 0; idx < pci_mmcfg_config_num; idx++ )
+    {
+        const struct acpi_mcfg_allocation *cfg = pci_mmcfg_virt[idx].cfg;
+        unsigned long start = PFN_DOWN(cfg->address) +
+                              PCI_BDF(cfg->start_bus_number, 0, 0);
+        unsigned long end = PFN_DOWN(cfg->address) +
+                            PCI_BDF(cfg->end_bus_number, ~0, ~0);
+
+        rc |= iomem_deny_access(d, start, end);
+    }
+
+    return rc;
 }
 
 bool_t pci_mmcfg_decode(unsigned long mfn, unsigned int *seg,
