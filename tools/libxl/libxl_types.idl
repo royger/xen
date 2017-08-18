@@ -506,10 +506,17 @@ libxl_domain_build_info = Struct("domain_build_info",[
     # 65000 which is reserved by the toolstack.
     ("device_tree",      string),
     ("acpi",             libxl_defbool),
+    ("bootloader",       string),
+    ("bootloader_args",  libxl_string_list),
+    ("timer_mode",       libxl_timer_mode),
+    ("nested_hvm",       libxl_defbool),
+    ("apic",             libxl_defbool),
     ("u", KeyedUnion(None, libxl_domain_type, "type",
                 [("hvm", Struct(None, [("firmware",         string),
                                        ("bios",             libxl_bios_type),
                                        ("pae",              libxl_defbool),
+                                       # The apic field is deprecated, please
+                                       # use the unified apic field above.
                                        ("apic",             libxl_defbool),
                                        # The following acpi field is deprecated.
                                        # Please use the unified acpi field above
@@ -526,6 +533,9 @@ libxl_domain_build_info = Struct("domain_build_info",[
                                        ("hpet",             libxl_defbool),
                                        ("vpt_align",        libxl_defbool),
                                        ("mmio_hole_memkb",  MemKB),
+                                       # time_mode and nested_hvm fields are
+                                       # deprecated in favor of the unified
+                                       # fields present above.
                                        ("timer_mode",       libxl_timer_mode),
                                        ("nested_hvm",       libxl_defbool),
                                        # The u.hvm.altp2m field is used solely
@@ -568,6 +578,9 @@ libxl_domain_build_info = Struct("domain_build_info",[
                                        ])),
                  ("pv", Struct(None, [("kernel", string),
                                       ("slack_memkb", MemKB),
+                                      # bootloader and bootloader_args fields
+                                      # are deprecated in favor of the unified
+                                      # fields present above.
                                       ("bootloader", string),
                                       ("bootloader_args", libxl_string_list),
                                       ("cmdline", string),

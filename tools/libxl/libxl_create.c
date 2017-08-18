@@ -406,6 +406,28 @@ int libxl__domain_build_info_setdefault(libxl__gc *gc,
             libxl_domain_type_to_string(b_info->type));
         return ERROR_INVAL;
     }
+
+    if (b_info->type == LIBXL_DOMAIN_TYPE_HVM) {
+        libxl_defbool_setdefault(&b_info->nested_hvm,
+                                 libxl_defbool_val(b_info->u.hvm.nested_hvm));
+        libxl_defbool_setdefault(&b_info->apic,
+                                 libxl_defbool_val(b_info->u.hvm.apic));
+    } else {
+        libxl_defbool_setdefault(&b_info->nested_hvm, false);
+        libxl_defbool_setdefault(&b_info->apic, true);
+    }
+
+    if (b_info->timer_mode == LIBXL_TIMER_MODE_DEFAULT)
+        b_info->timer_mode = b_info->type == LIBXL_DOMAIN_TYPE_HVM
+                             ? b_info->u.hvm.timer_mode
+                             : LIBXL_TIMER_MODE_NO_DELAY_FOR_MISSED_TICKS;
+
+    if (b_info->type == LIBXL_DOMAIN_TYPE_PV && !b_info->bootloader) {
+        assert(!b_info->bootloader_args);
+        b_info->bootloader = b_info->u.pv.bootloader;
+        b_info->bootloader_args = b_info->u.pv.bootloader_args;
+    }
+
     return 0;
 }
 
@@ -901,7 +923,7 @@ static void initiate_domain_create(libxl__egc *egc,
     }
 
     if (d_config->c_info.type == LIBXL_DOMAIN_TYPE_HVM &&
-        (libxl_defbool_val(d_config->b_info.u.hvm.nested_hvm) &&
+        (libxl_defbool_val(d_config->b_info.nested_hvm) &&
         (libxl_defbool_val(d_config->b_info.u.hvm.altp2m) ||
         (d_config->b_info.altp2m != LIBXL_ALTP2M_MODE_DISABLED)))) {
         ret = ERROR_INVAL;
