@@ -533,6 +533,7 @@ int libxl__domain_make(libxl__gc *gc, libxl_domain_config *d_config,
 {
     libxl_ctx *ctx = libxl__gc_owner(gc);
     int flags, ret, rc, nb_vm;
+    const char *dom_type;
     char *uuid_string;
     char *dom_path, *vm_path, *libxl_path;
     struct xs_permissions roperm[2];
@@ -723,6 +724,11 @@ retry_transaction:
 
     xs_write(ctx->xsh, t, GCSPRINTF("%s/control/platform-feature-multiprocessor-suspend", dom_path), "1", 1);
     xs_write(ctx->xsh, t, GCSPRINTF("%s/control/platform-feature-xs_reset_watches", dom_path), "1", 1);
+
+    dom_type = libxl_domain_type_to_string(info->type);
+    xs_write(ctx->xsh, t, GCSPRINTF("%s/type", libxl_path), dom_type,
+             strlen(dom_type));
+
     if (!xs_transaction_end(ctx->xsh, t, 0)) {
         if (errno == EAGAIN) {
             t = 0;
