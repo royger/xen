@@ -900,10 +900,47 @@ void parse_config_data(const char *config_source,
     }
 
     libxl_defbool_set(&c_info->run_hotplug_scripts, run_hotplug_scripts);
-    c_info->type = LIBXL_DOMAIN_TYPE_PV;
-    if (!xlu_cfg_get_string (config, "builder", &buf, 0) &&
-        !strncmp(buf, "hvm", strlen(buf)))
-        c_info->type = LIBXL_DOMAIN_TYPE_HVM;
+
+    if (!xlu_cfg_get_string(config, "type", &buf, 0)) {
+        if (!strncmp(buf, "hvm", strlen(buf)))
+            c_info->type = LIBXL_DOMAIN_TYPE_HVM;
+        else if (!strncmp(buf, "pv", strlen(buf)))
+            c_info->type = LIBXL_DOMAIN_TYPE_PV;
+        else
+            fprintf(stderr, "Invalid domain type %s.\n", buf);
+            exit(1);
+        }
+    }
+
+#define CHECK_AND_SET_TYPE(type, new)                                         \
+({                                                                            \
+    if (((type) != LIBXL_DOMAIN_TYPE_INVALID) &&                              \
+        ((type) != (new))) {                                                  \
+        fprintf(stderr,                                                       \
+                "Contradicting 'builder' and 'type' options specified.\n");   \
+        exit(1);                                                              \
+    }                                                                         \
+    (type) = (new);                                                           \
+})
+
+    /* Deprecated since Xen 4.10. */
+    if (!xlu_cfg_get_string(config, "builder", &buf, 0)) {
+        if (c_info->type == LIBXL_DOMAIN_TYPE_INVALID)
+            fprintf(stderr,
+    "The 'builder' option is being deprecated, please use 'type' instead.\n");
+        if (!strncmp(buf, "hvm", strlen(buf)))
+            CHECK_AND_SET_TYPE(c_info->type, LIBXL_DOMAIN_TYPE_HVM);
+        else if (!strncmp(buf, "generic", strlen(buf)))
+            CHECK_AND_SET_TYPE(c_info->type, LIBXL_DOMAIN_TYPE_PV);
+        else {
+            fprintf(stderr, "Invalid domain type %s.\n", buf);
+            exit(1);
+        }
+    }
+#undef CHECK_AND_SET_TYPE
+
+    if (c_info->type == LIBXL_DOMAIN_TYPE_INVALID)
+        c_info->type = LIBXL_DOMAIN_TYPE_PV;
 
     xlu_cfg_get_defbool(config, "hap", &c_info->hap, 0);
 
