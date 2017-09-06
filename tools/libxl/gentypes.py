@@ -289,11 +289,17 @@ def libxl_C_type_copy_deprecated(field, v, indent = "    ", vparent = None):
         field_ptr = field.type.pass_arg(v, vparent is None,
                                         passby=idl.PASS_BY_REFERENCE)
 
-        s += "if (!%s(%s) && !%s(&p->%s))\n" % (field.type.check_default_fn,
+        s += "if (!%s(%s) && !%s(&p->%s)) {\n" % (field.type.check_default_fn,
                                                 field_ptr,
                                                 field.type.check_default_fn,
                                                 field.deprecated_by)
+        s += "    LOG(ERROR, \"Both values are not default %s: %%d &p->%s: %%d\", %s(%s), %s(&p->%s));\n" % (field_ptr, field.deprecated_by,
+                                                                                                       field.type.check_default_fn,
+                                                                                                       field_ptr,
+                                                                                                       field.type.check_default_fn,
+                                                                                                       field.deprecated_by)
         s += "    return ERROR_INVAL;\n"
+        s += "}\n"
 
         s+= "if (%s(&p->%s))\n" % (field.type.check_default_fn,
                                    field.deprecated_by)
@@ -710,6 +716,7 @@ if __name__ == '__main__':
         f.write("int %s(libxl_ctx *ctx, %s)\n" % (ty.copy_deprecated_fn,
             ty.make_arg("p", passby=idl.PASS_BY_REFERENCE)))
         f.write("{\n")
+        f.write("    GC_INIT(ctx);\n")
         for field in [field for field in ty.fields if not field.const]:
             (vnparent,vfexpr) = ty.member("p", field, True)
             #print >>sys.stderr, "field name: %s %s" % (field.name, vfexpr)
