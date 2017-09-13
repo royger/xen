@@ -68,7 +68,7 @@ SECTIONS
 
 #if defined(CONFIG_HAS_PCI) && defined(CONFIG_LATE_HWDOM)
        __start_vpci_array = .;
-       *(.rodata.vpci)
+       *(SORT(.rodata.vpci.*))
        __end_vpci_array = .;
 #endif
   } :text
@@ -182,7 +182,7 @@ SECTIONS
 
 #if defined(CONFIG_HAS_PCI) && !defined(CONFIG_LATE_HWDOM)
        __start_vpci_array = .;
-       *(.init.rodata.vpci)
+       *(SORT(.init.rodata.vpci.*))
        __end_vpci_array = .;
 #endif
   } :text

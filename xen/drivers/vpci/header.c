@@ -444,7 +444,7 @@ static int vpci_init_bars(struct pci_dev *pdev)
 
     return rc;
 }
-REGISTER_VPCI_INIT(vpci_init_bars);
+REGISTER_VPCI_INIT(vpci_init_bars, VPCI_PRIORITY_MIDDLE);
 
 /*
  * Local variables:
