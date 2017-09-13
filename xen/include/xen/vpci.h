@@ -45,6 +45,36 @@ struct vpci {
     /* List of vPCI handlers for a device. */
     struct list_head handlers;
     spinlock_t lock;
+
+#ifdef __XEN__
+    /* Hide the rest of the vpci struct from the user-space test harness. */
+    struct vpci_header {
+        /* Information about the PCI BARs of this device. */
+        struct vpci_bar {
+            paddr_t addr;
+            uint64_t size;
+            enum {
+                VPCI_BAR_EMPTY,
+                VPCI_BAR_IO,
+                VPCI_BAR_MEM32,
+                VPCI_BAR_MEM64_LO,
+                VPCI_BAR_MEM64_HI,
+                VPCI_BAR_ROM,
+            } type;
+            bool prefetchable;
+            bool sizing_lo;
+            bool sizing_hi;
+            /* Store whether the BAR is mapped into guest p2m. */
+            bool enabled;
+            /*
+             * Store whether the ROM enable bit is set (doesn't imply ROM BAR
+             * is mapped into guest p2m). Only used for type VPCI_BAR_ROM.
+             */
+            bool rom_enabled;
+        } bars[7]; /* At most 6 BARS + 1 expansion ROM BAR. */
+        /* FIXME: currently there's no support for SR-IOV. */
+    } header;
+#endif
 };
 
 #endif
