@@ -191,6 +191,8 @@ const char *parse_pci_seg(const char *, unsigned int *seg, unsigned int *bus,
 
 #define _PCI_SIZE_VF     1
 #define PCI_SIZE_VF      (1u << _PCI_SIZE_VF)
+#define _PCI_SIZE_ROM    2
+#define PCI_SIZE_ROM     (1u << _PCI_SIZE_ROM)
 int pci_size_mem_bar(unsigned int seg, unsigned int bus, unsigned int slot,
                      unsigned int func, unsigned int pos, bool last,
                      uint64_t *addr, uint64_t *size, unsigned int flags);
