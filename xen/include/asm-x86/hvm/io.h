@@ -127,6 +127,23 @@ void hvm_dpci_eoi(struct domain *d, unsigned int guest_irq,
 void msix_write_completion(struct vcpu *);
 void msixtbl_init(struct domain *d);
 
+/* Arch-specific MSI data for vPCI. */
+struct vpci_arch_msi {
+    int pirq;
+};
+
+/* Arch-specific vPCI MSI helpers. */
+void vpci_msi_arch_mask(struct vpci_arch_msi *arch, const struct pci_dev *pdev,
+                        unsigned int entry, bool mask);
+int vpci_msi_arch_enable(struct vpci_arch_msi *arch,
+                         const struct pci_dev *pdev, uint64_t address,
+                         uint32_t data, unsigned int vectors);
+int vpci_msi_arch_disable(struct vpci_arch_msi *arch,
+                          const struct pci_dev *pdev, unsigned int vectors);
+void vpci_msi_arch_init(struct vpci_arch_msi *arch);
+void vpci_msi_arch_print(const struct vpci_arch_msi *arch, uint16_t data,
+                         uint64_t addr);
+
 enum stdvga_cache_state {
     STDVGA_CACHE_UNINITIALIZED,
     STDVGA_CACHE_ENABLED,
