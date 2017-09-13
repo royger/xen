@@ -657,7 +657,7 @@ int msi_free_irq(struct msi_desc *entry)
     return 0;
 }
 
-static struct msi_desc *find_msi_entry(struct pci_dev *dev,
+static struct msi_desc *find_msi_entry(const struct pci_dev *dev,
                                        int irq, int cap_id)
 {
     struct msi_desc *entry;
