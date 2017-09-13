@@ -184,6 +184,9 @@ struct hvm_domain {
     /* List of guest to machine IO ports mapping. */
     struct list_head g2m_ioport_list;
 
+    /* Lock for the PCI emulation layer (vPCI). */
+    rwlock_t vpci_lock;
+
     /* List of permanently write-mapped pages. */
     struct {
         spinlock_t lock;
