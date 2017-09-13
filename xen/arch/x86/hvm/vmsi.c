@@ -641,17 +641,15 @@ static unsigned int msi_gflags(uint16_t data, uint64_t addr)
                      XEN_DOMCTL_VMSI_X86_TRIG_MASK);
 }
 
-void vpci_msi_arch_mask(struct vpci_arch_msi *arch, const struct pci_dev *pdev,
-                        unsigned int entry, bool mask)
+static void vpci_mask_pirq(struct domain *d, int pirq, bool mask)
 {
-    struct domain *d = pdev->domain;
     const struct pirq *pinfo;
     struct irq_desc *desc;
     unsigned long flags;
     int irq;
 
-    ASSERT(arch->pirq >= 0);
-    pinfo = pirq_info(d, arch->pirq + entry);
+    ASSERT(pirq >= 0);
+    pinfo = pirq_info(d, pirq);
     if ( !pinfo )
         return;
 
@@ -666,6 +664,12 @@ void vpci_msi_arch_mask(struct vpci_arch_msi *arch, const struct pci_dev *pdev,
     spin_lock_irqsave(&desc->lock, flags);
     guest_mask_msi_irq(desc, mask);
     spin_unlock_irqrestore(&desc->lock, flags);
+}
+
+void vpci_msi_arch_mask(struct vpci_arch_msi *arch, const struct pci_dev *pdev,
+                        unsigned int entry, bool mask)
+{
+    vpci_mask_pirq(pdev->domain, arch->pirq + entry, mask);
 }
 
 int vpci_msi_arch_enable(struct vpci_arch_msi *arch,
@@ -777,4 +781,128 @@ void vpci_msi_arch_print(const struct vpci_arch_msi *arch, uint16_t data,
            addr & MSI_ADDR_REDIRECTION_LOWPRI ? "lowest" : "fixed",
            MASK_EXTR(addr, MSI_ADDR_DEST_ID_MASK),
            arch->pirq);
+}
+
+void vpci_msix_arch_mask(struct vpci_arch_msix_entry *arch,
+                         const struct pci_dev *pdev, bool mask)
+{
+    if ( arch->pirq == INVALID_PIRQ )
+        return;
+
+    vpci_mask_pirq(pdev->domain, arch->pirq, mask);
+}
+
+int vpci_msix_arch_enable(struct vpci_arch_msix_entry *arch,
+                          const struct pci_dev *pdev, uint64_t address,
+                          uint32_t data, unsigned int entry_nr,
+                          paddr_t table_base)
+{
+    struct domain *d = pdev->domain;
+    struct msi_info msi_info = {
+        .seg = pdev->seg,
+        .bus = pdev->bus,
+        .devfn = pdev->devfn,
+        .table_base = table_base,
+        .entry_nr = entry_nr,
+    };
+    xen_domctl_bind_pt_irq_t bind = {
+        .irq_type = PT_IRQ_TYPE_MSI,
+        .u.msi.gvec = msi_vector(data),
+        .u.msi.gflags = msi_gflags(data, address),
+    };
+    int rc;
+
+    ASSERT(arch->pirq == INVALID_PIRQ);
+
+    /*
+     * Simple sanity check before trying to setup the interrupt.
+     * According to the Intel SDM, bits [31, 20] must contain the
+     * value 0xfee. This avoids needlessly setting up pirqs for entries
+     * the guest has not actually configured.
+     */
+    if ( (address & 0xfff00000) != MSI_ADDR_HEADER )
+        return -EINVAL;
+
+    rc = allocate_and_map_msi_pirq(d, -1, &arch->pirq,
+                                   MAP_PIRQ_TYPE_MSI, &msi_info);
+    if ( rc )
+    {
+        gdprintk(XENLOG_ERR,
+                 "%04x:%02x:%02x.%u: unable to map MSI-X PIRQ entry %u: %d\n",
+                 pdev->seg, pdev->bus, PCI_SLOT(pdev->devfn),
+                 PCI_FUNC(pdev->devfn), entry_nr, rc);
+        return rc;
+    }
+
+    bind.machine_irq = arch->pirq;
+    pcidevs_lock();
+    rc = pt_irq_create_bind(d, &bind);
+    if ( rc )
+    {
+        gdprintk(XENLOG_ERR,
+                 "%04x:%02x:%02x.%u: unable to create MSI-X bind %u: %d\n",
+                 pdev->seg, pdev->bus, PCI_SLOT(pdev->devfn),
+                 PCI_FUNC(pdev->devfn), entry_nr, rc);
+        spin_lock(&d->event_lock);
+        unmap_domain_pirq(d, arch->pirq);
+        spin_unlock(&d->event_lock);
+        pcidevs_unlock();
+        arch->pirq = INVALID_PIRQ;
+        return rc;
+    }
+    pcidevs_unlock();
+
+    return 0;
+}
+
+int vpci_msix_arch_disable(struct vpci_arch_msix_entry *arch,
+                           const struct pci_dev *pdev)
+{
+    struct domain *d = pdev->domain;
+    xen_domctl_bind_pt_irq_t bind = {
+        .irq_type = PT_IRQ_TYPE_MSI,
+        .machine_irq = arch->pirq,
+    };
+    int rc;
+
+    if ( arch->pirq == INVALID_PIRQ )
+        return 0;
+
+    pcidevs_lock();
+    rc = pt_irq_destroy_bind(d, &bind);
+    if ( rc )
+    {
+        pcidevs_unlock();
+        return rc;
+    }
+
+    spin_lock(&d->event_lock);
+    unmap_domain_pirq(d, arch->pirq);
+    spin_unlock(&d->event_lock);
+    pcidevs_unlock();
+
+    arch->pirq = INVALID_PIRQ;
+
+    return 0;
+}
+
+int vpci_msix_arch_init(struct vpci_arch_msix_entry *arch)
+{
+    arch->pirq = -1;
+    return 0;
+}
+
+void vpci_msix_arch_print(const struct vpci_arch_msix_entry *entry,
+                          uint32_t data, uint64_t addr, bool masked,
+                          unsigned int pos)
+{
+    printk("  %4u vec=%#02x%7s%6s%3sassert%5s%7s dest_id=%lu mask=%u pirq: %d\n",
+           pos, MASK_EXTR(data, MSI_DATA_VECTOR_MASK),
+           data & MSI_DATA_DELIVERY_LOWPRI ? "lowest" : "fixed",
+           data & MSI_DATA_TRIGGER_LEVEL ? "level" : "edge",
+           data & MSI_DATA_LEVEL_ASSERT ? "" : "de",
+           addr & MSI_ADDR_DESTMODE_LOGIC ? "log" : "phys",
+           addr & MSI_ADDR_REDIRECTION_LOWPRI ? "lowest" : "fixed",
+           MASK_EXTR(addr, MSI_ADDR_DEST_ID_MASK),
+           masked, entry->pirq);
 }

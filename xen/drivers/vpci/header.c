@@ -20,6 +20,7 @@
 #include <xen/sched.h>
 #include <xen/vpci.h>
 #include <xen/p2m-common.h>
+#include <asm/p2m.h>
 
 #define MAPPABLE_BAR(x)                                                 \
     ((x)->type == VPCI_BAR_MEM32 || (x)->type == VPCI_BAR_MEM64_LO ||   \
@@ -94,6 +95,7 @@ static int vpci_modify_bar(struct domain *d, const struct vpci_bar *bar,
 {
     struct rangeset *mem;
     struct map_data data = { .d = d, .map = map };
+    unsigned int i;
     int rc;
 
     ASSERT(MAPPABLE_BAR(bar));
@@ -101,6 +103,23 @@ static int vpci_modify_bar(struct domain *d, const struct vpci_bar *bar,
     mem = vpci_get_bar_memory(d, bar);
     if ( IS_ERR(mem) )
         return PTR_ERR(mem);
+
+    for ( i = 0; i < ARRAY_SIZE(bar->msix); i++ )
+    {
+        const struct vpci_msix_mem *msix = bar->msix[i];
+
+        if ( !msix )
+            continue;
+
+        rc = rangeset_remove_range(mem, PFN_DOWN(msix->addr),
+                                   PFN_DOWN(msix->addr + msix->size));
+        if ( rc )
+        {
+            rangeset_destroy(mem);
+            return rc;
+        }
+
+    }
 
     rc = rangeset_report_ranges(mem, 0, ~0ul, vpci_map_range, &data);
     rangeset_destroy(mem);
@@ -214,6 +233,7 @@ static void vpci_bar_write(const struct pci_dev *pdev, unsigned int reg,
     uint8_t seg = pdev->seg, bus = pdev->bus;
     uint8_t slot = PCI_SLOT(pdev->devfn), func = PCI_FUNC(pdev->devfn);
     bool hi = false, *sizing;
+    unsigned int i;
 
     if ( pci_conf_read16(seg, bus, slot, func, PCI_COMMAND) &
          PCI_COMMAND_MEMORY )
@@ -258,6 +278,11 @@ static void vpci_bar_write(const struct pci_dev *pdev, unsigned int reg,
     /* Update the relevant part of the BAR address. */
     bar->addr &= ~(0xffffffffull << (hi ? 32 : 0));
     bar->addr |= (uint64_t)val << (hi ? 32 : 0);
+
+    /* Update any MSI-X areas contained in this BAR. */
+    for ( i = 0; i < ARRAY_SIZE(bar->msix); i++ )
+        if ( bar->msix[i] )
+            bar->msix[i]->addr = bar->addr + bar->msix[i]->offset;
 
     /* Make sure Xen writes back the same value for the BAR RO bits. */
     val |= !hi ? 0 : vpci_bar_fixed_bits(bar);
@@ -356,6 +381,7 @@ static int vpci_init_bars(struct pci_dev *pdev)
     {
         uint8_t reg = PCI_BASE_ADDRESS_0 + i * 4;
         uint32_t val = pci_conf_read32(seg, bus, slot, func, reg);
+        unsigned int j;
 
         if ( i && bars[i - 1].type == VPCI_BAR_MEM64_LO )
         {
@@ -397,6 +423,9 @@ static int vpci_init_bars(struct pci_dev *pdev)
         }
 
         bars[i].addr = addr;
+        for ( j = 0; j < ARRAY_SIZE(bars[i].msix); j++ )
+            if ( bars[i].msix[j] )
+                bars[i].msix[j]->addr = addr + bars[i].msix[j]->offset;
         bars[i].size = size;
         bars[i].prefetchable = val & PCI_BASE_ADDRESS_MEM_PREFETCH;
 

@@ -144,6 +144,25 @@ void vpci_msi_arch_init(struct vpci_arch_msi *arch);
 void vpci_msi_arch_print(const struct vpci_arch_msi *arch, uint16_t data,
                          uint64_t addr);
 
+/* Arch-specific MSI-X entry data for vPCI. */
+struct vpci_arch_msix_entry {
+    int pirq;
+};
+
+/* Arch-specific vPCI MSI-X helpers. */
+void vpci_msix_arch_mask(struct vpci_arch_msix_entry *arch,
+                         const struct pci_dev *pdev, bool mask);
+int vpci_msix_arch_enable(struct vpci_arch_msix_entry *arch,
+                          const struct pci_dev *pdev, uint64_t address,
+                          uint32_t data, unsigned int entry_nr,
+                          paddr_t table_base);
+int vpci_msix_arch_disable(struct vpci_arch_msix_entry *arch,
+                           const struct pci_dev *pdev);
+int vpci_msix_arch_init(struct vpci_arch_msix_entry *arch);
+void vpci_msix_arch_print(const struct vpci_arch_msix_entry *entry,
+                          uint32_t data, uint64_t addr, bool masked,
+                          unsigned int pos);
+
 enum stdvga_cache_state {
     STDVGA_CACHE_UNINITIALIZED,
     STDVGA_CACHE_ENABLED,
