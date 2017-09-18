@@ -100,6 +100,40 @@ struct vpci {
         /* 64-bit address capable? */
         bool address64;
     } *msi;
+
+    /* MSI-X data. */
+    struct vpci_msix {
+        struct pci_dev *pdev;
+        /* List link. */
+        struct list_head next;
+        /* Table information. */
+        struct vpci_msix_mem {
+            /* MSI-X table offset. */
+            unsigned int offset;
+            /* MSI-X table BIR. */
+            unsigned int bir;
+            /* Table size. */
+            unsigned int size;
+#define VPCI_MSIX_TABLE     0
+#define VPCI_MSIX_PBA       1
+#define VPCI_MSIX_MEM_NUM   2
+        } mem[VPCI_MSIX_MEM_NUM];
+        /* Maximum number of vectors supported by the device. */
+        unsigned int max_entries;
+        /* MSI-X enabled? */
+        bool enabled;
+        /* Masked? */
+        bool masked;
+        /* Entries. */
+        struct vpci_msix_entry {
+            uint64_t addr;
+            uint32_t data;
+            unsigned int nr;
+            struct vpci_arch_msix_entry arch;
+            bool masked;
+            bool updated;
+        } entries[];
+    } *msix;
 #endif
 };
 
@@ -119,6 +153,17 @@ int vpci_msi_arch_enable(struct vpci_msi *msi, const struct pci_dev *pdev,
 int vpci_msi_arch_disable(struct vpci_msi *msi, const struct pci_dev *pdev);
 void vpci_msi_arch_init(struct vpci_msi *msi);
 void vpci_msi_arch_print(const struct vpci_msi *msi);
+
+/* Arch-specific vPCI MSI-X helpers. */
+void vpci_msix_arch_mask_entry(struct vpci_msix_entry *entry,
+                               const struct pci_dev *pdev, bool mask);
+int vpci_msix_arch_enable_entry(struct vpci_msix_entry *entry,
+                                const struct pci_dev *pdev,
+                                paddr_t table_base);
+int vpci_msix_arch_disable_entry(struct vpci_msix_entry *entry,
+                                 const struct pci_dev *pdev);
+int vpci_msix_arch_init_entry(struct vpci_msix_entry *entry);
+void vpci_msix_arch_print_entry(const struct vpci_msix_entry *entry);
 #endif
 
 #endif
