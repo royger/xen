@@ -68,7 +68,7 @@ SECTIONS
 
 #if defined(CONFIG_HAS_PCI) && defined(CONFIG_LATE_HWDOM)
        __start_vpci_array = .;
-       *(.data.vpci)
+       *(SORT(.data.vpci.*))
        __end_vpci_array = .;
 #endif
   } :text
@@ -182,7 +182,7 @@ SECTIONS
 
 #if defined(CONFIG_HAS_PCI) && !defined(CONFIG_LATE_HWDOM)
        __start_vpci_array = .;
-       *(.data.vpci)
+       *(SORT(.data.vpci.*))
        __end_vpci_array = .;
 #endif
   } :text
