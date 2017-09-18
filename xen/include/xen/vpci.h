@@ -35,11 +35,52 @@ uint32_t vpci_read(pci_sbdf_t sbdf, unsigned int reg, unsigned int size);
 void vpci_write(pci_sbdf_t sbdf, unsigned int reg, unsigned int size,
                 uint32_t data);
 
+/*
+ * Check for pending vPCI operations on this vcpu. Returns true if the vcpu
+ * should not run.
+ */
+bool vpci_check_pending(struct vcpu *v);
+
 struct vpci {
     /* List of vPCI handlers for a device. */
     struct list_head handlers;
     spinlock_t lock;
+
+#ifdef __XEN__
+    /* Hide the rest of the vpci struct from the user-space test harness. */
+    struct vpci_header {
+        /* Information about the PCI BARs of this device. */
+        struct vpci_bar {
+            paddr_t addr;
+            uint64_t size;
+            enum {
+                VPCI_BAR_EMPTY,
+                VPCI_BAR_IO,
+                VPCI_BAR_MEM32,
+                VPCI_BAR_MEM64_LO,
+                VPCI_BAR_MEM64_HI,
+                VPCI_BAR_ROM,
+            } type;
+            bool prefetchable;
+            /* Store whether the BAR is mapped into guest p2m. */
+            bool enabled;
+            /*
+             * Store whether the ROM enable bit is set (doesn't imply ROM BAR
+             * is mapped into guest p2m). Only used for type VPCI_BAR_ROM.
+             */
+            bool rom_enabled;
+        } bars[7]; /* At most 6 BARS + 1 expansion ROM BAR. */
+        /* FIXME: currently there's no support for SR-IOV. */
+    } header;
+#endif
 };
+
+#ifdef __XEN__
+struct vpci_vcpu {
+    struct rangeset *mem;
+    bool map;
+};
+#endif
 
 #endif
 
