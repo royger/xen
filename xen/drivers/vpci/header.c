@@ -152,6 +152,7 @@ static int vpci_check_bar_overlap(const struct pci_dev *pdev,
 static void vpci_modify_bars(const struct pci_dev *pdev, bool map)
 {
     struct vpci_header *header = &pdev->vpci->header;
+    struct vpci_msix *msix = pdev->vpci->msix;
     struct rangeset *mem = rangeset_new(NULL, NULL, 0);
     unsigned int i;
     int rc;
@@ -179,6 +180,21 @@ static void vpci_modify_bars(const struct pci_dev *pdev, bool map)
 
         rc = rangeset_add_range(mem, PFN_DOWN(bar->addr),
                                 PFN_DOWN(bar->addr + bar->size - 1));
+        if ( rc )
+        {
+            rangeset_destroy(mem);
+            return;
+        }
+    }
+
+    /* Remove any MSIX regions if present. */
+    for ( i = 0; msix && i < ARRAY_SIZE(msix->mem); i++ )
+    {
+        paddr_t start =
+            header->bars[msix->mem[i].bir].addr + msix->mem[i].offset;
+
+        rc = rangeset_remove_range(mem, PFN_DOWN(start),
+                                   PFN_DOWN(start + msix->mem[i].size - 1));
         if ( rc )
         {
             rangeset_destroy(mem);
