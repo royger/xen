@@ -187,6 +187,10 @@ struct hvm_domain {
     /* Lock for the PCI emulation layer (vPCI). */
     rwlock_t vpci_lock;
 
+    /* List of MMCFG regions trapped by Xen. */
+    struct list_head mmcfg_regions;
+    rwlock_t mmcfg_lock;
+
     /* List of permanently write-mapped pages. */
     struct {
         spinlock_t lock;
