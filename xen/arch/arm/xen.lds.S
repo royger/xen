@@ -65,6 +65,12 @@ SECTIONS
        __param_start = .;
        *(.data.param)
        __param_end = .;
+
+#if defined(CONFIG_HAS_PCI) && defined(CONFIG_LATE_HWDOM)
+       __start_vpci_array = .;
+       *(.data.vpci)
+       __end_vpci_array = .;
+#endif
   } :text
 
 #if defined(BUILD_ID)
@@ -173,6 +179,12 @@ SECTIONS
        *(.init_array)
        *(SORT(.init_array.*))
        __ctors_end = .;
+
+#if defined(CONFIG_HAS_PCI) && !defined(CONFIG_LATE_HWDOM)
+       __start_vpci_array = .;
+       *(.data.vpci)
+       __end_vpci_array = .;
+#endif
   } :text
   __init_end_efi = .;
   . = ALIGN(STACK_SIZE);
