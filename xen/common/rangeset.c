@@ -298,6 +298,35 @@ int rangeset_report_ranges(
     return rc;
 }
 
+int rangeset_consume_ranges(
+    struct rangeset *r,
+    int (*cb)(unsigned long s, unsigned long e, void *, unsigned long *c),
+    void *ctxt)
+{
+    struct range *x;
+    int rc = 0;
+
+    write_lock(&r->lock);
+    while ( !rangeset_is_empty(r) )
+    {
+        unsigned long consumed = 0;
+
+        x = first_range(r);
+        rc = cb(x->s, x->e, ctxt, &consumed);
+
+        ASSERT(consumed <= x->e - x->s + 1);
+        x->s += consumed;
+        if ( x->s > x->e )
+            destroy_range(r, x);
+
+        if ( rc )
+            break;
+    }
+    write_unlock(&r->lock);
+
+    return rc;
+}
+
 int rangeset_add_singleton(
     struct rangeset *r, unsigned long s)
 {
