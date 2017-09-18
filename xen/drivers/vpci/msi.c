@@ -321,13 +321,17 @@ void vpci_dump_msi(void)
         if ( !has_vpci(d) )
             continue;
 
-        printk("vPCI MSI information for d%d\n", d->domain_id);
+        printk("vPCI MSI/MSI-X information for d%d\n", d->domain_id);
 
         list_for_each_entry ( pdev, &d->arch.pdev_list, domain_list )
         {
             uint8_t seg = pdev->seg, bus = pdev->bus;
             uint8_t slot = PCI_SLOT(pdev->devfn), func = PCI_FUNC(pdev->devfn);
             const struct vpci_msi *msi = pdev->vpci->msi;
+            const struct vpci_msix *msix = pdev->vpci->msix;
+
+            if ( msi || msix )
+                printk("Device %04x:%02x:%02x.%u\n", seg, bus, slot, func);
 
             if ( !spin_trylock(&pdev->vpci->lock) )
             {
@@ -337,7 +341,7 @@ void vpci_dump_msi(void)
 
             if ( msi )
             {
-                printk("Device %04x:%02x:%02x.%u\n", seg, bus, slot, func);
+                printk(" MSI\n");
 
                 printk("  Enabled: %u Supports masking: %u 64-bit addresses: %u\n",
                        msi->enabled, msi->masking, msi->address64);
@@ -348,6 +352,20 @@ void vpci_dump_msi(void)
 
                 if ( msi->masking )
                     printk("  mask=%08x\n", msi->mask);
+            }
+
+            if ( msix )
+            {
+                unsigned int i;
+
+                printk(" MSI-X\n");
+
+                printk("  Max entries: %u maskall: %u enabled: %u\n",
+                       msix->max_entries, msix->masked, msix->enabled);
+
+                printk("  Table entries:\n");
+                for ( i = 0; i < msix->max_entries; i++ )
+                    vpci_msix_arch_print_entry(&msix->entries[i]);
             }
 
             spin_unlock(&pdev->vpci->lock);
