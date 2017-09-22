@@ -4341,6 +4341,16 @@ void* libxl__device_list(libxl__gc *gc, const struct libxl_device_type *dt,
                          uint32_t domid, const char* name, int *num);
 void libxl__device_list_free(const struct libxl_device_type *dt,
                              void *list, int num);
+
+static inline bool libxl__timer_mode_is_default(libxl_timer_mode *tm)
+{
+    return *tm == LIBXL_TIMER_MODE_DEFAULT;
+}
+
+static inline bool libxl__string_is_default(char **s)
+{
+    return *s == NULL;
+}
 #endif
 
 /*
