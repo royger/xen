@@ -79,6 +79,28 @@ struct vpci {
         } bars[7]; /* At most 6 BARS + 1 expansion ROM BAR. */
         /* FIXME: currently there's no support for SR-IOV. */
     } header;
+
+    /* MSI data. */
+    struct vpci_msi {
+        /* Address. */
+        uint64_t address;
+        /* Mask bitfield. */
+        uint32_t mask;
+        /* Data. */
+        uint16_t data;
+        /* Maximum number of vectors supported by the device. */
+        uint8_t max_vectors : 5;
+        /* Number of vectors configured. */
+        uint8_t vectors     : 5;
+        /* Enabled? */
+        bool enabled        : 1;
+        /* Supports per-vector masking? */
+        bool masking        : 1;
+        /* 64-bit address capable? */
+        bool address64      : 1;
+        /* Arch-specific data. */
+        struct vpci_arch_msi arch;
+    } *msi;
 #endif
 };
 
@@ -89,6 +111,18 @@ struct vpci_vcpu {
     bool map : 1;
     bool rom : 1;
 };
+
+void vpci_dump_msi(void);
+
+/* Arch-specific vPCI MSI helpers. */
+void vpci_msi_arch_mask(struct vpci_msi *msi, const struct pci_dev *pdev,
+                        unsigned int entry, bool mask);
+int __must_check vpci_msi_arch_enable(struct vpci_msi *msi,
+                                      const struct pci_dev *pdev,
+                                      unsigned int vectors);
+void vpci_msi_arch_disable(struct vpci_msi *msi, const struct pci_dev *pdev);
+void vpci_msi_arch_init(struct vpci_msi *msi);
+void vpci_msi_arch_print(const struct vpci_msi *msi);
 #endif
 
 #else /* !CONFIG_HAS_PCI */
