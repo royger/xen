@@ -209,6 +209,7 @@ static void modify_bars(const struct pci_dev *pdev, bool map, bool rom)
     struct vpci_header *header = &pdev->vpci->header;
     struct rangeset *mem = rangeset_new(NULL, NULL, 0);
     const struct pci_dev *tmp;
+    const struct vpci_msix *msix = pdev->vpci->msix;
     unsigned int i;
     int rc;
 
@@ -249,6 +250,20 @@ static void modify_bars(const struct pci_dev *pdev, bool map, bool rom)
                    "Failed to add [%" PRI_gfn ", %" PRI_gfn "): %d\n",
                    PFN_DOWN(bar->addr), PFN_DOWN(bar->addr + bar->size - 1),
                    rc);
+            rangeset_destroy(mem);
+            return;
+        }
+    }
+
+    /* Remove any MSIX regions if present. */
+    for ( i = 0; msix && i < ARRAY_SIZE(msix->tables); i++ )
+    {
+        paddr_t start = VMSIX_TABLE_ADDR(pdev->vpci, i);
+
+        rc = rangeset_remove_range(mem, PFN_DOWN(start), PFN_DOWN(start +
+                                   VMSIX_TABLE_SIZE(pdev->vpci, i) - 1));
+        if ( rc )
+        {
             rangeset_destroy(mem);
             return;
         }
