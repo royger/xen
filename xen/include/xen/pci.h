@@ -189,6 +189,10 @@ const char *parse_pci(const char *, unsigned int *seg, unsigned int *bus,
 const char *parse_pci_seg(const char *, unsigned int *seg, unsigned int *bus,
                           unsigned int *dev, unsigned int *func, bool *def_seg);
 
+#define PCI_BAR_VF      (1u << 0)
+#define PCI_BAR_LAST    (1u << 1)
+int pci_size_mem_bar(pci_sbdf_t sbdf, unsigned int pos, uint64_t *addr,
+                     uint64_t *size, unsigned int flags);
 
 bool_t pcie_aer_get_firmware_first(const struct pci_dev *);
 
