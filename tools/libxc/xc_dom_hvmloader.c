@@ -66,6 +66,7 @@ static elf_negerrnoval xc_dom_probe_hvm_kernel(struct xc_dom_image *dom)
         return rc;
 
     rc = elf_init(&elf, dom->kernel_blob, dom->kernel_size);
+    xc_elf_set_logfile(dom->xch, &elf, 1);
     if ( rc != 0 )
         return rc;
 
