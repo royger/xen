@@ -1136,6 +1136,8 @@ typedef struct {
 
     libxl__file_reference pv_kernel;
     libxl__file_reference pv_ramdisk;
+    const char * shim_path;
+    const char * shim_cmdline;
     const char * pv_cmdline;
 
     xen_vmemrange_t *vmemranges;
