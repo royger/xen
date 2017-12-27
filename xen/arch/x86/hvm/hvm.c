@@ -4069,6 +4069,7 @@ static int hvmop_set_evtchn_upcall_vector(
     printk(XENLOG_G_INFO "%pv: upcall vector %02x\n", v, op.vector);
 
     v->arch.hvm_vcpu.evtchn_upcall_vector = op.vector;
+    arch_evtchn_inject(v);
     return 0;
 }
 
