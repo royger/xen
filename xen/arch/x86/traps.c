@@ -1013,6 +1013,11 @@ void cpuid_hypervisor_leaves(const struct vcpu *v, uint32_t leaf,
         /* Indicate presence of vcpu id and set it in ebx */
         res->a |= XEN_HVM_CPUID_VCPU_ID_PRESENT;
         res->b = v->vcpu_id;
+
+        /* Indicate presence of domain id and set it in ecx */
+        res->a |= XEN_HVM_CPUID_DOMID_PRESENT;
+        res->c = d->domain_id;
+
         break;
 
     default:
