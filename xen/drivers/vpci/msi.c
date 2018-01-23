@@ -279,11 +279,16 @@ void vpci_dump_msi(void)
         if ( !has_vpci(d) )
             continue;
 
-        printk("vPCI MSI d%d\n", d->domain_id);
+        printk("vPCI MSI/MSI-X d%d\n", d->domain_id);
 
         list_for_each_entry ( pdev, &d->arch.pdev_list, domain_list )
         {
             const struct vpci_msi *msi = pdev->vpci->msi;
+            const struct vpci_msix *msix = pdev->vpci->msix;
+
+            if ( msi || msix )
+                printk("%04x:%02x:%02x.%u\n", pdev->seg, pdev->bus,
+                       PCI_SLOT(pdev->devfn), PCI_FUNC(pdev->devfn));
 
             if ( !spin_trylock(&pdev->vpci->lock) )
             {
@@ -293,8 +298,7 @@ void vpci_dump_msi(void)
 
             if ( msi )
             {
-                printk("%04x:%02x:%02x.%u\n", pdev->seg, pdev->bus,
-                       PCI_SLOT(pdev->devfn), PCI_FUNC(pdev->devfn));
+                printk(" MSI\n");
 
                 printk("  enabled: %d 64-bit: %d",
                        msi->enabled, msi->address64);
@@ -304,6 +308,16 @@ void vpci_dump_msi(void)
                        msi->max_vectors, msi->vectors);
 
                 vpci_msi_arch_print(msi);
+            }
+
+            if ( msix )
+            {
+                printk(" MSI-X\n");
+
+                printk("  entries: %u maskall: %d enabled: %d\n",
+                       msix->max_entries, msix->masked, msix->enabled);
+
+                vpci_msix_arch_print(msix);
             }
 
             spin_unlock(&pdev->vpci->lock);
