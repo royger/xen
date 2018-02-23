@@ -67,6 +67,7 @@ int __hwdom_init vpci_add_handlers(struct pci_dev *pdev)
             list_del(&r->node);
             xfree(r);
         }
+        xfree(pdev->vpci->msi);
         xfree(pdev->vpci);
         pdev->vpci = NULL;
     }
