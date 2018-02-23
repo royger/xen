@@ -12,4 +12,6 @@ source "drivers/pci/Kconfig"
 
 source "drivers/video/Kconfig"
 
+source "drivers/vpci/Kconfig"
+
 endmenu

@@ -1,0 +1,4 @@
+
+config HAS_VPCI
+	bool
+	depends on HAS_PCI
