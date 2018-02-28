@@ -46,7 +46,7 @@ as HVM guests, using the hypervisor cpuid leaves and msr ranges.
 
 ## AP startup ##
 
-AP startup can be performed using hypercalls or the local APIC if present.
+AP startup can be performed using hypercalls or the local APIC.
 The following VCPU hypercalls can be used in order to bring up secondary vCPUs:
 
  * `VCPUOP_initialise` is used to set the initial state of the vCPU. The
