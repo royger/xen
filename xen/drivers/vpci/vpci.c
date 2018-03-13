@@ -47,6 +47,10 @@ void vpci_remove_device(struct pci_dev *pdev)
         xfree(r);
     }
     spin_unlock(&pdev->vpci->lock);
+#ifdef __XEN__
+    /* NB: fields below are not exposed to the user-space test harness. */
+    xfree(pdev->vpci->msi);
+#endif
     xfree(pdev->vpci);
     pdev->vpci = NULL;
 }
