@@ -1863,15 +1863,17 @@ void asmlinkage do_device_not_available(struct cpu_user_regs *regs)
     }
 
 #ifdef CONFIG_PV
-    vcpu_restore_fpu_lazy(curr);
+    BUG_ON(!(curr->arch.pv.ctrlreg[0] & X86_CR0_TS));
 
-    if ( curr->arch.pv.ctrlreg[0] & X86_CR0_TS )
-    {
-        pv_inject_hw_exception(X86_EXC_NM, X86_EVENT_NO_EC);
-        curr->arch.pv.ctrlreg[0] &= ~X86_CR0_TS;
-    }
-    else
-        TRACE_0D(TRC_PV_MATH_STATE_RESTORE);
+    /*
+     * PV ABI QUIRK: Classic Xen kernels (2.6.18 and SLES 11 SP4's
+     * 3.0) rely on Xen to clear TS. PVOPS kernels (3.0, 3.16 and 4.15
+     * are checked) always clear TS themselves.
+     */
+    clts();
+
+    pv_inject_hw_exception(X86_EXC_NM, X86_EVENT_NO_EC);
+    curr->arch.pv.ctrlreg[0] &= ~X86_CR0_TS;
 #else
     ASSERT_UNREACHABLE();
 #endif

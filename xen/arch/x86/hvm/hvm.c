@@ -899,11 +899,8 @@ static int cf_check hvm_save_cpu_ctxt(struct vcpu *v, hvm_domain_context_t *h)
     ctxt.ldtr_base = seg.base;
     ctxt.ldtr_arbytes = seg.attr;
 
-    if ( v->fpu_initialised )
-    {
-        memcpy(ctxt.fpu_regs, v->arch.fpu_ctxt, sizeof(ctxt.fpu_regs));
-        ctxt.flags = XEN_X86_FPU_INITIALISED;
-    }
+    memcpy(ctxt.fpu_regs, v->arch.fpu_ctxt, sizeof(ctxt.fpu_regs));
+    ctxt.flags = XEN_X86_FPU_INITIALISED;
 
     return hvm_save_entry(CPU, v->vcpu_id, h, &ctxt);
 }
@@ -1342,7 +1339,6 @@ static int cf_check hvm_load_cpu_xsave_states(
 
     v->arch.xcr0 = ctxt->xcr0;
     v->arch.xcr0_accum = ctxt->xcr0_accum;
-    v->arch.nonlazy_xstate_used = ctxt->xcr0_accum & XSTATE_NONLAZY;
     compress_xsave_states(v, &ctxt->save_area,
                           size - offsetof(struct hvm_hw_cpu_xsave, save_area));
 

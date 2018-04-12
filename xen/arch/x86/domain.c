@@ -1994,15 +1994,7 @@ static void __context_switch(void)
     if ( !is_idle_domain(nd) )
     {
         memcpy(stack_regs, &n->arch.user_regs, CTXT_SWITCH_STACK_BYTES);
-        if ( cpu_has_xsave )
-        {
-            if ( !set_xcr0(n->arch.xcr0 ?: XSTATE_FP_SSE) )
-                BUG();
-
-            if ( cpu_has_xsaves && is_hvm_vcpu(n) )
-                set_msr_xss(n->arch.msrs->xss.raw);
-        }
-        vcpu_restore_fpu_nonlazy(n, false);
+        vcpu_restore_fpu(n);
         nd->arch.ctxt_switch->to(n);
     }
 

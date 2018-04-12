@@ -2356,9 +2356,7 @@ static int cf_check hvmemul_get_fpu(
 {
     struct vcpu *curr = current;
 
-    if ( !curr->fpu_dirtied )
-        alternative_vcall(hvm_funcs.fpu_dirty_intercept);
-    else if ( type == X86EMUL_FPU_fpu )
+    if ( type == X86EMUL_FPU_fpu )
     {
         const typeof(curr->arch.xsave_area->fpu_sse) *fpu_ctxt =
             curr->arch.fpu_ctxt;
@@ -2367,16 +2365,8 @@ static int cf_check hvmemul_get_fpu(
          * Latch current register state so that we can back out changes
          * if needed (namely when a memory write fails after register state
          * has already been updated).
-         * NB: We don't really need the "enable" part of the called function
-         * (->fpu_dirtied set implies CR0.TS clear), but the additional
-         * overhead should be low enough to not warrant introduction of yet
-         * another slightly different function. However, we need to undo the
-         * ->fpu_dirtied clearing the function does as well as the possible
-         * masking of all exceptions by FNSTENV.)
          */
-        save_fpu_enable();
-        curr->fpu_initialised = true;
-        curr->fpu_dirtied = true;
+        vcpu_save_fpu(curr);
         if ( (fpu_ctxt->fcw & 0x3f) != 0x3f )
         {
             uint16_t fcw;
@@ -2410,12 +2400,8 @@ static void cf_check hvmemul_put_fpu(
          * Latch current register state so that we can replace FIP/FDP/FOP
          * (which have values resulting from our own invocation of the FPU
          * instruction during emulation).
-         * NB: See also the comment in hvmemul_get_fpu(); we don't need to
-         * set ->fpu_dirtied here as it is going to be cleared below, and
-         * we also don't need to reload FCW as we're forcing full state to
-         * be reloaded anyway.
          */
-        save_fpu_enable();
+        vcpu_save_fpu(curr);
 
         if ( boot_cpu_has(X86_FEATURE_FDP_EXCP_ONLY) &&
              !(fpu_ctxt->fsw & ~fpu_ctxt->fcw & 0x003f) )
@@ -2460,23 +2446,7 @@ static void cf_check hvmemul_put_fpu(
     }
 
     if ( backout == X86EMUL_FPU_fpu )
-    {
-        /*
-         * To back out changes to the register file
-         * - in fully eager mode, restore original state immediately,
-         * - in lazy mode, simply adjust state such that upon next FPU insn
-         *   use by the guest we'll reload the state saved (or freshly loaded)
-         *   by hvmemul_get_fpu().
-         */
-        if ( curr->arch.fully_eager_fpu )
-            vcpu_restore_fpu_nonlazy(curr, false);
-        else
-        {
-            curr->fpu_dirtied = false;
-            stts();
-            alternative_vcall(hvm_funcs.fpu_leave, curr);
-        }
-    }
+        vcpu_restore_fpu(curr);
 }
 
 static int cf_check hvmemul_tlb_op(

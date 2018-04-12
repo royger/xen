@@ -967,7 +967,6 @@ long arch_do_domctl(
 
                 v->arch.xcr0 = _xcr0;
                 v->arch.xcr0_accum = _xcr0_accum;
-                v->arch.nonlazy_xstate_used = _xcr0_accum & XSTATE_NONLAZY;
                 compress_xsave_states(v, _xsave_area,
                                       evc->size - PV_XSAVE_HDR_SIZE);
 
@@ -1347,8 +1346,7 @@ void arch_get_info_guest(struct vcpu *v, vcpu_guest_context_u c)
         c(flags = v->arch.pv.vgc_flags & ~(VGCF_i387_valid|VGCF_in_kernel));
     else
         c(flags = 0);
-    if ( v->fpu_initialised )
-        c(flags |= VGCF_i387_valid);
+    c(flags |= VGCF_i387_valid);
     if ( !(v->pause_flags & VPF_down) )
         c(flags |= VGCF_online);
     if ( !compat )

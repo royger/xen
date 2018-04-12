@@ -1199,9 +1199,7 @@ static int construct_vmcs(struct vcpu *v)
     __vmwrite(HOST_TR_SELECTOR, TSS_SELECTOR);
 
     /* Host control registers. */
-    v->arch.hvm.vmx.host_cr0 = read_cr0() & ~X86_CR0_TS;
-    if ( !v->arch.fully_eager_fpu )
-        v->arch.hvm.vmx.host_cr0 |= X86_CR0_TS;
+    v->arch.hvm.vmx.host_cr0 = read_cr0();
     __vmwrite(HOST_CR0, v->arch.hvm.vmx.host_cr0);
     __vmwrite(HOST_CR4, mmu_cr4_features);
     if ( cpu_has_vmx_efer )
@@ -1282,8 +1280,7 @@ static int construct_vmcs(struct vcpu *v)
     __vmwrite(VMCS_LINK_POINTER, ~0UL);
 
     v->arch.hvm.vmx.exception_bitmap = HVM_TRAP_MASK
-              | (paging_mode_hap(d) ? 0 : (1U << X86_EXC_PF))
-              | (v->arch.fully_eager_fpu ? 0 : (1U << X86_EXC_NM));
+              | (paging_mode_hap(d) ? 0 : (1U << X86_EXC_PF));
 
     if ( cpu_has_vmx_notify_vm_exiting )
         __vmwrite(NOTIFY_WINDOW, vm_notify_window);
