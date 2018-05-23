@@ -85,13 +85,14 @@ struct efi_rs_state efi_rs_enter(void)
     static const u16 fcw = FCW_DEFAULT;
     static const u32 mxcsr = MXCSR_DEFAULT;
     struct efi_rs_state state = { .cr3 = 0 };
+    struct vcpu *curr = current;
 
     if ( mfn_eq(efi_l4_mfn, INVALID_MFN) )
         return state;
 
     state.cr3 = read_cr3();
-    if ( system_state >= SYS_STATE_active )
-        vcpu_save_fpu(current);
+    if ( !is_idle_vcpu(curr) )
+        vcpu_save_fpu(curr);
     asm volatile ( "fnclex; fldcw %0" :: "m" (fcw) );
     asm volatile ( "ldmxcsr %0" :: "m" (mxcsr) );
 
@@ -102,7 +103,7 @@ struct efi_rs_state efi_rs_enter(void)
     /* prevent fixup_page_fault() from doing anything */
     irq_enter();
 
-    if ( is_pv_vcpu(current) && !is_idle_vcpu(current) )
+    if ( is_pv_vcpu(curr) && !is_idle_vcpu(curr) )
     {
         struct desc_ptr gdt_desc = {
             .limit = LAST_RESERVED_GDT_BYTE,
@@ -154,8 +155,8 @@ void efi_rs_leave(struct efi_rs_state *state)
     irq_exit();
     efi_rs_on_cpu = NR_CPUS;
     spin_unlock(&efi_rs_lock);
-    if ( system_state >= SYS_STATE_active )
-        vcpu_restore_fpu(current);
+    if ( !is_idle_vcpu(curr) )
+        vcpu_restore_fpu(curr);
 }
 
 bool efi_rs_using_pgtables(void)
