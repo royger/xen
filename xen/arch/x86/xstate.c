@@ -752,6 +752,9 @@ int handle_xsetbv(u32 index, u64 new_bv)
     if ( (new_bv & ~xcr0_max) || !valid_xcr0(new_bv) )
         return -EINVAL;
 
+    /* Zero state components before writing new XCR0 */
+    xstate_zero(get_xcr0());
+
     /* By this point, new_bv really should be accepted by hardware. */
     if ( unlikely(!set_xcr0(new_bv)) )
     {
