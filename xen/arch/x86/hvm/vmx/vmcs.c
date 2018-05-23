@@ -1199,8 +1199,7 @@ static int construct_vmcs(struct vcpu *v)
     __vmwrite(HOST_TR_SELECTOR, TSS_SELECTOR);
 
     /* Host control registers. */
-    v->arch.hvm.vmx.host_cr0 = read_cr0();
-    __vmwrite(HOST_CR0, v->arch.hvm.vmx.host_cr0);
+    __vmwrite(HOST_CR0, read_cr0());
     __vmwrite(HOST_CR4, mmu_cr4_features);
     if ( cpu_has_vmx_efer )
         __vmwrite(HOST_EFER, read_efer());
