@@ -21,7 +21,7 @@ struct efi {
     unsigned long smbios3;      /* SMBIOS v3 table */
 };
 
-extern struct efi efi;
+extern struct efi __weak efi;
 
 #ifndef __ASSEMBLY__
 
