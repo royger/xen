@@ -17,6 +17,8 @@
  * efi_multiboot2() is an exception. Please look below for more details.
  */
 
+struct efi __used_section(".discard") efi;
+
 void __init noreturn efi_multiboot2(EFI_HANDLE ImageHandle,
                                     EFI_SYSTEM_TABLE *SystemTable)
 {
