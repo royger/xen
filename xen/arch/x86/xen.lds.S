@@ -304,8 +304,6 @@ SECTIONS
   } :text
 #endif
 
-  efi = DEFINED(efi) ? efi : .;
-
   /* Sections to be discarded */
   /DISCARD/ : {
        *(.exit.text)
