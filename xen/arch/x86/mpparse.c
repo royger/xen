@@ -697,6 +697,7 @@ static int __init smp_scan_config (unsigned long base, unsigned long length)
 
 static void __init efi_check_config(void)
 {
+#ifdef BUILD_PE
 	struct intel_mp_floating *mpf;
 
 	if (efi.mps == EFI_INVALID_TABLE_ADDR)
@@ -715,6 +716,9 @@ static void __init efi_check_config(void)
 	}
 	else
 		efi_unmap_mpf();
+#else
+	BUG();
+#endif
 }
 
 void __init find_smp_config (void)

@@ -372,6 +372,7 @@ static int __init dmi_iterate(void (*decode)(struct dmi_header *))
 
 static int __init dmi_efi_iterate(void (*decode)(struct dmi_header *))
 {
+#ifdef BUILD_PE
 	int ret = -1;
 
 	while (efi.smbios3 != EFI_INVALID_TABLE_ADDR) {
@@ -425,6 +426,10 @@ static int __init dmi_efi_iterate(void (*decode)(struct dmi_header *))
 	}
 
 	return ret;
+#else
+	BUG();
+	return -1;
+#endif
 }
 
 static char *__initdata dmi_ident[DMI_STRING_MAX];

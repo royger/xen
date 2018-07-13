@@ -304,10 +304,6 @@ SECTIONS
   } :text
 #endif
 
-#ifndef BUILD_PE
-  efi = .;
-#endif
-
   /* Sections to be discarded */
   /DISCARD/ : {
        *(.exit.text)
