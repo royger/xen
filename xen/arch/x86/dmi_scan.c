@@ -370,6 +370,7 @@ static int __init dmi_iterate(void (*decode)(struct dmi_header *))
 	return -1;
 }
 
+#ifdef BUILD_PE
 static int __init dmi_efi_iterate(void (*decode)(struct dmi_header *))
 {
 	int ret = -1;
@@ -426,6 +427,7 @@ static int __init dmi_efi_iterate(void (*decode)(struct dmi_header *))
 
 	return ret;
 }
+#endif
 
 static char *__initdata dmi_ident[DMI_STRING_MAX];
 

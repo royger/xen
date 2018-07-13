@@ -695,6 +695,7 @@ static int __init smp_scan_config (unsigned long base, unsigned long length)
 	return 0;
 }
 
+#ifdef BUILD_PE
 static void __init efi_check_config(void)
 {
 	struct intel_mp_floating *mpf;
@@ -716,6 +717,7 @@ static void __init efi_check_config(void)
 	else
 		efi_unmap_mpf();
 }
+#endif
 
 void __init find_smp_config (void)
 {

@@ -69,6 +69,7 @@ acpi_physical_address __init acpi_os_get_root_pointer(void)
 	if (rsdp_hint)
 		return rsdp_hint;
 
+#ifdef BUILD_PE
 	if (efi_enabled(EFI_BOOT)) {
 		if (efi.acpi20 != EFI_INVALID_TABLE_ADDR)
 			return efi.acpi20;
@@ -79,7 +80,9 @@ acpi_physical_address __init acpi_os_get_root_pointer(void)
 			       "System description tables not found\n");
 			return 0;
 		}
-	} else if (IS_ENABLED(CONFIG_ACPI_LEGACY_TABLES_LOOKUP)) {
+	} else
+#endif
+	if (IS_ENABLED(CONFIG_ACPI_LEGACY_TABLES_LOOKUP)) {
 		acpi_physical_address pa = 0;
 
 		acpi_find_root_pointer(&pa);
