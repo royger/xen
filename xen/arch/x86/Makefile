@@ -168,6 +168,16 @@ $(TARGET).efi: ALT_BASE = 0x$(shell $(NM) efi/relocs-dummy.o | sed -n 's, A ALT_
 # Don't use $(wildcard ...) here - at least make 3.80 expands this too early!
 $(TARGET).efi: guard = $(if $(shell echo efi/dis* | grep disabled),:)
 
+# Check if the build system supports PE.
+efi := y$(shell rm -f disabled)
+efi := $(if $(efi),$(shell $(CC) $(filter-out $(CFLAGS-y) .%.d,$(CFLAGS)) -c efi/check.c 2>disabled && echo y))
+efi := $(if $(efi),$(shell $(LD) -mi386pep --subsystem=10 -o efi/check.efi efi/check.o 2>disabled && echo y))
+efi := $(if $(efi),$(shell rm disabled)y)
+export efi
+ifeq ($(efi),y)
+CFLAGS += -DBUILD_PE
+endif
+
 ifneq ($(build_id_linker),)
 ifeq ($(call ld-ver-build-id,$(LD) $(filter -m%,$(EFI_LDFLAGS))),y)
 CFLAGS += -DBUILD_ID_EFI
