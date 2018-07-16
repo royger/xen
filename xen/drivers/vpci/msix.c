@@ -148,10 +148,11 @@ static void control_write(const struct pci_dev *pdev, unsigned int reg,
         pci_conf_write16(pdev->seg, pdev->bus, slot, func, reg, val);
 }
 
-static struct vpci_msix *msix_find(const struct domain *d, unsigned long addr)
+static struct vpci_msix *msix_find(struct domain *d, unsigned long addr)
 {
     struct vpci_msix *msix;
 
+    read_lock(&d->arch.hvm_domain.msix_lock);
     list_for_each_entry ( msix, &d->arch.hvm_domain.msix_tables, next )
     {
         const struct vpci_bar *bars = msix->pdev->vpci->header.bars;
@@ -160,8 +161,12 @@ static struct vpci_msix *msix_find(const struct domain *d, unsigned long addr)
         for ( i = 0; i < ARRAY_SIZE(msix->tables); i++ )
             if ( bars[msix->tables[i] & PCI_MSIX_BIRMASK].enabled &&
                  VMSIX_ADDR_IN_RANGE(addr, msix->pdev->vpci, i) )
+            {
+                read_unlock(&d->arch.hvm_domain.msix_lock);
                 return msix;
+            }
     }
+    read_unlock(&d->arch.hvm_domain.msix_lock);
 
     return NULL;
 }
@@ -196,8 +201,7 @@ static struct vpci_msix_entry *get_entry(struct vpci_msix *msix,
 static int msix_read(struct vcpu *v, unsigned long addr, unsigned int len,
                      unsigned long *data)
 {
-    const struct domain *d = v->domain;
-    struct vpci_msix *msix = msix_find(d, addr);
+    struct vpci_msix *msix = msix_find(v->domain, addr);
     const struct vpci_msix_entry *entry;
     unsigned int offset;
 
@@ -273,8 +277,7 @@ static int msix_read(struct vcpu *v, unsigned long addr, unsigned int len,
 static int msix_write(struct vcpu *v, unsigned long addr, unsigned int len,
                       unsigned long data)
 {
-    const struct domain *d = v->domain;
-    struct vpci_msix *msix = msix_find(d, addr);
+    struct vpci_msix *msix = msix_find(v->domain, addr);
     struct vpci_msix_entry *entry;
     unsigned int offset;
 
@@ -287,7 +290,7 @@ static int msix_write(struct vcpu *v, unsigned long addr, unsigned int len,
     if ( VMSIX_ADDR_IN_RANGE(addr, msix->pdev->vpci, VPCI_MSIX_PBA) )
     {
         /* Ignore writes to PBA for DomUs, it's behavior is undefined. */
-        if ( is_hardware_domain(d) )
+        if ( is_hardware_domain(v->domain) )
         {
             switch ( len )
             {
@@ -438,10 +441,12 @@ static int init_msix(struct pci_dev *pdev)
     if ( rc )
         return rc;
 
+    write_lock(&d->arch.hvm_domain.msix_lock);
     if ( list_empty(&d->arch.hvm_domain.msix_tables) )
         register_mmio_handler(d, &vpci_msix_table_ops);
 
     list_add(&pdev->vpci->msix->next, &d->arch.hvm_domain.msix_tables);
+    write_unlock(&d->arch.hvm_domain.msix_lock);
 
     return 0;
 }
