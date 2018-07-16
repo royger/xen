@@ -31,13 +31,25 @@ struct vpci_register {
 };
 
 #ifdef __XEN__
-extern vpci_register_init_t *const __start_vpci_array[];
-extern vpci_register_init_t *const __end_vpci_array[];
+extern const struct vpci_handler __start_vpci_array[];
+extern const struct vpci_handler __end_vpci_array[];
 #define NUM_VPCI_INIT (__end_vpci_array - __start_vpci_array)
 
 static void vpci_remove_device_locked(struct pci_dev *pdev)
 {
+    unsigned int i;
+
     ASSERT(spin_is_locked(&pdev->vpci_lock));
+
+    for ( i = 0; i < NUM_VPCI_INIT; i++ )
+    {
+        vpci_teardown_t *teardown =
+            __start_vpci_array[NUM_VPCI_INIT - i - 1].teardown;
+
+        if ( !teardown )
+            continue;
+        teardown(pdev);
+    }
 
     while ( !list_empty(&pdev->vpci->handlers) )
     {
@@ -82,7 +94,7 @@ int __hwdom_init vpci_add_handlers(struct pci_dev *pdev)
 
     for ( i = 0; i < NUM_VPCI_INIT; i++ )
     {
-        rc = __start_vpci_array[i](pdev);
+        rc = __start_vpci_array[i].init(pdev);
         if ( rc )
             break;
     }

@@ -13,15 +13,22 @@ typedef uint32_t vpci_read_t(const struct pci_dev *pdev, unsigned int reg,
 typedef void vpci_write_t(const struct pci_dev *pdev, unsigned int reg,
                           uint32_t val, void *data);
 
-typedef int vpci_register_init_t(struct pci_dev *dev);
+typedef int vpci_init_t(struct pci_dev *dev);
+typedef void vpci_teardown_t(struct pci_dev *dev);
+
+struct vpci_handler {
+    vpci_init_t *init;
+    vpci_teardown_t *teardown;
+};
 
 #define VPCI_PRIORITY_HIGH      "1"
 #define VPCI_PRIORITY_MIDDLE    "5"
 #define VPCI_PRIORITY_LOW       "9"
 
-#define REGISTER_VPCI_INIT(x, p)                \
-  static vpci_register_init_t *const x##_entry  \
-               __used_section(".data.vpci." p) = x
+#define REGISTER_VPCI_INIT(i, t, p)                                     \
+  const static struct vpci_handler i ## t ## _entry                     \
+               __used_section(".data.vpci." p) = { .init = (i),         \
+                                                   .teardown = (t), }
 
 /* Add vPCI handlers to device. */
 int __must_check vpci_add_handlers(struct pci_dev *dev);

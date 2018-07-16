@@ -266,7 +266,7 @@ static int init_msi(struct pci_dev *pdev)
 
     return 0;
 }
-REGISTER_VPCI_INIT(init_msi, VPCI_PRIORITY_LOW);
+REGISTER_VPCI_INIT(init_msi, NULL, VPCI_PRIORITY_LOW);
 
 void vpci_dump_msi(void)
 {

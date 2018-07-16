@@ -450,7 +450,7 @@ static int init_msix(struct pci_dev *pdev)
 
     return 0;
 }
-REGISTER_VPCI_INIT(init_msix, VPCI_PRIORITY_HIGH);
+REGISTER_VPCI_INIT(init_msix, NULL, VPCI_PRIORITY_HIGH);
 
 /*
  * Local variables:

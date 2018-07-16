@@ -136,7 +136,7 @@ SECTIONS
        *(.data.param)
        __param_end = .;
 
-#if defined(CONFIG_HAS_VPCI) && defined(CONFIG_LATE_HWDOM)
+#ifdef CONFIG_HAS_VPCI
        . = ALIGN(POINTER_ALIGN);
        __start_vpci_array = .;
        *(SORT(.data.vpci.*))
@@ -242,13 +242,6 @@ SECTIONS
        *(.init_array)
        *(SORT(.init_array.*))
        __ctors_end = .;
-
-#if defined(CONFIG_HAS_VPCI) && !defined(CONFIG_LATE_HWDOM)
-       . = ALIGN(POINTER_ALIGN);
-       __start_vpci_array = .;
-       *(SORT(.data.vpci.*))
-       __end_vpci_array = .;
-#endif
   } :text
 
   . = ALIGN(SECTION_ALIGN);
