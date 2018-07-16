@@ -131,12 +131,15 @@ bool vpci_process_pending(struct vcpu *v)
         if ( rc == -ERESTART )
             return true;
 
-        spin_lock(&v->vpci.pdev->vpci_lock);
-        if ( v->vpci.pdev->vpci )
-            /* Disable memory decoding unconditionally on failure. */
-            modify_decoding(v->vpci.pdev, !rc && v->vpci.map,
-                            !rc && v->vpci.rom_only);
-        spin_unlock(&v->vpci.pdev->vpci_lock);
+        if ( v->vpci.pdev )
+        {
+            spin_lock(&v->vpci.pdev->vpci_lock);
+            if ( v->vpci.pdev->vpci )
+                /* Disable memory decoding unconditionally on failure. */
+                modify_decoding(v->vpci.pdev, !rc && v->vpci.map,
+                                !rc && v->vpci.rom_only);
+            spin_unlock(&v->vpci.pdev->vpci_lock);
+        }
 
         rangeset_destroy(v->vpci.mem);
         v->vpci.mem = NULL;
@@ -560,7 +563,25 @@ static int init_bars(struct pci_dev *pdev)
 
     return (cmd & PCI_COMMAND_MEMORY) ? modify_bars(pdev, true, false) : 0;
 }
-REGISTER_VPCI_INIT(init_bars, NULL, VPCI_PRIORITY_MIDDLE);
+
+static void teardown_bars(struct pci_dev *pdev)
+{
+    uint16_t cmd = pci_conf_read16(pdev->seg, pdev->bus, PCI_SLOT(pdev->devfn),
+                                   PCI_FUNC(pdev->devfn), PCI_COMMAND);
+
+    if ( cmd & PCI_COMMAND_MEMORY )
+    {
+        /* Unmap all BARs from guest p2m. */
+        modify_bars(pdev, false, false);
+        /*
+         * Since this operation is deferred at the point when it finishes the
+         * device might have been removed, so don't attempt to disable memory
+         * decoding afterwards.
+         */
+        current->vpci.pdev = NULL;
+    }
+}
+REGISTER_VPCI_INIT(init_bars, teardown_bars, VPCI_PRIORITY_MIDDLE);
 
 /*
  * Local variables:
