@@ -60,7 +60,6 @@ static void vpci_remove_device_locked(struct pci_dev *pdev)
         list_del(&r->node);
         xfree(r);
     }
-    xfree(pdev->vpci->msix);
     xfree(pdev->vpci->msi);
     xfree(pdev->vpci);
     pdev->vpci = NULL;
