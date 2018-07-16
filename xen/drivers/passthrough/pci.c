@@ -315,6 +315,7 @@ static struct pci_dev *alloc_pdev(struct pci_seg *pseg, u8 bus, u8 devfn)
     *((u8*) &pdev->devfn) = devfn;
     pdev->domain = NULL;
     INIT_LIST_HEAD(&pdev->msi_list);
+    spin_lock_init(&pdev->vpci_lock);
 
     if ( pci_find_cap_offset(pseg->nr, bus, PCI_SLOT(devfn), PCI_FUNC(devfn),
                              PCI_CAP_ID_MSIX) )

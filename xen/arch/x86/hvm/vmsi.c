@@ -893,14 +893,14 @@ int vpci_msix_arch_print(const struct vpci_msix *msix)
         {
             struct pci_dev *pdev = msix->pdev;
 
-            spin_unlock(&msix->pdev->vpci->lock);
+            spin_unlock(&msix->pdev->vpci_lock);
             process_pending_softirqs();
             /* NB: we assume that pdev cannot go away for an alive domain. */
-            if ( !pdev->vpci || !spin_trylock(&pdev->vpci->lock) )
+            if ( !spin_trylock(&pdev->vpci_lock) )
                 return -EBUSY;
-            if ( pdev->vpci->msix != msix )
+            if ( !pdev->vpci || pdev->vpci->msix != msix )
             {
-                spin_unlock(&pdev->vpci->lock);
+                spin_unlock(&pdev->vpci_lock);
                 return -EAGAIN;
             }
         }

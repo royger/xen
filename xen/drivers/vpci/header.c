@@ -131,11 +131,12 @@ bool vpci_process_pending(struct vcpu *v)
         if ( rc == -ERESTART )
             return true;
 
-        spin_lock(&v->vpci.pdev->vpci->lock);
-        /* Disable memory decoding unconditionally on failure. */
-        modify_decoding(v->vpci.pdev, !rc && v->vpci.map,
-                        !rc && v->vpci.rom_only);
-        spin_unlock(&v->vpci.pdev->vpci->lock);
+        spin_lock(&v->vpci.pdev->vpci_lock);
+        if ( v->vpci.pdev->vpci )
+            /* Disable memory decoding unconditionally on failure. */
+            modify_decoding(v->vpci.pdev, !rc && v->vpci.map,
+                            !rc && v->vpci.rom_only);
+        spin_unlock(&v->vpci.pdev->vpci_lock);
 
         rangeset_destroy(v->vpci.mem);
         v->vpci.mem = NULL;
@@ -267,6 +268,12 @@ static int modify_bars(const struct pci_dev *pdev, bool map, bool rom_only)
                 continue;
         }
 
+        spin_lock(&tmp->vpci_lock);
+        if ( !tmp->vpci )
+        {
+            spin_unlock(&tmp->vpci_lock);
+            continue;
+        }
         for ( i = 0; i < ARRAY_SIZE(tmp->vpci->header.bars); i++ )
         {
             const struct vpci_bar *bar = &tmp->vpci->header.bars[i];
@@ -285,12 +292,14 @@ static int modify_bars(const struct pci_dev *pdev, bool map, bool rom_only)
             rc = rangeset_remove_range(mem, start, end);
             if ( rc )
             {
+                spin_unlock(&tmp->vpci_lock);
                 printk(XENLOG_G_WARNING "Failed to remove [%lx, %lx]: %d\n",
                        start, end, rc);
                 rangeset_destroy(mem);
                 return rc;
             }
         }
+        spin_unlock(&tmp->vpci_lock);
     }
 
     ASSERT(dev);

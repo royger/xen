@@ -236,7 +236,7 @@ static int msix_read(struct vcpu *v, unsigned long addr, unsigned int len,
         return X86EMUL_OKAY;
     }
 
-    spin_lock(&msix->pdev->vpci->lock);
+    spin_lock(&msix->pdev->vpci_lock);
     entry = get_entry(msix, addr);
     offset = addr & (PCI_MSIX_ENTRY_SIZE - 1);
 
@@ -265,7 +265,7 @@ static int msix_read(struct vcpu *v, unsigned long addr, unsigned int len,
         ASSERT_UNREACHABLE();
         break;
     }
-    spin_unlock(&msix->pdev->vpci->lock);
+    spin_unlock(&msix->pdev->vpci_lock);
 
     return X86EMUL_OKAY;
 }
@@ -308,7 +308,7 @@ static int msix_write(struct vcpu *v, unsigned long addr, unsigned int len,
         return X86EMUL_OKAY;
     }
 
-    spin_lock(&msix->pdev->vpci->lock);
+    spin_lock(&msix->pdev->vpci_lock);
     entry = get_entry(msix, addr);
     offset = addr & (PCI_MSIX_ENTRY_SIZE - 1);
 
@@ -384,7 +384,7 @@ static int msix_write(struct vcpu *v, unsigned long addr, unsigned int len,
         ASSERT_UNREACHABLE();
         break;
     }
-    spin_unlock(&msix->pdev->vpci->lock);
+    spin_unlock(&msix->pdev->vpci_lock);
 
     return X86EMUL_OKAY;
 }

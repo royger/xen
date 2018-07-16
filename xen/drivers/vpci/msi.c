@@ -275,7 +275,7 @@ void vpci_dump_msi(void)
     rcu_read_lock(&domlist_read_lock);
     for_each_domain ( d )
     {
-        const struct pci_dev *pdev;
+        struct pci_dev *pdev;
 
         if ( !has_vpci(d) )
             continue;
@@ -287,8 +287,13 @@ void vpci_dump_msi(void)
             const struct vpci_msi *msi;
             const struct vpci_msix *msix;
 
-            if ( !pdev->vpci || !spin_trylock(&pdev->vpci->lock) )
+            if ( !spin_trylock(&pdev->vpci_lock) )
                 continue;
+            if ( !pdev->vpci )
+            {
+                spin_unlock(&pdev->vpci_lock);
+                continue;
+            }
 
             msi = pdev->vpci->msi;
             if ( msi && msi->enabled )
@@ -330,7 +335,7 @@ void vpci_dump_msi(void)
                 }
             }
 
-            spin_unlock(&pdev->vpci->lock);
+            spin_unlock(&pdev->vpci_lock);
             process_pending_softirqs();
         }
     }
