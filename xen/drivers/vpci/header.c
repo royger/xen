@@ -120,29 +120,31 @@ static void modify_decoding(const struct pci_dev *pdev, bool map, bool rom_only)
 
 bool vpci_process_pending(struct vcpu *v)
 {
-    if ( v->vpci.mem )
+    switch ( v->vpci.task )
+    {
+    case MODIFY_MEMORY:
     {
         struct map_data data = {
             .d = v->domain,
-            .map = v->vpci.map,
+            .map = v->vpci.memory.map,
         };
-        int rc = rangeset_consume_ranges(v->vpci.mem, map_range, &data);
+        int rc = rangeset_consume_ranges(v->vpci.memory.mem, map_range, &data);
 
         if ( rc == -ERESTART )
             return true;
 
-        if ( v->vpci.pdev )
+        if ( v->vpci.memory.pdev )
         {
-            spin_lock(&v->vpci.pdev->vpci_lock);
-            if ( v->vpci.pdev->vpci )
+            spin_lock(&v->vpci.memory.pdev->vpci_lock);
+            if ( v->vpci.memory.pdev->vpci )
                 /* Disable memory decoding unconditionally on failure. */
-                modify_decoding(v->vpci.pdev, !rc && v->vpci.map,
-                                !rc && v->vpci.rom_only);
-            spin_unlock(&v->vpci.pdev->vpci_lock);
+                modify_decoding(v->vpci.memory.pdev, !rc && v->vpci.memory.map,
+                                !rc && v->vpci.memory.rom_only);
+            spin_unlock(&v->vpci.memory.pdev->vpci_lock);
         }
 
-        rangeset_destroy(v->vpci.mem);
-        v->vpci.mem = NULL;
+        rangeset_destroy(v->vpci.memory.mem);
+        v->vpci.task = NONE;
         if ( rc )
             /*
              * FIXME: in case of failure remove the device from the domain.
@@ -151,7 +153,20 @@ bool vpci_process_pending(struct vcpu *v)
              * killed in order to avoid leaking stale p2m mappings on
              * failure.
              */
-            vpci_remove_device(v->vpci.pdev);
+            vpci_remove_device(v->vpci.memory.pdev);
+        break;
+    }
+
+    case WAIT:
+        if ( get_cycles() < v->vpci.wait.end )
+            return true;
+
+        v->vpci.task = NONE;
+        v->vpci.wait.callback(v->vpci.wait.data);
+        break;
+
+    case NONE:
+        return false;
     }
 
     return false;
@@ -183,13 +198,35 @@ static void defer_map(struct domain *d, struct pci_dev *pdev,
      * is mapped. This can lead to parallel mapping operations being
      * started for the same device if the domain is not well-behaved.
      */
-    curr->vpci.pdev = pdev;
-    if ( !curr->vpci.mem )
-        curr->vpci.mem = mem;
+    if ( !pdev->info.is_virtfn )
+        curr->vpci.memory.pdev = pdev;
     else
     {
-        int rc = rangeset_merge(curr->vpci.mem, mem);
+        unsigned int i;
 
+        curr->vpci.memory.pdev = NULL;
+        /*
+         * Set the BARs as enabled now, for VF the memory decoding is not
+         * controlled by the VF command register.
+         */
+        for ( i = 0; i < ARRAY_SIZE(pdev->vpci->header.bars); i++ )
+            if ( MAPPABLE_BAR(&pdev->vpci->header.bars[i]) )
+                pdev->vpci->header.bars[i].enabled = map;
+    }
+    if ( curr->vpci.task == NONE )
+    {
+        curr->vpci.memory.mem = mem;
+        curr->vpci.memory.map = map;
+        curr->vpci.memory.rom_only = rom_only;
+        curr->vpci.task = MODIFY_MEMORY;
+    }
+    else
+    {
+        int rc = rangeset_merge(curr->vpci.memory.mem, mem);
+
+        ASSERT(curr->vpci.task == MODIFY_MEMORY);
+        ASSERT(curr->vpci.memory.map == map);
+        ASSERT(curr->vpci.memory.rom_only == rom_only);
         if ( rc )
             gprintk(XENLOG_WARNING,
                     "%04x:%02x:%02x.%u: unable to %smap memory region: %d\n",
@@ -197,8 +234,6 @@ static void defer_map(struct domain *d, struct pci_dev *pdev,
                     PCI_FUNC(pdev->devfn), map ? "" : "un", rc);
         rangeset_destroy(mem);
     }
-    curr->vpci.map = map;
-    curr->vpci.rom_only = rom_only;
 }
 
 static int modify_bars(const struct pci_dev *pdev, bool map, bool rom_only)
@@ -590,7 +625,7 @@ static void teardown_bars(struct pci_dev *pdev)
          * device might have been removed, so don't attempt to disable memory
          * decoding afterwards.
          */
-        current->vpci.pdev = NULL;
+        current->vpci.memory.pdev = NULL;
     }
 }
 REGISTER_VPCI_INIT(init_bars, teardown_bars, VPCI_PRIORITY_MIDDLE);

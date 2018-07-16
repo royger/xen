@@ -148,11 +148,26 @@ struct vpci {
 };
 
 struct vpci_vcpu {
-    /* Per-vcpu structure to store state while {un}mapping of PCI BARs. */
-    struct rangeset *mem;
-    struct pci_dev *pdev;
-    bool map      : 1;
-    bool rom_only : 1;
+    enum {
+        NONE,
+        MODIFY_MEMORY,
+        WAIT,
+    } task;
+    union {
+        struct {
+            /* Store state while {un}mapping of PCI BARs. */
+            struct rangeset *mem;
+            struct pci_dev *pdev;
+            bool map      : 1;
+            bool rom_only : 1;
+        } memory;
+        struct {
+           /* Store wait state. */
+           cycles_t end;
+           void (*callback)(void *);
+           void *data;
+        } wait;
+    };
 };
 
 #ifdef __XEN__
