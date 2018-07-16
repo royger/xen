@@ -200,16 +200,6 @@ static int init_msi(struct pci_dev *pdev)
     if ( !pdev->vpci->msi )
         return -ENOMEM;
 
-    ret = vpci_add_register(pdev->vpci, control_read, control_write,
-                            msi_control_reg(pos), 2, pdev->vpci->msi);
-    if ( ret )
-        /*
-         * NB: there's no need to free the msi struct or remove the register
-         * handlers form the config space, the caller will take care of the
-         * cleanup.
-         */
-        return ret;
-
     /* Get the maximum number of vectors the device supports. */
     control = pci_conf_read16(pdev->seg, pdev->bus, slot, func,
                               msi_control_reg(pos));
@@ -229,6 +219,16 @@ static int init_msi(struct pci_dev *pdev)
 
     pdev->vpci->msi->address64 = is_64bit_address(control);
     pdev->vpci->msi->masking = is_mask_bit_support(control);
+
+    ret = vpci_add_register(pdev->vpci, control_read, control_write,
+                            msi_control_reg(pos), 2, pdev->vpci->msi);
+    if ( ret )
+        /*
+         * NB: there's no need to free the msi struct or remove the register
+         * handlers form the config space, the teardown function will take care
+         * of the cleanup.
+         */
+        return ret;
 
     ret = vpci_add_register(pdev->vpci, address_read, address_write,
                             msi_lower_address_reg(pos), 4, pdev->vpci->msi);
@@ -266,7 +266,35 @@ static int init_msi(struct pci_dev *pdev)
 
     return 0;
 }
-REGISTER_VPCI_INIT(init_msi, NULL, VPCI_PRIORITY_LOW);
+
+static void teardown_msi(struct pci_dev *pdev)
+{
+    unsigned int pos = pci_find_cap_offset(pdev->seg, pdev->bus,
+                                           PCI_SLOT(pdev->devfn),
+                                           PCI_FUNC(pdev->devfn),
+                                           PCI_CAP_ID_MSI);
+    struct vpci_msi *msi = pdev->vpci->msi;
+    uint16_t control;
+
+    if ( !msi )
+        return;
+
+    if ( !msi->enabled )
+        goto out;
+
+    control = pci_conf_read16(pdev->seg, pdev->bus, PCI_SLOT(pdev->devfn),
+                              PCI_FUNC(pdev->devfn), msi_control_reg(pos));
+    pci_conf_write16(pdev->seg, pdev->bus, PCI_SLOT(pdev->devfn),
+                     PCI_FUNC(pdev->devfn), msi_control_reg(pos),
+                     (control & ~PCI_MSI_FLAGS_ENABLE));
+
+    vpci_msi_arch_disable(msi, pdev);
+
+out:
+    xfree(msi);
+    pdev->vpci->msi = NULL;
+}
+REGISTER_VPCI_INIT(init_msi, teardown_msi, VPCI_PRIORITY_LOW);
 
 void vpci_dump_msi(void)
 {
