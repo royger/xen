@@ -72,7 +72,7 @@ void vpci_remove_device(struct pci_dev *pdev)
     spin_unlock(&pdev->vpci_lock);
 }
 
-int __hwdom_init vpci_add_handlers(struct pci_dev *pdev)
+int vpci_add_handlers(struct pci_dev *pdev)
 {
     unsigned int i;
     int rc = 0;

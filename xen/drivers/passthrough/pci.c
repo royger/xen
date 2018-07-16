@@ -768,6 +768,13 @@ int pci_add_device(u16 seg, u8 bus, u8 devfn,
             goto out;
         }
 
+        ret = vpci_add_handlers(pdev);
+        if ( ret )
+        {
+            pdev->domain = NULL;
+            goto out;
+        }
+
         list_add(&pdev->domain_list, &hardware_domain->arch.pdev_list);
     }
     else
@@ -812,6 +819,7 @@ int pci_remove_device(u16 seg, u8 bus, u8 devfn)
     list_for_each_entry ( pdev, &pseg->alldevs_list, alldevs_list )
         if ( pdev->bus == bus && pdev->devfn == devfn )
         {
+            vpci_remove_device(pdev);
             ret = iommu_remove_device(pdev);
             if ( pdev->domain )
                 list_del(&pdev->domain_list);
