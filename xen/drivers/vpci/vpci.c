@@ -459,10 +459,14 @@ void vpci_write(pci_sbdf_t sbdf, unsigned int reg, unsigned int size,
         return;
     }
 
-    spin_lock(&pdev->vpci_lock);
+    /*
+     * NB: use the recursive variant here so that mapping an unmapping of the
+     * VF vars works correctly and can recursively take the PF lock.
+     */
+    spin_lock_recursive(&pdev->vpci_lock);
     if ( !pdev->vpci )
     {
-        spin_unlock(&pdev->vpci_lock);
+        spin_unlock_recursive(&pdev->vpci_lock);
         vpci_write_hw(sbdf, reg, size, data);
         return;
     }
@@ -501,7 +505,7 @@ void vpci_write(pci_sbdf_t sbdf, unsigned int reg, unsigned int size,
             break;
         ASSERT(data_offset < size);
     }
-    spin_unlock(&pdev->vpci_lock);
+    spin_unlock_recursive(&pdev->vpci_lock);
 
     if ( data_offset < size )
         /* Tailing gap, write the remaining. */

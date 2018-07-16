@@ -236,7 +236,7 @@ static void defer_map(struct domain *d, struct pci_dev *pdev,
     }
 }
 
-static int modify_bars(const struct pci_dev *pdev, bool map, bool rom_only)
+int vpci_modify_bars(const struct pci_dev *pdev, bool map, bool rom_only)
 {
     struct vpci_header *header = &pdev->vpci->header;
     struct rangeset *mem = rangeset_new(NULL, NULL, 0);
@@ -318,10 +318,16 @@ static int modify_bars(const struct pci_dev *pdev, bool map, bool rom_only)
                 continue;
         }
 
-        spin_lock(&tmp->vpci_lock);
+        /*
+         * When mapping the BARs of a VF the parent PF is already locked and
+         * trying to lock it will result in a deadlock, so use a recursive
+         * lock. This is because vpci_modify_bars is called from the parent PF
+         * control_write register handler.
+         */
+        spin_lock_recursive(&tmp->vpci_lock);
         if ( !tmp->vpci )
         {
-            spin_unlock(&tmp->vpci_lock);
+            spin_unlock_recursive(&tmp->vpci_lock);
             continue;
         }
         for ( i = 0; i < ARRAY_SIZE(tmp->vpci->header.bars); i++ )
@@ -342,14 +348,14 @@ static int modify_bars(const struct pci_dev *pdev, bool map, bool rom_only)
             rc = rangeset_remove_range(mem, start, end);
             if ( rc )
             {
-                spin_unlock(&tmp->vpci_lock);
+                spin_unlock_recursive(&tmp->vpci_lock);
                 printk(XENLOG_G_WARNING "Failed to remove [%lx, %lx]: %d\n",
                        start, end, rc);
                 rangeset_destroy(mem);
                 return rc;
             }
         }
-        spin_unlock(&tmp->vpci_lock);
+        spin_unlock_recursive(&tmp->vpci_lock);
     }
 
     ASSERT(dev);
@@ -391,7 +397,7 @@ static void cmd_write(const struct pci_dev *pdev, unsigned int reg,
          * memory decoding bit has not been changed, so leave everything as-is,
          * hoping the guest will realize and try again.
          */
-        modify_bars(pdev, cmd & PCI_COMMAND_MEMORY, false);
+        vpci_modify_bars(pdev, cmd & PCI_COMMAND_MEMORY, false);
     else
         pci_conf_write16(pdev->seg, pdev->bus, slot, func, reg, cmd);
 }
@@ -472,13 +478,13 @@ static void rom_write(const struct pci_dev *pdev, unsigned int reg,
         header->rom_enabled = new_enabled;
         pci_conf_write32(pdev->seg, pdev->bus, slot, func, reg, val);
     }
-    else if ( modify_bars(pdev, new_enabled, true) )
+    else if ( vpci_modify_bars(pdev, new_enabled, true) )
         /*
          * No memory has been added or removed from the p2m (because the actual
          * p2m changes are deferred in defer_map) and the ROM enable bit has
          * not been changed, so leave everything as-is, hoping the guest will
          * realize and try again. It's important to not update rom->addr in the
-         * unmap case if modify_bars has failed, or future attempts would
+         * unmap case if vpci_modify_bars has failed, or future attempts would
          * attempt to unmap the wrong address.
          */
         return;
@@ -499,6 +505,16 @@ static int init_bars(struct pci_dev *pdev)
         .sbdf = PCI_SBDF3(pdev->seg, pdev->bus, pdev->devfn),
     };
     int rc;
+
+    if ( pdev->info.is_virtfn )
+        /*
+         * No need to set traps for the command register or the BAR registers
+         * because those are not used by VFs. Memory decoding and position of
+         * the VF BARs is controlled from the PF.
+         *
+         * TODO: add DomU support for VFs.
+         */
+        return 0;
 
     switch ( pci_conf_read8(pdev->seg, pdev->bus, slot, func, PCI_HEADER_TYPE)
              & 0x7f )
@@ -608,7 +624,7 @@ static int init_bars(struct pci_dev *pdev)
             rom->type = VPCI_BAR_EMPTY;
     }
 
-    return (cmd & PCI_COMMAND_MEMORY) ? modify_bars(pdev, true, false) : 0;
+    return (cmd & PCI_COMMAND_MEMORY) ? vpci_modify_bars(pdev, true, false) : 0;
 }
 
 static void teardown_bars(struct pci_dev *pdev)
@@ -619,7 +635,7 @@ static void teardown_bars(struct pci_dev *pdev)
     if ( cmd & PCI_COMMAND_MEMORY )
     {
         /* Unmap all BARs from guest p2m. */
-        modify_bars(pdev, false, false);
+        vpci_modify_bars(pdev, false, false);
         /*
          * Since this operation is deferred at the point when it finishes the
          * device might have been removed, so don't attempt to disable memory
