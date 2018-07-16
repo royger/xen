@@ -184,7 +184,19 @@ static void defer_map(struct domain *d, struct pci_dev *pdev,
      * started for the same device if the domain is not well-behaved.
      */
     curr->vpci.pdev = pdev;
-    curr->vpci.mem = mem;
+    if ( !curr->vpci.mem )
+        curr->vpci.mem = mem;
+    else
+    {
+        int rc = rangeset_merge(curr->vpci.mem, mem);
+
+        if ( rc )
+            gprintk(XENLOG_WARNING,
+                    "%04x:%02x:%02x.%u: unable to %smap memory region: %d\n",
+                    pdev->seg, pdev->bus, PCI_SLOT(pdev->devfn),
+                    PCI_FUNC(pdev->devfn), map ? "" : "un", rc);
+        rangeset_destroy(mem);
+    }
     curr->vpci.map = map;
     curr->vpci.rom_only = rom_only;
 }
