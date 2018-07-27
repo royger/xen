@@ -158,19 +158,9 @@ void __hwdom_init arch_iommu_hwdom_init(struct domain *d)
          * regions. When set, the inclusive mapping additionally maps in
          * every pfn up to 4GB except those that fall in unusable ranges.
          */
-        if ( pfn > max_pfn && !mfn_valid(_mfn(pfn)) )
-            continue;
-
-        if ( iommu_inclusive && pfn <= max_pfn )
-            map = !page_is_ram_type(pfn, RAM_TYPE_UNUSABLE);
-        else
-            map = page_is_ram_type(pfn, RAM_TYPE_CONVENTIONAL);
-
-        if ( !map )
-            continue;
-
-        /* Exclude Xen bits */
-        if ( xen_in_range(pfn) )
+        if ( (pfn > max_pfn && !mfn_valid(_mfn(pfn))) ||
+             /* Exclude Xen bits */
+             xen_in_range(pfn) )
             continue;
 
         /*
@@ -179,6 +169,13 @@ void __hwdom_init arch_iommu_hwdom_init(struct domain *d)
          */
         if ( iommu_dom0_strict &&
              page_is_ram_type(pfn, RAM_TYPE_CONVENTIONAL) )
+            map = false;
+        else if ( iommu_inclusive && pfn <= max_pfn )
+            map = !page_is_ram_type(pfn, RAM_TYPE_UNUSABLE);
+        else
+            map = page_is_ram_type(pfn, RAM_TYPE_CONVENTIONAL);
+
+        if ( !map )
             continue;
 
         tmp = 1 << (PAGE_SHIFT - PAGE_SHIFT_4K);
