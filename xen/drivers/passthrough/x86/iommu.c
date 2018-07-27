@@ -20,6 +20,8 @@
 #include <xen/softirq.h>
 #include <xsm/xsm.h>
 
+#include <asm/apicdef.h>
+#include <asm/io_apic.h>
 #include <asm/setup.h>
 
 void iommu_update_ire_from_apic(
@@ -134,11 +136,62 @@ void arch_iommu_domain_destroy(struct domain *d)
 {
 }
 
+static bool __hwdom_init pv_inclusive_map(unsigned long pfn,
+                                          unsigned long max_pfn)
+{
+    /*
+     * If dom0-strict mode is enabled then exclude conventional RAM
+     * and let the common code map dom0's pages.
+     */
+    if ( iommu_dom0_strict && page_is_ram_type(pfn, RAM_TYPE_CONVENTIONAL) )
+        return false;
+    if ( iommu_inclusive && pfn <= max_pfn )
+        return !page_is_ram_type(pfn, RAM_TYPE_UNUSABLE);
+
+    return page_is_ram_type(pfn, RAM_TYPE_CONVENTIONAL);
+}
+
+static bool __hwdom_init pvh_inclusive_map(const struct domain *d,
+                                           unsigned long pfn)
+{
+    unsigned int i;
+
+    /*
+     * Ignore any address below 1MB, that's already identity mapped by the
+     * domain builder.
+     */
+    if ( pfn < PFN_DOWN(MB(1)) )
+        return false;
+
+    /* Only add reserved regions. */
+    if ( !page_is_ram_type(pfn, RAM_TYPE_RESERVED) )
+        return false;
+
+    /* Check that it doesn't overlap with the LAPIC */
+    if ( pfn == PFN_DOWN(APIC_DEFAULT_PHYS_BASE) )
+        return false;
+    /* ... or the IO-APIC */
+    for ( i = 0; i < nr_ioapics; i++ )
+        if ( pfn == PFN_DOWN(domain_vioapic(d, i)->base_address) )
+            return false;
+    /* ... or the PCIe MCFG regions. */
+    for ( i = 0; i < pci_mmcfg_config_num; i++ )
+    {
+        unsigned long addr = PFN_DOWN(pci_mmcfg_config[i].address);
+
+        if ( pfn >= addr + (pci_mmcfg_config[i].start_bus_number << 8) &&
+             pfn < addr + (pci_mmcfg_config[i].end_bus_number << 8) )
+            return false;
+    }
+
+    return true;
+}
+
 void __hwdom_init arch_iommu_hwdom_init(struct domain *d)
 {
     unsigned long i, j, tmp, top, max_pfn;
 
-    if ( iommu_passthrough || !is_pv_domain(d) )
+    if ( iommu_passthrough )
         return;
 
     BUG_ON(!is_hardware_domain(d));
@@ -149,7 +202,6 @@ void __hwdom_init arch_iommu_hwdom_init(struct domain *d)
     for ( i = 0; i < top; i++ )
     {
         unsigned long pfn = pdx_to_pfn(i);
-        bool map;
         int rc = 0;
 
         /*
@@ -163,25 +215,23 @@ void __hwdom_init arch_iommu_hwdom_init(struct domain *d)
              xen_in_range(pfn) )
             continue;
 
-        /*
-         * If dom0-strict mode is enabled then exclude conventional RAM
-         * and let the common code map dom0's pages.
-         */
-        if ( iommu_dom0_strict &&
-             page_is_ram_type(pfn, RAM_TYPE_CONVENTIONAL) )
-            map = false;
-        else if ( iommu_inclusive && pfn <= max_pfn )
-            map = !page_is_ram_type(pfn, RAM_TYPE_UNUSABLE);
-        else
-            map = page_is_ram_type(pfn, RAM_TYPE_CONVENTIONAL);
-
-        if ( !map )
+        if ( is_pv_domain(d) ? !pv_inclusive_map(pfn, max_pfn)
+                             : !pvh_inclusive_map(d, pfn) )
             continue;
 
         tmp = 1 << (PAGE_SHIFT - PAGE_SHIFT_4K);
         for ( j = 0; j < tmp; j++ )
         {
-            int ret = iommu_map_page(d, pfn * tmp + j, pfn * tmp + j,
+            int ret;
+
+            if ( iommu_use_hap_pt(d) )
+            {
+                ASSERT(is_hvm_domain(d));
+                ret = set_identity_p2m_entry(d, pfn * tmp + j, p2m_access_rw,
+                                             0);
+            }
+            else
+                ret = iommu_map_page(d, pfn * tmp + j, pfn * tmp + j,
                                      IOMMUF_readable|IOMMUF_writable);
 
             if ( !rc )

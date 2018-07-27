@@ -1203,11 +1203,17 @@ detection of systems known to misbehave upon accesses to that port.
 > Default: `true`
 
 >> Use this to work around firmware issues providing incorrect RMRR or IVMD
->> entries. Rather than only mapping RAM pages for IOMMU accesses for Dom0,
->> with this option all pages up to 4GB, not marked as unusable in the E820
->> table, will get a mapping established. Note that this option is only
->> applicable to a PV dom0. Also note that if `dom0-strict` mode is enabled
->> then conventional RAM pages not assigned to dom0 will not be mapped.
+>> entries. The behaviour of this option is slightly different between a PV and
+>> a PVH Dom0:
+>>
+>> * For a PV Dom0 all pages up to 4GB not marked as unusable in the memory
+>>   map will get a mapping established. Note that if `dom0-strict` mode is
+>>   enabled then conventional RAM pages not assigned to dom0 will not be
+>>   mapped.
+>>
+>> * For a PVH Dom0 all memory regions marked as reserved in the memory map
+>>   that don't overlap with any MMIO region from emulated devices will be
+>>   identity mapped.
 
 ### iommu\_dev\_iotlb\_timeout
 > `= <integer>`
