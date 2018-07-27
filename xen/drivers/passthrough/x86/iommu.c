@@ -20,6 +20,8 @@
 #include <xen/softirq.h>
 #include <xsm/xsm.h>
 
+#include <asm/setup.h>
+
 void iommu_update_ire_from_apic(
     unsigned int apic, unsigned int reg, unsigned int value)
 {
@@ -130,6 +132,74 @@ int arch_iommu_domain_init(struct domain *d)
 
 void arch_iommu_domain_destroy(struct domain *d)
 {
+}
+
+void __hwdom_init arch_iommu_hwdom_init(struct domain *d)
+{
+    unsigned long i, j, tmp, top, max_pfn;
+
+    if ( iommu_passthrough || !is_pv_domain(d) )
+        return;
+
+    BUG_ON(!is_hardware_domain(d));
+
+    max_pfn = (GB(4) >> PAGE_SHIFT) - 1;
+    top = max(max_pdx, pfn_to_pdx(max_pfn) + 1);
+
+    for ( i = 0; i < top; i++ )
+    {
+        unsigned long pfn = pdx_to_pfn(i);
+        bool map;
+        int rc = 0;
+
+        /*
+         * Set up 1:1 mapping for dom0. Default to include only
+         * conventional RAM areas and let RMRRs include needed reserved
+         * regions. When set, the inclusive mapping additionally maps in
+         * every pfn up to 4GB except those that fall in unusable ranges.
+         */
+        if ( pfn > max_pfn && !mfn_valid(_mfn(pfn)) )
+            continue;
+
+        if ( iommu_inclusive && pfn <= max_pfn )
+            map = !page_is_ram_type(pfn, RAM_TYPE_UNUSABLE);
+        else
+            map = page_is_ram_type(pfn, RAM_TYPE_CONVENTIONAL);
+
+        if ( !map )
+            continue;
+
+        /* Exclude Xen bits */
+        if ( xen_in_range(pfn) )
+            continue;
+
+        /*
+         * If dom0-strict mode is enabled then exclude conventional RAM
+         * and let the common code map dom0's pages.
+         */
+        if ( iommu_dom0_strict &&
+             page_is_ram_type(pfn, RAM_TYPE_CONVENTIONAL) )
+            continue;
+
+        tmp = 1 << (PAGE_SHIFT - PAGE_SHIFT_4K);
+        for ( j = 0; j < tmp; j++ )
+        {
+            int ret = iommu_map_page(d, pfn * tmp + j, pfn * tmp + j,
+                                     IOMMUF_readable|IOMMUF_writable);
+
+            if ( !rc )
+               rc = ret;
+        }
+
+        if ( rc )
+            printk(XENLOG_WARNING "d%d: IOMMU mapping failed: %d\n",
+                   d->domain_id, rc);
+
+        if (!(i & (0xfffff >> (PAGE_SHIFT - PAGE_SHIFT_4K))))
+            process_pending_softirqs();
+    }
+
+
 }
 
 /*

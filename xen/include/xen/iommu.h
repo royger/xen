@@ -35,6 +35,7 @@ extern bool_t iommu_snoop, iommu_qinval, iommu_intremap, iommu_intpost;
 extern bool_t iommu_hap_pt_share;
 extern bool_t iommu_debug;
 extern bool_t amd_iommu_perdev_intremap;
+extern bool iommu_inclusive;
 
 extern unsigned int iommu_dev_iotlb_timeout;
 
@@ -49,6 +50,7 @@ void arch_iommu_domain_destroy(struct domain *d);
 int arch_iommu_domain_init(struct domain *d);
 int arch_iommu_populate_page_table(struct domain *d);
 void arch_iommu_check_autotranslated_hwdom(struct domain *d);
+void arch_iommu_hwdom_init(struct domain *d);
 
 int iommu_construct(struct domain *d);
 

@@ -47,6 +47,9 @@ integer_param("iommu_dev_iotlb_timeout", iommu_dev_iotlb_timeout);
  *   no-igfx                    Disable VT-d for IGD devices (insecure)
  *   no-amd-iommu-perdev-intremap Don't use per-device interrupt remapping
  *                              tables (insecure)
+ *   inclusive                  Map additional regions into the IOMMU page
+ *                              tables in order to workaround bugs in ACPI
+ *                              tables.
  */
 custom_param("iommu", parse_iommu_param);
 bool_t __initdata iommu_enable = 1;
@@ -60,6 +63,7 @@ bool_t __read_mostly iommu_passthrough;
 bool_t __read_mostly iommu_snoop = 1;
 bool_t __read_mostly iommu_qinval = 1;
 bool_t __read_mostly iommu_intremap = 1;
+bool __hwdom_initdata iommu_inclusive = true;
 
 /*
  * In the current implementation of VT-d posted interrupts, in some extreme
@@ -208,6 +212,8 @@ void __hwdom_init iommu_hwdom_init(struct domain *d)
     }
 
     hd->platform_ops->hwdom_init(d);
+
+    arch_iommu_hwdom_init(d);
 }
 
 void iommu_teardown(struct domain *d)
