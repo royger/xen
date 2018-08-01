@@ -1219,6 +1219,14 @@ inverse meaning.
 * `relaxed`: controls whether to setup DMA remappings for all the host RAM
   except regions in use by Xen. Defaults to `true`.
 
+* `inclusive`: Use this to work around firmware issues providing incorrect RMRR
+  or IVMD entries. Rather than only mapping RAM pages for IOMMU accesses for
+  Dom0, with this option all pages up to 4GB, not marked as unusable in the
+  E820 table, will get a mapping established. Note that this option is only
+  applicable to a PV dom0. Also note that if `strict` mode is enabled then
+  conventional RAM pages not assigned to dom0 will not be mapped. Defaults to
+  `true` on Intel hardware, `false` otherwise.
+
 ### iommu\_dev\_iotlb\_timeout
 > `= <integer>`
 
@@ -1230,6 +1238,9 @@ wait descriptor timed out', try increasing this value.
 
 ### iommu\_inclusive\_mapping (VT-d)
 > `= <boolean>`
+
+**WARNING: This command line option is deprecated, and superseded by
+_dom0-iommu=inclusive_ - using both options in combination is undefined.**
 
 > Default: `true`
 
