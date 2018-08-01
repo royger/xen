@@ -1241,6 +1241,15 @@ detection of systems known to misbehave upon accesses to that port.
 >> applicable to a PV dom0. Also note that if `strict` mode is enabled
 >> then conventional RAM pages not assigned to dom0 will not be mapped.
 
+> `reserved`
+
+> Default: `true` on Intel hardware, `false` otherwise
+
+>> Use this to work around firmware issues providing incorrect RMRR or IVMD
+>> entries. Rather than only mapping RAM pages for IOMMU accesses for Dom0,
+>> all memory regions marked as reserved in the memory map that don't overlap
+>> with any MMIO region from emulated devices will be identity mapped.
+
 ### iommu\_dev\_iotlb\_timeout
 > `= <integer>`
 

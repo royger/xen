@@ -20,6 +20,7 @@
 #include <xen/softirq.h>
 #include <xsm/xsm.h>
 
+#include <asm/hvm/io.h>
 #include <asm/setup.h>
 
 void iommu_update_ire_from_apic(
@@ -134,15 +135,75 @@ void arch_iommu_domain_destroy(struct domain *d)
 {
 }
 
+static bool __hwdom_init iommu_map(const struct domain *d, unsigned long pfn,
+                                   unsigned long max_pfn)
+{
+    unsigned int i;
+
+    /*
+     * Ignore any address below 1MB, that's already identity mapped by the
+     * domain builder for HVM.
+     */
+    if ( is_hvm_domain(d) && pfn < PFN_DOWN(MB(1)) )
+        return false;
+
+    /*
+     * If dom0-strict mode is enabled then exclude conventional RAM and let the
+     * common code map dom0's pages.
+     */
+    if ( page_is_ram_type(pfn, RAM_TYPE_CONVENTIONAL) &&
+         (iommu_dom0_strict || is_hvm_domain(d)) )
+        return false;
+    if ( page_is_ram_type(pfn, RAM_TYPE_RESERVED) &&
+         (!iommu_dom0_reserved || !iommu_dom0_inclusive) )
+        return false;
+    if ( !page_is_ram_type(pfn, RAM_TYPE_UNUSABLE) &&
+         !page_is_ram_type(pfn, RAM_TYPE_RESERVED) &&
+         !page_is_ram_type(pfn, RAM_TYPE_CONVENTIONAL) &&
+         (!iommu_dom0_inclusive || pfn > max_pfn) )
+        return false;
+
+    /* Check that it doesn't overlap with the LAPIC */
+    if ( has_vlapic(d) )
+    {
+        const struct vcpu *v;
+
+        for_each_vcpu(d, v)
+            if ( pfn == PFN_DOWN(vlapic_base_address(vcpu_vlapic(v))) )
+                return false;
+    }
+    /* ... or the IO-APIC */
+    for ( i = 0; has_vioapic(d) && i < d->arch.hvm_domain.nr_vioapics; i++ )
+        if ( pfn == PFN_DOWN(domain_vioapic(d, i)->base_address) )
+            return false;
+    /*
+     * ... or the PCIe MCFG regions.
+     * TODO: runtime added MMCFG regions are not checked to make sure they
+     * don't overlap with already mapped regions, thus preventing trapping.
+     */
+    if ( has_vpci(d) && vpci_mmcfg_address(d, pfn << PAGE_SHIFT) )
+        return false;
+
+    return true;
+}
+
 void __hwdom_init arch_iommu_hwdom_init(struct domain *d)
 {
     unsigned long i, top, max_pfn;
 
+    if ( iommu_dom0_passthrough )
+        return;
+
     BUG_ON(!is_hardware_domain(d));
 
-    /* Set the default value of inclusive depending on the hardware. */
+    /*
+     * Set the default value of inclusive and reserved depending on the
+     * hardware.
+     */
     if ( iommu_dom0_inclusive == -1 )
         iommu_dom0_inclusive = boot_cpu_data.x86_vendor == X86_VENDOR_INTEL;
+    if ( iommu_dom0_reserved == -1 )
+        iommu_dom0_reserved = boot_cpu_data.x86_vendor == X86_VENDOR_INTEL;
 
     max_pfn = (GB(4) >> PAGE_SHIFT) - 1;
     top = max(max_pdx, pfn_to_pdx(max_pfn) + 1);
@@ -150,7 +211,6 @@ void __hwdom_init arch_iommu_hwdom_init(struct domain *d)
     for ( i = 0; i < top; i++ )
     {
         unsigned long pfn = pdx_to_pfn(i);
-        bool map;
         int rc;
 
         /*
@@ -159,27 +219,9 @@ void __hwdom_init arch_iommu_hwdom_init(struct domain *d)
          * regions. When set, the inclusive mapping additionally maps in
          * every pfn up to 4GB except those that fall in unusable ranges.
          */
-        if ( pfn > max_pfn && !mfn_valid(_mfn(pfn)) )
-            continue;
-
-        if ( iommu_dom0_inclusive && pfn <= max_pfn )
-            map = !page_is_ram_type(pfn, RAM_TYPE_UNUSABLE);
-        else
-            map = page_is_ram_type(pfn, RAM_TYPE_CONVENTIONAL);
-
-        if ( !map )
-            continue;
-
-        /* Exclude Xen bits */
-        if ( xen_in_range(pfn) )
-            continue;
-
-        /*
-         * If dom0-strict mode is enabled then exclude conventional RAM
-         * and let the common code map dom0's pages.
-         */
-        if ( iommu_dom0_strict &&
-             page_is_ram_type(pfn, RAM_TYPE_CONVENTIONAL) )
+        if ( (pfn > max_pfn && !mfn_valid(_mfn(pfn))) ||
+             /* Exclude Xen bits */
+             xen_in_range(pfn) || !iommu_map(d, pfn, max_pfn) )
             continue;
 
         rc = iommu_map_page(d, pfn, pfn, IOMMUF_readable|IOMMUF_writable);
