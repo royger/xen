@@ -1150,11 +1150,17 @@ detection of systems known to misbehave upon accesses to that port.
 
 > `dom0-passthrough`
 
+> **WARNING: This command line option is deprecated, and superseded by
+> _dom0-iommu=none_ - using both options in combination is undefined.**
+
 > Default: `false`
 
 >> Control whether to disable DMA remapping for Dom0.
 
 > `dom0-strict`
+
+> **WARNING: This command line option is deprecated, and superseded by
+> _dom0-iommu=strict_ - using both options in combination is undefined.**
 
 > Default: `false`
 
@@ -1197,6 +1203,32 @@ detection of systems known to misbehave upon accesses to that port.
 > Default: `false`
 
 >> Enable IOMMU debugging code (implies `verbose`).
+
+### dom0-iommu
+> `= List of [ none | strict | relaxed ]`
+
+> Sub-options are of boolean kind and can be prefixed with `no-` to effect the
+> inverse meaning.
+
+> `none`
+
+> Default: `false`
+
+>> Control whether to disable DMA remapping for Dom0.
+
+> `strict`
+
+> Default: `false`
+
+>> Control whether to set up DMA remapping only for the memory Dom0 actually
+>> got assigned.
+
+> `relaxed`
+
+> Default: `true`
+
+>> Controls whether to setup DMA remappings for all the host RAM except regions
+>> in use by Xen.
 
 ### iommu\_dev\_iotlb\_timeout
 > `= <integer>`
