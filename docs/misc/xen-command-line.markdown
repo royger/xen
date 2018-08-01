@@ -1227,6 +1227,12 @@ inverse meaning.
   conventional RAM pages not assigned to dom0 will not be mapped. Defaults to
   `true` on Intel hardware, `false` otherwise.
 
+* `reserved`: use this option to work around firmware issues providing
+  incorrect RMRR or IVMD entries. Rather than only mapping RAM pages for IOMMU
+  accesses for Dom0, all memory regions marked as reserved in the memory map
+  that don't overlap with any MMIO region from emulated devices will be
+  identity mapped. Defaults to `true` on Intel hardware, `false` otherwise.
+
 ### iommu\_dev\_iotlb\_timeout
 > `= <integer>`
 

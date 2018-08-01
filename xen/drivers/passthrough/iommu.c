@@ -75,6 +75,7 @@ custom_param("dom0-iommu", parse_dom0_iommu_param);
 bool __hwdom_initdata iommu_dom0_strict;
 bool __read_mostly iommu_dom0_passthrough;
 int8_t __hwdom_initdata iommu_dom0_inclusive = -1;
+int8_t __hwdom_initdata iommu_dom0_reserved = -1;
 
 DEFINE_PER_CPU(bool_t, iommu_dont_flush_iotlb);
 
@@ -161,6 +162,8 @@ static int __init parse_dom0_iommu_param(const char *s)
             iommu_dom0_strict = !val;
         else if ( !strncmp(s, "inclusive", ss - s) )
             iommu_dom0_inclusive = val;
+        else if ( !strncmp(s, "reserved", ss - s) )
+            iommu_dom0_reserved = val;
         else
             rc = -EINVAL;
 
