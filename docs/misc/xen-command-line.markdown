@@ -1205,7 +1205,7 @@ detection of systems known to misbehave upon accesses to that port.
 >> Enable IOMMU debugging code (implies `verbose`).
 
 ### dom0-iommu
-> `= List of [ none | strict | relaxed ]`
+> `= List of [ none | strict | relaxed | inclusive ]`
 
 * `none`: disables DMA remapping for Dom0.
 
@@ -1221,6 +1221,18 @@ PV Dom0:
 Note that all the above options are mutually exclusive. Specifying more than
 one on the `dom0-iommu` command line will result in undefined behavior.
 
+The following options control whether non-RAM regions are added to the Dom0
+iommu tables. Note that they can be prefixed with `no-` to effect the inverse
+meaning:
+
+* `inclusive`: sets up DMA remapping for all the non-RAM memory below 4GB
+  except for unusable ranges. Use this to work around firmware issues providing
+  incorrect RMRR/IVMD entries. Rather than only mapping RAM pages for IOMMU
+  accesses for Dom0, with this option all pages up to 4GB, not marked as
+  unusable in the E820 table, will get a mapping established. Note that this
+  option is only applicable to a PV Dom0 and is enabled by default on Intel
+  hardware.
+
 ### iommu\_dev\_iotlb\_timeout
 > `= <integer>`
 
@@ -1232,6 +1244,9 @@ wait descriptor timed out', try increasing this value.
 
 ### iommu\_inclusive\_mapping (VT-d)
 > `= <boolean>`
+
+**WARNING: This command line option is deprecated, and superseded by
+_dom0-iommu=inclusive_ - using both options in combination is undefined.**
 
 > Default: `true`
 

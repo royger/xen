@@ -1304,11 +1304,9 @@ static void __hwdom_init intel_iommu_hwdom_init(struct domain *d)
 {
     struct acpi_drhd_unit *drhd;
 
-    if ( !iommu_dom0_passthrough && is_pv_domain(d) )
-    {
-        /* Set up 1:1 page table for hardware domain. */
-        vtd_set_hwdom_mapping(d);
-    }
+    /* Inclusive mappings are enabled by default on Intel hardware for PV. */
+    iommu_dom0_inclusive = iommu_dom0_inclusive == -1 ? is_pv_domain(d)
+                                                      : iommu_dom0_inclusive;
 
     setup_hwdom_pci_devices(d, setup_hwdom_device);
     setup_hwdom_rmrr(d);
