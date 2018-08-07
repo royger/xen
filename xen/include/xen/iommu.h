@@ -37,7 +37,7 @@ extern bool_t iommu_debug;
 extern bool_t amd_iommu_perdev_intremap;
 
 extern bool iommu_dom0_strict, iommu_dom0_passthrough;
-extern int8_t iommu_dom0_inclusive;
+extern int8_t iommu_dom0_inclusive, iommu_dom0_reserved;
 
 extern unsigned int iommu_dev_iotlb_timeout;
 

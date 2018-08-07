@@ -1205,7 +1205,7 @@ detection of systems known to misbehave upon accesses to that port.
 >> Enable IOMMU debugging code (implies `verbose`).
 
 ### dom0-iommu
-> `= List of [ none | strict | relaxed | inclusive ]`
+> `= List of [ none | strict | relaxed | inclusive | reserved ]`
 
 * `none`: disables DMA remapping for Dom0.
 
@@ -1232,6 +1232,15 @@ meaning:
   unusable in the E820 table, will get a mapping established. Note that this
   option is only applicable to a PV Dom0 and is enabled by default on Intel
   hardware.
+
+* `reserved`: sets up DMA remapping for all the reserved regions in the memory
+  map for Dom0. Use this to work around firmware issues providing incorrect
+  RMRR/IVMD entries. Rather than only mapping RAM pages for IOMMU accesses
+  for Dom0, all memory regions marked as reserved in the memory map that don't
+  overlap with any MMIO region from emulated devices will be identity mapped.
+  This option maps a subset of the memory that would be mapped when using the
+  `inclusive` option. This option is available to a PVH Dom0 and is enabled by
+  default on Intel hardware.
 
 ### iommu\_dev\_iotlb\_timeout
 > `= <integer>`
