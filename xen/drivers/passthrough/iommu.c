@@ -22,6 +22,7 @@
 #include <xsm/xsm.h>
 
 static int parse_iommu_param(const char *s);
+static int parse_dom0_iommu_param(const char *s);
 static void iommu_dump_p2m_table(unsigned char key);
 
 unsigned int __read_mostly iommu_dev_iotlb_timeout = 1000;
@@ -52,11 +53,9 @@ custom_param("iommu", parse_iommu_param);
 bool_t __initdata iommu_enable = 1;
 bool_t __read_mostly iommu_enabled;
 bool_t __read_mostly force_iommu;
-bool_t __hwdom_initdata iommu_dom0_strict;
 bool_t __read_mostly iommu_verbose;
 bool_t __read_mostly iommu_workaround_bios_bug;
 bool_t __read_mostly iommu_igfx = 1;
-bool_t __read_mostly iommu_passthrough;
 bool_t __read_mostly iommu_snoop = 1;
 bool_t __read_mostly iommu_qinval = 1;
 bool_t __read_mostly iommu_intremap = 1;
@@ -71,6 +70,10 @@ bool_t __read_mostly iommu_intpost;
 bool_t __read_mostly iommu_hap_pt_share = 1;
 bool_t __read_mostly iommu_debug;
 bool_t __read_mostly amd_iommu_perdev_intremap = 1;
+
+custom_param("dom0-iommu", parse_dom0_iommu_param);
+bool __hwdom_initdata iommu_dom0_strict;
+bool __read_mostly iommu_dom0_passthrough;
 
 DEFINE_PER_CPU(bool_t, iommu_dont_flush_iotlb);
 
@@ -121,11 +124,36 @@ static int __init parse_iommu_param(const char *s)
         else if ( !strncmp(s, "amd-iommu-perdev-intremap", ss - s) )
             amd_iommu_perdev_intremap = val;
         else if ( !strncmp(s, "dom0-passthrough", ss - s) )
-            iommu_passthrough = val;
+            iommu_dom0_passthrough = val;
         else if ( !strncmp(s, "dom0-strict", ss - s) )
             iommu_dom0_strict = val;
         else if ( !strncmp(s, "sharept", ss - s) )
             iommu_hap_pt_share = val;
+        else
+            rc = -EINVAL;
+
+        s = ss + 1;
+    } while ( *ss );
+
+    return rc;
+}
+
+static int __init parse_dom0_iommu_param(const char *s)
+{
+    const char *ss;
+    int rc = 0;
+
+    do {
+        ss = strchr(s, ',');
+        if ( !ss )
+            ss = strchr(s, '\0');
+
+        if ( !strncmp(s, "none", ss - s) )
+            iommu_dom0_passthrough = true;
+        else if ( !strncmp(s, "strict", ss - s) )
+            iommu_dom0_strict = true;
+        else if ( !strncmp(s, "relaxed", ss - s) )
+            iommu_dom0_strict = false;
         else
             rc = -EINVAL;
 
@@ -158,7 +186,7 @@ static void __hwdom_init check_hwdom_reqs(struct domain *d)
 
     arch_iommu_check_autotranslated_hwdom(d);
 
-    if ( iommu_passthrough )
+    if ( iommu_dom0_passthrough )
         panic("Dom0 uses paging translated mode, dom0-passthrough must not be "
               "enabled\n");
 
@@ -372,7 +400,7 @@ int __init iommu_setup(void)
     bool_t force_intremap = force_iommu && iommu_intremap;
 
     if ( iommu_dom0_strict )
-        iommu_passthrough = 0;
+        iommu_dom0_passthrough = false;
 
     if ( iommu_enable )
     {
@@ -393,14 +421,14 @@ int __init iommu_setup(void)
     if ( !iommu_enabled )
     {
         iommu_snoop = 0;
-        iommu_passthrough = 0;
+        iommu_dom0_passthrough = false;
         iommu_dom0_strict = 0;
     }
     printk("I/O virtualisation %sabled\n", iommu_enabled ? "en" : "dis");
     if ( iommu_enabled )
     {
         printk(" - Dom0 mode: %s\n",
-               iommu_passthrough ? "Passthrough" :
+               iommu_dom0_passthrough ? "Passthrough" :
                iommu_dom0_strict ? "Strict" : "Relaxed");
         printk("Interrupt remapping %sabled\n", iommu_intremap ? "en" : "dis");
         tasklet_init(&iommu_pt_cleanup_tasklet, iommu_free_pagetables, 0);
