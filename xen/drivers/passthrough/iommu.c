@@ -74,6 +74,7 @@ bool_t __read_mostly amd_iommu_perdev_intremap = 1;
 custom_param("dom0-iommu", parse_dom0_iommu_param);
 bool __hwdom_initdata iommu_dom0_strict;
 bool __read_mostly iommu_dom0_passthrough;
+int8_t __hwdom_initdata iommu_dom0_inclusive = -1;
 
 DEFINE_PER_CPU(bool_t, iommu_dont_flush_iotlb);
 
@@ -144,16 +145,23 @@ static int __init parse_dom0_iommu_param(const char *s)
     int rc = 0;
 
     do {
+        bool val = !!strncmp(s, "no-", 3);
+
+        if ( !val )
+            s += 3;
+
         ss = strchr(s, ',');
         if ( !ss )
             ss = strchr(s, '\0');
 
-        if ( !strncmp(s, "none", ss - s) )
+        if ( !strncmp(s, "none", ss - s) && val )
             iommu_dom0_passthrough = true;
-        else if ( !strncmp(s, "strict", ss - s) )
+        else if ( !strncmp(s, "strict", ss - s) && val )
             iommu_dom0_strict = true;
-        else if ( !strncmp(s, "relaxed", ss - s) )
+        else if ( !strncmp(s, "relaxed", ss - s) && val )
             iommu_dom0_strict = false;
+        else if ( !strncmp(s, "inclusive", ss - s) )
+            iommu_dom0_inclusive = val;
         else
             rc = -EINVAL;
 
@@ -202,6 +210,13 @@ void __hwdom_init iommu_hwdom_init(struct domain *d)
     if ( !iommu_enabled )
         return;
 
+    if ( iommu_dom0_inclusive == true && !is_pv_domain(d) )
+    {
+        printk(XENLOG_WARNING
+               "IOMMU inclusive mappings are only supported on PV Dom0\n");
+        iommu_dom0_inclusive = false;
+    }
+
     register_keyhandler('o', &iommu_dump_p2m_table, "dump iommu p2m table", 0);
     d->need_iommu = !!iommu_dom0_strict;
     if ( need_iommu(d) && !iommu_use_hap_pt(d) )
@@ -236,6 +251,8 @@ void __hwdom_init iommu_hwdom_init(struct domain *d)
     }
 
     hd->platform_ops->hwdom_init(d);
+
+    arch_iommu_hwdom_init(d);
 }
 
 void iommu_teardown(struct domain *d)
