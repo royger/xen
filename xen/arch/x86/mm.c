@@ -430,6 +430,40 @@ int page_is_ram_type(unsigned long mfn, unsigned long mem_type)
     return 0;
 }
 
+int page_get_type(unsigned long mfn)
+{
+    uint64_t maddr = pfn_to_paddr(mfn);
+    unsigned int i;
+
+    for ( i = 0; i < e820.nr_map; i++ )
+    {
+        /* Test the range. */
+        if ( (e820.map[i].addr <= maddr) &&
+             ((e820.map[i].addr + e820.map[i].size) >= (maddr + PAGE_SIZE)) )
+            switch ( e820.map[i].type )
+            {
+            case E820_RAM:
+                return RAM_TYPE_CONVENTIONAL;
+
+            case E820_RESERVED:
+                return RAM_TYPE_RESERVED;
+
+            case E820_UNUSABLE:
+                return RAM_TYPE_UNUSABLE;
+
+            case E820_ACPI:
+            case E820_NVS:
+                return RAM_TYPE_ACPI;
+
+            default:
+                ASSERT_UNREACHABLE();
+                return -1;
+            }
+    }
+
+    return -1;
+}
+
 unsigned long domain_get_maximum_gpfn(struct domain *d)
 {
     if ( is_hvm_domain(d) )

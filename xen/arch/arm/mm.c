@@ -1181,6 +1181,12 @@ int page_is_ram_type(unsigned long mfn, unsigned long mem_type)
     return 0;
 }
 
+int page_get_type(unsigned long mfn)
+{
+    ASSERT_UNREACHABLE();
+    return -1;
+}
+
 unsigned long domain_get_maximum_gpfn(struct domain *d)
 {
     return gfn_x(d->arch.p2m.max_mapped_gfn);
