@@ -2727,6 +2727,8 @@ static int arm_smmu_iommu_domain_init(struct domain *d)
 
 static void __hwdom_init arm_smmu_iommu_hwdom_init(struct domain *d)
 {
+	/* Set to false options not supported on ARM. */
+	iommu_hwdom_inclusive = false;
 }
 
 static void arm_smmu_iommu_domain_teardown(struct domain *d)
