@@ -136,6 +136,32 @@ static int __init parse_iommu_param(const char *s)
     return rc;
 }
 
+static int __init parse_dom0_iommu_param(const char *s)
+{
+    const char *ss;
+    int rc = 0;
+
+    do {
+        int val;
+
+        ss = strchr(s, ',');
+        if ( !ss )
+            ss = strchr(s, '\0');
+
+        if ( (val = parse_boolean("passthrough", s, ss)) >= 0 )
+            iommu_hwdom_passthrough = val;
+        else if ( (val = parse_boolean("strict", s, ss)) >= 0 )
+            iommu_hwdom_strict = val;
+        else
+            rc = -EINVAL;
+
+        s = ss + 1;
+    } while ( *ss );
+
+    return rc;
+}
+custom_param("dom0-iommu", parse_dom0_iommu_param);
+
 int iommu_domain_init(struct domain *d)
 {
     struct domain_iommu *hd = dom_iommu(d);

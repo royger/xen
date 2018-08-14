@@ -681,6 +681,19 @@ Flag that makes a dom0 boot in PVHv2 mode.
 Flag that makes a dom0 use shadow paging. Only works when "pvh" is
 enabled.
 
+### dom0-iommu
+> `= List of [ passthrough | strict ]`
+
+This list of booleans control the iommu usage by Dom0:
+
+* `passthrough`: disables DMA remapping for Dom0. Default is `false`.
+
+* `strict`: sets up DMA remapping only for the RAM Dom0 actually got assigned.
+  Default is `false` which means Dom0 will get mappings for all the host
+  RAM except regions in use by Xen. Note that this option is hard coded to
+  `true` for a PVH Dom0 and any attempt to overwrite it from the command line
+  is ignored.
+
 ### dom0\_ioports\_disable (x86)
 > `= List of <hex>-<hex>`
 
@@ -1150,11 +1163,17 @@ detection of systems known to misbehave upon accesses to that port.
 
 > `dom0-passthrough`
 
+> **WARNING: This command line option is deprecated, and superseded by
+> _dom0-iommu=passthrough_ - using both options in combination is undefined.**
+
 > Default: `false`
 
 >> Control whether to disable DMA remapping for Dom0.
 
 > `dom0-strict`
+
+> **WARNING: This command line option is deprecated, and superseded by
+> _dom0-iommu=strict_ - using both options in combination is undefined.**
 
 > Default: `false`
 
