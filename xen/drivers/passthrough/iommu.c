@@ -62,6 +62,7 @@ bool_t __read_mostly iommu_intremap = 1;
 bool __hwdom_initdata iommu_hwdom_strict;
 bool __read_mostly iommu_hwdom_passthrough;
 int8_t __hwdom_initdata iommu_hwdom_inclusive = -1;
+int8_t __hwdom_initdata iommu_hwdom_reserved = -1;
 
 /*
  * In the current implementation of VT-d posted interrupts, in some extreme
@@ -154,6 +155,8 @@ static int __init parse_dom0_iommu_param(const char *s)
         else if ( (val = parse_boolean("strict", s, ss)) >= 0 )
             iommu_hwdom_strict = val;
         else if ( (val = parse_boolean("map-inclusive", s, ss)) >= 0 )
+            iommu_hwdom_inclusive = val;
+        else if ( (val = parse_boolean("map-reserved", s, ss)) >= 0 )
             iommu_hwdom_inclusive = val;
         else
             rc = -EINVAL;
