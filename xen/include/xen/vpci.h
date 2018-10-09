@@ -50,10 +50,10 @@ uint32_t vpci_hw_read32(const struct pci_dev *pdev, unsigned int reg,
                         void *data);
 
 /*
- * Check for pending vPCI operations on this vcpu. Returns true if the vcpu
- * should not run.
+ * Execute pending vPCI operations on this vcpu.
+ * Note that this call might force a rescheduling.
  */
-bool __must_check vpci_process_pending(struct vcpu *v);
+void vpci_process_pending(struct vcpu *v);
 
 struct vpci {
     /* List of vPCI handlers for a device. */

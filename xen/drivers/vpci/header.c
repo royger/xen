@@ -118,7 +118,7 @@ static void modify_decoding(const struct pci_dev *pdev, bool map, bool rom_only)
                      cmd);
 }
 
-bool vpci_process_pending(struct vcpu *v)
+void vpci_process_pending(struct vcpu *v)
 {
     if ( v->vpci.mem )
     {
@@ -126,10 +126,11 @@ bool vpci_process_pending(struct vcpu *v)
             .d = v->domain,
             .map = v->vpci.map,
         };
-        int rc = rangeset_consume_ranges(v->vpci.mem, map_range, &data);
+        int rc;
 
-        if ( rc == -ERESTART )
-            return true;
+        while ( (rc = rangeset_consume_ranges(v->vpci.mem, map_range, &data)) ==
+                -ERESTART )
+            do_softirq();
 
         spin_lock(&v->vpci.pdev->vpci->lock);
         /* Disable memory decoding unconditionally on failure. */
@@ -149,8 +150,6 @@ bool vpci_process_pending(struct vcpu *v)
              */
             vpci_remove_device(v->vpci.pdev);
     }
-
-    return false;
 }
 
 static int __init apply_map(struct domain *d, const struct pci_dev *pdev,
@@ -183,6 +182,11 @@ static void defer_map(struct domain *d, struct pci_dev *pdev,
     curr->vpci.mem = mem;
     curr->vpci.map = map;
     curr->vpci.rom_only = rom_only;
+    /*
+     * Force a scheduler softirq in order to execute handle_hvm_io_completion
+     * (as part of hvm_do_resume) before attempting to return to guest context.
+     */
+    raise_softirq(SCHEDULE_SOFTIRQ);
 }
 
 static int modify_bars(const struct pci_dev *pdev, bool map, bool rom_only)
