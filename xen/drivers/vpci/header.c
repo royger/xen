@@ -333,8 +333,10 @@ static void cmd_write(const struct pci_dev *pdev, unsigned int reg,
          * hoping the guest will realize and try again.
          */
         modify_bars(pdev, cmd & PCI_COMMAND_MEMORY, false);
-    else
-        pci_conf_write16(pdev->seg, pdev->bus, slot, func, reg, cmd);
+
+    /* Write the new command without updating the memory decoding bit. */
+    cmd = (cmd & ~PCI_COMMAND_MEMORY) | (current_cmd & PCI_COMMAND_MEMORY);
+    pci_conf_write16(pdev->seg, pdev->bus, slot, func, reg, cmd);
 }
 
 static void bar_write(const struct pci_dev *pdev, unsigned int reg,
