@@ -212,12 +212,16 @@ struct vcpu *__init alloc_dom0_vcpu0(struct domain *dom0)
 bool __initdata opt_dom0_shadow;
 #endif
 bool __initdata dom0_pvh;
+#ifdef CONFIG_HVM
+bool __initdata opt_dom0_debug_ioport;
+#endif
 
 /*
  * List of parameters that affect Dom0 creation:
  *
  *  - pvh               Create a PVHv2 Dom0.
  *  - shadow            Use shadow paging for Dom0.
+ *  - debug-ioport      Trap accesses to 0xe9 (HVM debug console).
  */
 static int __init parse_dom0_param(const char *s)
 {
@@ -236,6 +240,10 @@ static int __init parse_dom0_param(const char *s)
 #ifdef CONFIG_SHADOW_PAGING
         else if ( (val = parse_boolean("shadow", s, ss)) >= 0 )
             opt_dom0_shadow = val;
+#endif
+#ifdef CONFIG_HVM
+        else if ( (val = parse_boolean("debug-ioport", s, ss)) >= 0 )
+            opt_dom0_debug_ioport = val;
 #endif
         else
             rc = -EINVAL;
@@ -433,6 +441,11 @@ int __init dom0_setup_permissions(struct domain *d)
         rc |= ioports_deny_access(d, pmtmr_ioport, pmtmr_ioport + 3);
     /* PCI configuration space (NB. 0xcf8 has special treatment). */
     rc |= ioports_deny_access(d, 0xcfc, 0xcff);
+#ifdef CONFIG_HVM
+    if ( is_hvm_domain(d) && opt_dom0_debug_ioport )
+        /* HVM debug console IO port. */
+        rc |= ioports_deny_access(d, 0xe9, 0xe9);
+#endif
     /* Command-line I/O ranges. */
     process_dom0_ioports_disable(d);
 
