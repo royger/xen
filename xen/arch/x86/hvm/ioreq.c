@@ -85,9 +85,6 @@ bool hvm_io_pending(struct vcpu *v)
     struct hvm_ioreq_server *s;
     unsigned int id;
 
-    if ( has_vpci(d) && vpci_process_pending(v) )
-        return true;
-
     FOR_EACH_IOREQ_SERVER(d, id, s)
     {
         struct hvm_ioreq_vcpu *sv;
