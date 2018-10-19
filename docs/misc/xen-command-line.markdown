@@ -664,7 +664,7 @@ trace feature is only enabled in debugging builds of Xen.
 Specify the bit width of the DMA heap.
 
 ### dom0 (x86)
-> `= List of [ pvh | shadow ]`
+> `= List of [ pvh | shadow | debug-ioport ]`
 
 > Sub-options:
 
@@ -680,6 +680,18 @@ Flag that makes a dom0 boot in PVHv2 mode.
 
 Flag that makes a dom0 use shadow paging. Only works when "pvh" is
 enabled.
+
+> `debug-ioport`
+
+> Default: `false`
+
+Flag that enables the HVM debug console for a PVH Dom0. Xen will trap accesses
+to IO port 0xe9 so that Dom0 kernel can print output using this IO port before
+setting up the hypercall page.
+
+Note this option is not enabled by default because it might clash with hardware
+on the system using IO port 0xe9 (XEN_HVM_DEBUGCONS_IOPORT) and should only be
+used for debug purposes.
 
 ### dom0-iommu
 > `= List of [ passthrough | strict | map-inclusive ]`
