@@ -148,4 +148,7 @@ extern s8 opt_allow_unsafe;
 void fam10h_check_enable_mmcfg(void);
 void check_enable_amd_mmconf_dmi(void);
 
+extern bool amd_acpi_c1e_quirk;
+void amd_disable_c1e(void *);
+
 #endif /* __AMD_H__ */

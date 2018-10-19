@@ -12,6 +12,7 @@
 #include <xen/sched-if.h>
 #include <xen/softirq.h>
 
+#include <asm/amd.h>
 #include <asm/dom0_build.h>
 #include <asm/guest.h>
 #include <asm/hpet.h>
@@ -442,10 +443,15 @@ int __init dom0_setup_permissions(struct domain *d)
     /* PCI configuration space (NB. 0xcf8 has special treatment). */
     rc |= ioports_deny_access(d, 0xcfc, 0xcff);
 #ifdef CONFIG_HVM
-    if ( is_hvm_domain(d) && opt_dom0_debug_ioport )
-        /* HVM debug console IO port. */
-        rc |= ioports_deny_access(d, XEN_HVM_DEBUGCONS_IOPORT,
-                                  XEN_HVM_DEBUGCONS_IOPORT);
+    if ( is_hvm_domain(d) )
+    {
+        if ( opt_dom0_debug_ioport )
+            /* HVM debug console IO port. */
+            rc |= ioports_deny_access(d, XEN_HVM_DEBUGCONS_IOPORT,
+                                      XEN_HVM_DEBUGCONS_IOPORT);
+        if ( amd_acpi_c1e_quirk )
+            rc |= ioports_deny_access(d, acpi_smi_cmd, acpi_smi_cmd);
+    }
 #endif
     /* Command-line I/O ranges. */
     process_dom0_ioports_disable(d);
