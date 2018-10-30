@@ -49,11 +49,8 @@ uint32_t vpci_hw_read16(const struct pci_dev *pdev, unsigned int reg,
 uint32_t vpci_hw_read32(const struct pci_dev *pdev, unsigned int reg,
                         void *data);
 
-/*
- * Check for pending vPCI operations on this vcpu. Returns true if the vcpu
- * should not run.
- */
-bool __must_check vpci_process_pending(struct vcpu *v);
+/* Init per-vCPU vPCI data. */
+void vpci_init_vcpu(struct vcpu *v);
 
 struct vpci {
     /* List of vPCI handlers for a device. */
@@ -142,6 +139,8 @@ struct vpci {
 };
 
 struct vpci_vcpu {
+    /* Per-vCPU tasklet to enqueue pending operations. */
+    struct tasklet task;
     /* Per-vcpu structure to store state while {un}mapping of PCI BARs. */
     struct rangeset *mem;
     struct pci_dev *pdev;
@@ -233,11 +232,7 @@ static inline void vpci_write(pci_sbdf_t sbdf, unsigned int reg,
     ASSERT_UNREACHABLE();
 }
 
-static inline bool vpci_process_pending(struct vcpu *v)
-{
-    ASSERT_UNREACHABLE();
-    return false;
-}
+static inline void vpci_init_vcpu(struct vcpu *v) { }
 #endif
 
 #endif

@@ -118,39 +118,48 @@ static void modify_decoding(const struct pci_dev *pdev, bool map, bool rom_only)
                      cmd);
 }
 
-bool vpci_process_pending(struct vcpu *v)
+static void vpci_process_pending(unsigned long data)
 {
-    if ( v->vpci.mem )
+    struct vcpu *v = (void *)data;
+    struct map_data map_data = {
+        .d = v->domain,
+        .map = v->vpci.map,
+    };
+    int rc;
+
+    ASSERT(v->vpci.mem && atomic_read(&v->pause_count));
+
+    while ( (rc = rangeset_consume_ranges(v->vpci.mem, map_range, &map_data)) ==
+            -ERESTART )
     {
-        struct map_data data = {
-            .d = v->domain,
-            .map = v->vpci.map,
-        };
-        int rc = rangeset_consume_ranges(v->vpci.mem, map_range, &data);
-
-        if ( rc == -ERESTART )
-            return true;
-
-        spin_lock(&v->vpci.pdev->vpci->lock);
-        /* Disable memory decoding unconditionally on failure. */
-        modify_decoding(v->vpci.pdev, !rc && v->vpci.map,
-                        !rc && v->vpci.rom_only);
-        spin_unlock(&v->vpci.pdev->vpci->lock);
-
-        rangeset_destroy(v->vpci.mem);
-        v->vpci.mem = NULL;
-        if ( rc )
-            /*
-             * FIXME: in case of failure remove the device from the domain.
-             * Note that there might still be leftover mappings. While this is
-             * safe for Dom0, for DomUs the domain will likely need to be
-             * killed in order to avoid leaking stale p2m mappings on
-             * failure.
-             */
-            vpci_remove_device(v->vpci.pdev);
+        tasklet_schedule(&v->vpci.task);
+        return;
     }
 
-    return false;
+    spin_lock(&v->vpci.pdev->vpci->lock);
+    /* Disable memory decoding unconditionally on failure. */
+    modify_decoding(v->vpci.pdev, !rc && v->vpci.map,
+                    !rc && v->vpci.rom_only);
+    spin_unlock(&v->vpci.pdev->vpci->lock);
+
+    rangeset_destroy(v->vpci.mem);
+    v->vpci.mem = NULL;
+    if ( rc )
+        /*
+         * FIXME: in case of failure remove the device from the domain.
+         * Note that there might still be leftover mappings. While this is
+         * safe for Dom0, for DomUs the domain will likely need to be
+         * killed in order to avoid leaking stale p2m mappings on
+         * failure.
+         */
+        vpci_remove_device(v->vpci.pdev);
+
+    vcpu_unpause(v);
+}
+
+void vpci_init_vcpu(struct vcpu *v)
+{
+    tasklet_init(&v->vpci.task, vpci_process_pending, (unsigned long)v);
 }
 
 static int __init apply_map(struct domain *d, const struct pci_dev *pdev,
@@ -183,6 +192,9 @@ static void defer_map(struct domain *d, struct pci_dev *pdev,
     curr->vpci.mem = mem;
     curr->vpci.map = map;
     curr->vpci.rom_only = rom_only;
+    /* Pause the vCPU and schedule the tasklet that will perform the mapping. */
+    vcpu_pause_nosync(curr);
+    tasklet_schedule(&curr->vpci.task);
 }
 
 static int modify_bars(const struct pci_dev *pdev, bool map, bool rom_only)

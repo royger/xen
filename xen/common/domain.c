@@ -153,6 +153,8 @@ struct vcpu *vcpu_create(
 
     grant_table_init_vcpu(v);
 
+    vpci_init_vcpu(v);
+
     if ( !zalloc_cpumask_var(&v->cpu_hard_affinity) ||
          !zalloc_cpumask_var(&v->cpu_hard_affinity_tmp) ||
          !zalloc_cpumask_var(&v->cpu_hard_affinity_saved) ||
