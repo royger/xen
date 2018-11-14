@@ -127,7 +127,10 @@ bool vpci_process_pending(struct vcpu *v)
         int rc = rangeset_consume_ranges(v->vpci.mem, map_range, &data);
 
         if ( rc == -ERESTART )
+        {
+            raise_softirq(SCHEDULE_SOFTIRQ);
             return true;
+        }
 
         spin_lock(&v->vpci.pdev->vpci->lock);
         /* Disable memory decoding unconditionally on failure. */
@@ -182,6 +185,7 @@ static void defer_map(struct domain *d, struct pci_dev *pdev,
     curr->vpci.mem = mem;
     curr->vpci.cmd = cmd;
     curr->vpci.rom_only = rom_only;
+    raise_softirq(SCHEDULE_SOFTIRQ);
 }
 
 static int modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
