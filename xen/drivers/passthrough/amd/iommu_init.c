@@ -993,6 +993,16 @@ static void * __init allocate_ppr_log(struct amd_iommu *iommu)
 
 static int __init amd_iommu_init_one(struct amd_iommu *iommu)
 {
+    struct pci_dev *pdev;
+
+    pcidevs_lock();
+    pdev = pci_get_pdev(iommu->seg, PCI_BUS(iommu->bdf),
+                        PCI_DEVFN2(iommu->bdf));
+    if ( pdev )
+        /* Assign the IOMMU PCI device to Xen  */
+        pdev->domain = dom_xen;
+    pcidevs_unlock();
+
     if ( map_iommu_mmio_region(iommu) != 0 )
         goto error_out;
 
