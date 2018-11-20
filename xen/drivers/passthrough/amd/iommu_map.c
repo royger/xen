@@ -612,6 +612,10 @@ static int update_paging_mode(struct domain *d, unsigned long dfn)
         /* Update device table entries using new root table and paging mode */
         for_each_pdev( d, pdev )
         {
+            if ( pdev->type == DEV_TYPE_PCI_HOST_BRIDGE &&
+                 is_hardware_domain(d) )
+                continue;
+
             bdf = PCI_BDF2(pdev->bus, pdev->devfn);
             iommu = find_iommu_for_device(pdev->seg, bdf);
             if ( !iommu )
