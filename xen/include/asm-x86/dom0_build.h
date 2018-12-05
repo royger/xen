@@ -25,7 +25,7 @@ int dom0_construct_pvh(struct domain *d, const module_t *image,
                        module_t *initrd,
                        char *cmdline);
 
-unsigned long dom0_paging_pages(const struct domain *d,
+unsigned long dom0_shadow_pages(const struct domain *d,
                                 unsigned long nr_pages);
 
 void dom0_update_physmap(struct domain *d, unsigned long pfn,

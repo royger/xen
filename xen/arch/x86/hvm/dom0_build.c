@@ -366,7 +366,7 @@ static int __init pvh_setup_p2m(struct domain *d)
     pvh_setup_e820(d, nr_pages);
     do {
         preempted = false;
-        paging_set_allocation(d, dom0_paging_pages(d, nr_pages),
+        paging_set_allocation(d, dom0_shadow_pages(d, nr_pages),
                               &preempted);
         process_pending_softirqs();
     } while ( preempted );

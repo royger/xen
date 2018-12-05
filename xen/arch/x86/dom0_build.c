@@ -256,7 +256,7 @@ boolean_param("ro-hpet", ro_hpet);
 
 unsigned int __initdata dom0_memflags = MEMF_no_dma|MEMF_exact_node;
 
-unsigned long __init dom0_paging_pages(const struct domain *d,
+unsigned long __init dom0_shadow_pages(const struct domain *d,
                                        unsigned long nr_pages)
 {
     /* Copied from: libxl_get_required_shadow_memory() */
@@ -325,7 +325,7 @@ unsigned long __init dom0_compute_nr_pages(
             break;
 
         /* Reserve memory for shadow or HAP. */
-        avail -= dom0_paging_pages(d, nr_pages);
+        avail -= dom0_shadow_pages(d, nr_pages);
     }
 
     if ( is_pv_domain(d) &&
