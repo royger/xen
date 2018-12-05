@@ -267,6 +267,19 @@ unsigned long __init dom0_shadow_pages(const struct domain *d,
     return ((memkb + 1023) / 1024) << (20 - PAGE_SHIFT);
 }
 
+unsigned long __init dom0_hap_pages(const struct domain *d,
+                                    unsigned long nr_pages)
+{
+    /*
+     * Approximate the memory required for the HAP/IOMMU page tables by
+     * pessimistically assuming each 4KB page will consume a 8 byte page
+     * table entry. This should hopefully cover up for MMIO mappings not
+     * accounted here.
+     */
+    return DIV_ROUND_UP(nr_pages * 8, PAGE_SIZE << PAGE_ORDER_4K);
+}
+
+
 unsigned long __init dom0_compute_nr_pages(
     struct domain *d, struct elf_dom_parms *parms, unsigned long initrd_len)
 {
@@ -294,8 +307,7 @@ unsigned long __init dom0_compute_nr_pages(
             avail -= max_pdx >> s;
     }
 
-    need_paging = is_hvm_domain(d) &&
-        (!iommu_hap_pt_share || !paging_mode_hap(d));
+    need_paging = is_hvm_domain(d);
     for ( ; ; need_paging = false )
     {
         nr_pages = dom0_nrpages;
@@ -324,8 +336,13 @@ unsigned long __init dom0_compute_nr_pages(
         if ( !need_paging )
             break;
 
-        /* Reserve memory for shadow or HAP. */
-        avail -= dom0_shadow_pages(d, nr_pages);
+        /* Reserve memory for CPU and IOMMU page tables. */
+        if ( paging_mode_hap(d) )
+            avail -= dom0_hap_pages(d, nr_pages) *
+                     (iommu_hap_pt_share ? 1 : 2);
+        else
+            avail -= dom0_shadow_pages(d, nr_pages) +
+                     dom0_hap_pages(d, nr_pages);
     }
 
     if ( is_pv_domain(d) &&

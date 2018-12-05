@@ -358,6 +358,9 @@ static int __init pvh_setup_p2m(struct domain *d)
 {
     struct vcpu *v = d->vcpu[0];
     unsigned long nr_pages = dom0_compute_nr_pages(d, NULL, 0);
+    unsigned long paging_pages =
+        paging_mode_hap(d) ? dom0_hap_pages(d, nr_pages),
+                           : dom0_shadow_pages(d, nr_pages);
     unsigned int i;
     int rc;
     bool preempted;
@@ -366,8 +369,7 @@ static int __init pvh_setup_p2m(struct domain *d)
     pvh_setup_e820(d, nr_pages);
     do {
         preempted = false;
-        paging_set_allocation(d, dom0_shadow_pages(d, nr_pages),
-                              &preempted);
+        paging_set_allocation(d, paging_pages, &preempted);
         process_pending_softirqs();
     } while ( preempted );
 
