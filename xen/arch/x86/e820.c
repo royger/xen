@@ -537,11 +537,12 @@ static void __init machine_specific_memory_setup(struct e820map *raw)
 
     reserve_dmi_region();
 
-    /*
-     * Some BIOSes claim RAM in the 640k - 1M region.
-     * Not right. Fix it up.
-     */
-    reserve_vga_region();
+    if ( !xen_guest )
+        /*
+         * Some BIOSes claim RAM in the 640k - 1M region.
+         * Not right. Fix it up.
+         */
+        reserve_vga_region();
 
     top_of_ram = mtrr_top_of_ram();
     if ( top_of_ram )
