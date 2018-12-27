@@ -91,32 +91,61 @@ static int __init pvh_populate_memory_range(struct domain *d,
                                             unsigned long start,
                                             unsigned long nr_pages)
 {
-    unsigned int order = MAX_ORDER, i = 0;
+    struct {
+        unsigned long align;
+        unsigned int order;
+    } static const __initconst orders[] = {
+        /* NB: must be sorted by decreasing size. */
+        { .align = PFN_DOWN(GB(1)), .order = PAGE_ORDER_1G },
+        { .align = PFN_DOWN(MB(2)), .order = PAGE_ORDER_2M },
+        { .align = PFN_DOWN(KB(4)), .order = PAGE_ORDER_4K },
+    };
+    unsigned int max_order = orders[0].order, i = 0;
     struct page_info *page;
     int rc;
 #define MAP_MAX_ITER 64
 
     while ( nr_pages != 0 )
     {
-        unsigned int range_order = get_order_from_pages(nr_pages + 1);
+        unsigned int order, j;
 
-        order = min(range_order ? range_order - 1 : 0, order);
+        for ( j = 0; j < ARRAY_SIZE(orders); j++ )
+            if ( IS_ALIGNED(start, orders[j].align) &&
+                 nr_pages >= (1UL << orders[j].order) )
+            {
+                order = orders[j].order;
+                break;
+            }
+
+        if ( j == ARRAY_SIZE(orders) )
+        {
+           printk("Unable to find allocation order for [%#lx,%#lx)\n",
+                  start, start + nr_pages);
+           return -EINVAL;
+        }
+
+        order = min(order, max_order);
         page = alloc_domheap_pages(d, order, dom0_memflags | MEMF_no_scrub);
         if ( page == NULL )
         {
-            if ( order == 0 && dom0_memflags )
+            if ( order == orders[ARRAY_SIZE(orders) - 1].order )
             {
-                /* Try again without any dom0_memflags. */
-                dom0_memflags = 0;
-                order = MAX_ORDER;
-                continue;
-            }
-            if ( order == 0 )
-            {
+                if ( dom0_memflags )
+                {
+                    /* Try again without any dom0_memflags. */
+                    max_order = orders[0].order;
+                    dom0_memflags = 0;
+                    continue;
+                }
                 printk("Unable to allocate memory with order 0!\n");
                 return -ENOMEM;
             }
-            order--;
+            for ( j = 0; j < ARRAY_SIZE(orders) - 1; j++ )
+                if ( order == orders[j].order )
+                {
+                    max_order = orders[j + 1].order;
+                    break;
+                }
             continue;
         }
 
