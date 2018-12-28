@@ -537,11 +537,13 @@ static void __init machine_specific_memory_setup(struct e820map *raw)
 
     reserve_dmi_region();
 
-    /*
-     * Some BIOSes claim RAM in the 640k - 1M region.
-     * Not right. Fix it up.
-     */
-    reserve_vga_region();
+    /* Too early to use cpu_has_hypervisor */
+    if ( !(cpuid_ecx(1) & cpufeat_mask(X86_FEATURE_HYPERVISOR)) )
+        /*
+         * Some BIOSes claim RAM in the 640k - 1M region.
+         * Not right. Fix it up.
+         */
+        reserve_vga_region();
 
     top_of_ram = mtrr_top_of_ram();
     if ( top_of_ram )
