@@ -599,6 +599,63 @@ int __init e820_add_range(
     return 1;
 }
 
+uint64_t __init e820_remove_range(struct e820map *e820, uint64_t start,
+                                  uint64_t end, uint32_t type, bool check_type)
+{
+    unsigned int i;
+    uint64_t real_removed_size = 0;
+
+    ASSERT(end > start);
+
+    for ( i = 0; i < e820->nr_map; i++ )
+    {
+        struct e820entry *entry = &e820->map[i];
+        uint64_t final_start, final_end, entry_end;
+
+        if ( check_type && entry->type != type )
+            continue;
+
+        entry_end = entry->addr + entry->size;
+
+        /* Completely covered? */
+        if ( entry->addr >= start && entry_end <= end )
+        {
+            real_removed_size += entry->size;
+            memset(entry, 0, sizeof(*entry));
+            continue;
+        }
+
+        /* Is the new range completely covered? */
+        if ( entry->addr < start && entry_end > end )
+        {
+            e820_add_range(e820, end, entry_end, entry->type);
+            entry->size = start - entry->addr;
+            real_removed_size += end - start;
+            continue;
+        }
+
+        /* Partially covered: */
+        final_start = max(start, entry->addr);
+        final_end = min(end, entry_end);
+        if ( final_start >= final_end )
+            continue;
+
+        real_removed_size += final_end - final_start;
+
+        /*
+         * Left range could be head or tail, so need to update
+         * the size first:
+         */
+        entry->size -= final_end - final_start;
+        if ( entry->addr < final_start )
+            continue;
+
+        entry->addr = final_end;
+    }
+
+    return real_removed_size;
+}
+
 int __init e820_change_range_type(
     struct e820map *e820, uint64_t s, uint64_t e,
     uint32_t orig_type, uint32_t new_type)
