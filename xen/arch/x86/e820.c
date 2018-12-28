@@ -320,20 +320,6 @@ static int __init copy_e820_map(struct e820entry * biosmap, int nr_map)
         if (start > end)
             return -1;
 
-        /*
-         * Some BIOSes claim RAM in the 640k - 1M region.
-         * Not right. Fix it up.
-         */
-        if (type == E820_RAM) {
-            if (start < 0x100000ULL && end > 0xA0000ULL) {
-                if (start < 0xA0000ULL)
-                    add_memory_region(start, 0xA0000ULL-start, type);
-                if (end <= 0x100000ULL)
-                    continue;
-                start = 0x100000ULL;
-                size = end - start;
-            }
-        }
         add_memory_region(start, size, type);
     } while (biosmap++,--nr_map);
     return 0;
@@ -510,6 +496,12 @@ static void __init reserve_dmi_region(void)
     }
 }
 
+static void __init reserve_vga_region(void)
+{
+    /* Remove any RAM regions from the VGA hole. */
+    e820_remove_range(&e820, KB(640), MB(1), E820_RAM, true);
+}
+
 static void __init machine_specific_memory_setup(struct e820map *raw)
 {
     unsigned long mpt_limit, ro_mpt_limit;
@@ -544,6 +536,12 @@ static void __init machine_specific_memory_setup(struct e820map *raw)
                   "memory map can be accessed by Xen.");
 
     reserve_dmi_region();
+
+    /*
+     * Some BIOSes claim RAM in the 640k - 1M region.
+     * Not right. Fix it up.
+     */
+    reserve_vga_region();
 
     top_of_ram = mtrr_top_of_ram();
     if ( top_of_ram )
