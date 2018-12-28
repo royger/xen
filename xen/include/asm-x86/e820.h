@@ -31,6 +31,8 @@ extern int e820_change_range_type(
     uint32_t orig_type, uint32_t new_type);
 extern int e820_add_range(
     struct e820map *, uint64_t s, uint64_t e, uint32_t type);
+extern uint64_t e820_remove_range(struct e820map *e820, uint64_t start,
+                                  uint64_t end, uint32_t type, bool check_type);
 extern unsigned long init_e820(const char *, struct e820map *);
 extern struct e820map e820;
 extern struct e820map e820_raw;
