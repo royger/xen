@@ -2216,12 +2216,13 @@ static unsigned int mmio_order(const struct domain *d,
                                unsigned long start_fn, unsigned long nr)
 {
     /*
-     * Note that the !hap_enabled() here has two effects:
+     * Note that the !iommu_use_hap_pt() here has three effects:
+     * - cover iommu_{,un}map_page() not having an "order" input yet,
      * - exclude shadow mode (which doesn't support large MMIO mappings),
      * - exclude PV guests, should execution reach this code for such.
      * So be careful when altering this.
      */
-    if ( !hap_enabled(d) ||
+    if ( !iommu_use_hap_pt(d) ||
          (start_fn & ((1UL << PAGE_ORDER_2M) - 1)) || !(nr >> PAGE_ORDER_2M) )
         return PAGE_ORDER_4K;
 
