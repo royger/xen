@@ -297,9 +297,6 @@ int iommu_map(struct domain *d, dfn_t dfn, mfn_t mfn,
     if ( !iommu_enabled || !hd->platform_ops )
         return 0;
 
-    ASSERT(IS_ALIGNED(dfn_x(dfn), (1ul << page_order)));
-    ASSERT(IS_ALIGNED(mfn_x(mfn), (1ul << page_order)));
-
     for ( i = 0; i < (1ul << page_order); i++ )
     {
         rc = hd->platform_ops->map_page(d, dfn_add(dfn, i), mfn_add(mfn, i),
