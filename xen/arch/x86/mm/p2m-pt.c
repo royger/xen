@@ -436,13 +436,6 @@ static int do_recalc(struct p2m_domain *p2m, unsigned long gfn)
                 flags |= _PAGE_PSE;
             }
 
-            if ( ot == p2m_ioreq_server )
-            {
-                ASSERT(p2m->ioreq.entry_count > 0);
-                ASSERT(level == 0);
-                p2m->ioreq.entry_count--;
-            }
-
             e = l1e_from_pfn(mfn, flags);
             p2m_add_iommu_flags(&e, level,
                                 (nt == p2m_ram_rw)
@@ -626,19 +619,6 @@ p2m_pt_set_entry(struct p2m_domain *p2m, gfn_t gfn_, mfn_t mfn,
             p2m_add_iommu_flags(&entry_content, 0, iommu_pte_flags);
 
         p2mt_old = p2m_flags_to_type(l1e_get_flags(*p2m_entry));
-
-        /*
-         * p2m_ioreq_server is only used for 4K pages, so
-         * the count is only done for level 1 entries.
-         */
-        if ( p2mt == p2m_ioreq_server )
-            p2m->ioreq.entry_count++;
-
-        if ( p2mt_old == p2m_ioreq_server )
-        {
-            ASSERT(p2m->ioreq.entry_count > 0);
-            p2m->ioreq.entry_count--;
-        }
 
         /* level 1 entry */
         p2m->write_p2m_entry(p2m, gfn, p2m_entry, entry_content, 1);
