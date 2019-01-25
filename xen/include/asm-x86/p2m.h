@@ -933,9 +933,12 @@ struct hvm_ioreq_server *p2m_get_ioreq_server(struct domain *d,
                                               unsigned int *flags);
 
 static inline void p2m_entry_modify(struct p2m_domain *p2m, p2m_type_t nt,
-                                    p2m_type_t ot, unsigned int level)
+                                    p2m_type_t ot, mfn_t nfn, mfn_t ofn,
+                                    unsigned int level)
 {
-    if ( level != 1 || nt == ot )
+    struct page_info *pg;
+
+    if ( level != 1 || (nt == ot && mfn_eq(nfn, ofn)) )
         return;
 
     switch ( nt )
@@ -948,6 +951,17 @@ static inline void p2m_entry_modify(struct p2m_domain *p2m, p2m_type_t nt,
         p2m->ioreq.entry_count++;
         break;
 
+    case p2m_map_foreign:
+        pg = mfn_to_page(nfn);
+
+        if ( !pg || !page_get_owner_and_reference(pg) )
+        {
+            ASSERT_UNREACHABLE();
+            return;
+        }
+
+        break;
+
     default:
         break;
     }
@@ -957,6 +971,18 @@ static inline void p2m_entry_modify(struct p2m_domain *p2m, p2m_type_t nt,
     case p2m_ioreq_server:
         ASSERT(p2m->ioreq.entry_count > 0);
         p2m->ioreq.entry_count--;
+        break;
+
+    case p2m_map_foreign:
+        pg = mfn_to_page(ofn);
+
+        if ( !pg )
+        {
+            ASSERT_UNREACHABLE();
+            return;
+        }
+        put_page(pg);
+
         break;
 
     default:
