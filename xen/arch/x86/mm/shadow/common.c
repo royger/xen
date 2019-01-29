@@ -2705,6 +2705,11 @@ int shadow_enable(struct domain *d, u32 mode)
     uint32_t *e;
     int rv = 0;
     struct p2m_domain *p2m = p2m_get_hostp2m(d);
+    /*
+     * Required minimum amount of pool pages plus 4MB. This is required so the
+     * calls to p2m_alloc_table and shadow_alloc_p2m_page below don't fail.
+     */
+    unsigned int min_pages = shadow_min_acceptable_pages(d) + 1024;
 
     mode |= PG_SH_enable;
 
@@ -2719,10 +2724,10 @@ int shadow_enable(struct domain *d, u32 mode)
 
     /* Init the shadow memory allocation if the user hasn't done so */
     old_pages = d->arch.paging.shadow.total_pages;
-    if ( old_pages < sh_min_allocation(d) + d->arch.paging.shadow.p2m_pages )
+    if ( old_pages < min_pages )
     {
         paging_lock(d);
-        rv = shadow_set_allocation(d, 1024, NULL); /* Use at least 4MB */
+        rv = shadow_set_allocation(d, min_pages, NULL);
         if ( rv != 0 )
         {
             shadow_set_allocation(d, 0, NULL);
