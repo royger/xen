@@ -151,12 +151,7 @@ static bool __hwdom_init hwdom_iommu_map(const struct domain *d,
      * inclusive mapping additionally maps in every pfn up to 4GB except those
      * that fall in unusable ranges for PV Dom0.
      */
-    if ( (pfn > max_pfn && !mfn_valid(mfn)) || xen_in_range(pfn) ||
-         /*
-          * Ignore any address below 1MB, that's already identity mapped by the
-          * Dom0 builder for HVM.
-          */
-         (!d->domain_id && is_hvm_domain(d) && pfn < PFN_DOWN(MB(1))) )
+    if ( (pfn > max_pfn && !mfn_valid(mfn)) || xen_in_range(pfn) )
         return false;
 
     switch ( type = page_get_ram_type(mfn) )
@@ -245,7 +240,12 @@ void __hwdom_init arch_iommu_hwdom_init(struct domain *d)
         if ( !hwdom_iommu_map(d, pfn, max_pfn) )
             continue;
 
-        if ( paging_mode_translate(d) )
+        /*
+         * Don't add any address below 1MB to the HAP page tables, that's
+         * already done by the domain builder. Add addresses below 1MB to the
+         * IOMMU page tables only.
+         */
+        if ( paging_mode_translate(d) && pfn >= PFN_DOWN(MB(1)) )
             rc = set_identity_p2m_entry(d, pfn, p2m_access_rw, 0);
         else
             rc = iommu_map(d, _dfn(pfn), _mfn(pfn), PAGE_ORDER_4K,
