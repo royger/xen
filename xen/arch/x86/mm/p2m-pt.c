@@ -668,7 +668,6 @@ p2m_pt_set_entry(struct p2m_domain *p2m, gfn_t gfn_, mfn_t mfn,
         }
 
         ASSERT(p2m_flags_to_type(flags) != p2m_ioreq_server);
-        ASSERT(!mfn_valid(mfn) || p2mt != p2m_mmio_direct);
         l2e_content = mfn_valid(mfn) || p2m_allows_invalid_mfn(p2mt)
             ? p2m_l2e_from_pfn(mfn_x(mfn),
                                p2m_type_to_flags(p2m, p2mt, mfn, 1))
