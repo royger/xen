@@ -344,6 +344,10 @@ unsigned long __init dom0_compute_nr_pages(
     if ( !dom0_mem_set && CONFIG_DOM0_MEM[0] )
         parse_dom0_mem(CONFIG_DOM0_MEM);
 
+    if ( is_hvm_domain(d) && !dom0_size.nr_pages )
+        printk(
+"WARNING: consider setting dom0_mem to a fixed value when using PVH mode\n");
+
     for_each_node_mask ( node, dom0_nodes )
         avail += avail_domheap_pages_region(node, 0, 0) +
                  initial_images_nrpages(node);
