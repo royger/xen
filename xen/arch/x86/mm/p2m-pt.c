@@ -576,7 +576,13 @@ p2m_pt_set_entry(struct p2m_domain *p2m, gfn_t gfn_, mfn_t mfn,
         }
 
         ASSERT(p2m_flags_to_type(flags) != p2m_ioreq_server);
-        ASSERT(!mfn_valid(mfn) || p2mt != p2m_mmio_direct);
+        if ( p2mt == p2m_mmio_direct )
+            ASSERT(!mfn_eq(mfn, INVALID_MFN) &&
+                   !rangeset_overlaps_range(mmio_ro_ranges, mfn_x(mfn),
+                                            mfn_x(mfn) + PFN_DOWN(MB(2))));
+        else
+            ASSERT(mfn_valid(mfn) || (mfn_eq(mfn, INVALID_MFN) &&
+                                      p2m_allows_invalid_mfn(p2mt)));
         l3e_content = mfn_valid(mfn) || p2m_allows_invalid_mfn(p2mt)
             ? p2m_l3e_from_pfn(mfn_x(mfn),
                                p2m_type_to_flags(p2m, p2mt, mfn, 2))
@@ -668,7 +674,13 @@ p2m_pt_set_entry(struct p2m_domain *p2m, gfn_t gfn_, mfn_t mfn,
         }
 
         ASSERT(p2m_flags_to_type(flags) != p2m_ioreq_server);
-        ASSERT(!mfn_valid(mfn) || p2mt != p2m_mmio_direct);
+        if ( p2mt == p2m_mmio_direct )
+            ASSERT(!mfn_eq(mfn, INVALID_MFN) &&
+                   !rangeset_overlaps_range(mmio_ro_ranges, mfn_x(mfn),
+                                            mfn_x(mfn) + PFN_DOWN(MB(2))));
+        else
+            ASSERT(mfn_valid(mfn) || (mfn_eq(mfn, INVALID_MFN) &&
+                                      p2m_allows_invalid_mfn(p2mt)));
         l2e_content = mfn_valid(mfn) || p2m_allows_invalid_mfn(p2mt)
             ? p2m_l2e_from_pfn(mfn_x(mfn),
                                p2m_type_to_flags(p2m, p2mt, mfn, 1))
