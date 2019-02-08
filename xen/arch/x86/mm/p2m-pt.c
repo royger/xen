@@ -865,7 +865,8 @@ pod_retry_l1:
     unmap_domain_page(l1e);
 
     ASSERT(mfn_valid(mfn) || !p2m_is_ram(*t) || p2m_is_paging(*t));
-    return (p2m_is_valid(*t) || p2m_is_grant(*t)) ? mfn : INVALID_MFN;
+    return (p2m_is_valid(*t) || p2m_is_grant(*t) || p2m_is_foreign(*t))
+           ? mfn : INVALID_MFN;
 }
 
 static void p2m_pt_change_entry_type_global(struct p2m_domain *p2m,
