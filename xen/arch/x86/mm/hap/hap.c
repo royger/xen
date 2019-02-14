@@ -714,6 +714,7 @@ hap_write_p2m_entry(struct domain *d, unsigned long gfn, l1_pgentry_t *p,
 {
     uint32_t old_flags;
     bool_t flush_nestedp2m = 0;
+    int rc;
 
     /* We know always use the host p2m here, regardless if the vcpu
      * is in host or guest mode. The vcpu can be in guest mode by
@@ -734,8 +735,15 @@ hap_write_p2m_entry(struct domain *d, unsigned long gfn, l1_pgentry_t *p,
             && perms_strictly_increased(old_flags, l1e_get_flags(new)) );
     }
 
-    p2m_entry_modify(p2m_get_hostp2m(d), p2m_flags_to_type(l1e_get_flags(new)),
-                     p2m_flags_to_type(old_flags), level);
+    rc = p2m_entry_modify(p2m_get_hostp2m(d),
+                          p2m_flags_to_type(l1e_get_flags(new)),
+                          p2m_flags_to_type(old_flags), l1e_get_mfn(new),
+                          l1e_get_mfn(*p), level);
+    if ( rc )
+    {
+        paging_unlock(d);
+        return rc;
+    }
 
     safe_write_pte(p, new);
     if ( old_flags & _PAGE_PRESENT )
