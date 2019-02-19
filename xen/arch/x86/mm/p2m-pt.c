@@ -184,7 +184,7 @@ p2m_next_level(struct p2m_domain *p2m, void **table,
     l1_pgentry_t *p2m_entry, new_entry;
     void *next;
     unsigned int flags;
-    int rc;
+    int rc = 0;
     mfn_t mfn = INVALID_MFN;
 
     if ( !(p2m_entry = p2m_find_entry(*table, gfn_remainder, gfn,
@@ -576,13 +576,6 @@ p2m_pt_set_entry(struct p2m_domain *p2m, gfn_t gfn_, mfn_t mfn,
         t.order = page_order;
 
         __trace_var(TRC_MEM_SET_P2M_ENTRY, 0, sizeof(t), &t);
-    }
-
-    if ( unlikely(p2m_is_foreign(p2mt)) )
-    {
-        /* hvm fixme: foreign types are only supported on ept at present */
-        gdprintk(XENLOG_WARNING, "Unimplemented foreign p2m type.\n");
-        return -EINVAL;
     }
 
     /* Carry out any eventually pending earlier changes first. */
