@@ -5,6 +5,9 @@ LABEL maintainer.name="The Xen Project" \
 ENV DEBIAN_FRONTEND=noninteractive
 ENV USER root
 
+RUN wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key|apt-key add -
+COPY stretch-llvm.list /etc/apt/sources.list.d/
+
 RUN mkdir /build
 WORKDIR /build
 
@@ -42,6 +45,8 @@ RUN apt-get update && \
         wget \
         git \
         nasm \
+        clang-8 \
+        lld-8 \
         && \
         apt-get autoremove -y && \
         apt-get clean && \
