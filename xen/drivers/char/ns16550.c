@@ -846,11 +846,12 @@ static void ns16550_suspend(struct serial_port *port)
     struct ns16550 *uart = port->uart;
 
     stop_timer(&uart->timer);
-
+#define PCI_SBDF_T2(s,b,d,f) \
+     ((pci_sbdf_t) { .sbdf = PCI_SBDF(s,b,d,f) })
 #ifdef CONFIG_HAS_PCI
     if ( uart->bar )
-        uart->cr = pci_conf_read16(PCI_SBDF_T(0, uart->ps_bdf[0],
-                                              uart->ps_bdf[1], uart->ps_bdf[2]),
+        uart->cr = pci_conf_read16(PCI_SBDF_T2(0, uart->ps_bdf[0],
+                                               uart->ps_bdf[1], uart->ps_bdf[2]),
                                    PCI_COMMAND);
 #endif
 }
