@@ -49,7 +49,10 @@ typedef union {
                         uint8_t func : 3,
                                 dev  : 5;
                     };
-                    uint8_t     extfunc;
+                    union {
+                        uint8_t extfunc,
+                                devfn;
+                    };
                 };
                 uint8_t         bus;
             };
@@ -80,9 +83,15 @@ struct pci_dev {
     struct arch_msix *msix;
 
     struct domain *domain;
-    const u16 seg;
-    const u8 bus;
-    const u8 devfn;
+
+    union {
+        struct {
+            const uint16_t seg;
+            const uint8_t bus;
+            const uint8_t devfn;
+        };
+        const pci_sbdf_t sbdf;
+    };
 
     u8 phantom_stride;
 
