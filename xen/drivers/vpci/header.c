@@ -461,9 +461,7 @@ static int init_bars(struct pci_dev *pdev)
     unsigned int i, num_bars, rom_reg;
     struct vpci_header *header = &pdev->vpci->header;
     struct vpci_bar *bars = header->bars;
-    pci_sbdf_t sbdf = {
-        .sbdf = PCI_SBDF3(pdev->seg, pdev->bus, pdev->devfn),
-    };
+    pci_sbdf_t sbdf = PCI_SBDF3(pdev->seg, pdev->bus, pdev->devfn);
     int rc;
 
     switch ( pci_conf_read8(pdev->seg, pdev->bus, slot, func, PCI_HEADER_TYPE)
