@@ -296,11 +296,13 @@ SECTIONS
   . = ALIGN(SECTION_ALIGN);
   __2M_rwdata_end = .;
 
-#ifdef EFI
+#ifdef XEN_BUILD_EFI
   . = ALIGN(4);
   DECL_SECTION(.reloc) {
     *(.reloc)
   } :text
+#endif
+#ifdef EFI
   /* Trick the linker into setting the image size to exactly 16Mb. */
   . = ALIGN(__section_alignment__);
   DECL_SECTION(.pad) {
