@@ -39,6 +39,7 @@ extern const intpte_t __page_tables_start[], __page_tables_end[];
 #define PE_BASE_RELOC_HIGHLOW  3
 #define PE_BASE_RELOC_DIR64   10
 
+#ifdef XEN_BUILD_PE
 extern const struct pe_base_relocs {
     u32 rva;
     u32 size;
@@ -97,6 +98,12 @@ static void __init efi_arch_relocate_image(unsigned long delta)
         base_relocs = (const void *)(base_relocs->entries + i + (i & 1));
     }
 }
+#else /* !XEN_BUILD_PE */
+static void __init efi_arch_relocate_image(unsigned long delta)
+{
+    ASSERT_UNREACHABLE();
+}
+#endif /* XEN_BUILD_PE */
 
 extern const s32 __trampoline_rel_start[], __trampoline_rel_stop[];
 extern const s32 __trampoline_seg_start[], __trampoline_seg_stop[];
