@@ -1,5 +1,9 @@
 #!/bin/bash -ex
 
+# Prefix environment CC/CXX with CROSS_COMPILE if present.
+CC=${CROSS_COMPILE}${CC}
+CXX=${CROSS_COMPILE}${CXX}
+
 $CC --version
 
 # random config or default config
