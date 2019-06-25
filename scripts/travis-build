@@ -2,6 +2,12 @@
 
 $CC --version
 
+# Prefix environment CC/CXX with CROSS_COMPILE if present.
+if [ ! -z "${CROSS_COMPILE}" ]; then
+    CC=${CROSS_COMPILE}${CC}
+    CXX=${CROSS_COMPILE}${CXX}
+fi
+
 # random config or default config
 if [[ "${RANDCONFIG}" == "y" ]]; then
     make -C xen KCONFIG_ALLCONFIG=tools/kconfig/allrandom.config randconfig
