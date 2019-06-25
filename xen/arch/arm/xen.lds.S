@@ -156,6 +156,7 @@ SECTIONS
        *(.init.rodata)
        *(.init.rodata.rel)
        *(.init.rodata.str*)
+       *(.init.rodata.cst*)
 
        . = ALIGN(POINTER_ALIGN);
        __setup_start = .;
