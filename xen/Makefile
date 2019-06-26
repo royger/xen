@@ -21,8 +21,8 @@ MAKEFLAGS += -rR
 
 EFI_MOUNTPOINT ?= $(BOOT_DIR)/efi
 
-ARCH=$(XEN_TARGET_ARCH)
-SRCARCH=$(shell echo $(ARCH) | sed -e 's/x86.*/x86/' -e s'/arm\(32\|64\)/arm/g')
+export ARCH=$(XEN_TARGET_ARCH)
+export SRCARCH=$(shell echo $(ARCH) | sed -e 's/x86.*/x86/' -e s'/arm\(32\|64\)/arm/g')
 
 # Don't break if the build process wasn't called from the top level
 # we need XEN_TARGET_ARCH to generate the proper config
@@ -267,14 +267,14 @@ kconfig := silentoldconfig oldconfig config menuconfig defconfig \
 	randconfig $(notdir $(wildcard arch/$(SRCARCH)/configs/*_defconfig))
 .PHONY: $(kconfig)
 $(kconfig):
-	$(MAKE) -f $(BASEDIR)/tools/kconfig/Makefile.kconfig ARCH=$(ARCH) SRCARCH=$(SRCARCH) HOSTCC="$(HOSTCC)" HOSTCXX="$(HOSTCXX)" $@
+	$(MAKE) -f $(BASEDIR)/tools/kconfig/Makefile.kconfig HOSTCC="$(HOSTCC)" HOSTCXX="$(HOSTCXX)" $@
 
 include/config/%.conf: include/config/auto.conf.cmd $(KCONFIG_CONFIG)
-	$(MAKE) -f $(BASEDIR)/tools/kconfig/Makefile.kconfig ARCH=$(ARCH) SRCARCH=$(SRCARCH) HOSTCC="$(HOSTCC)" HOSTCXX="$(HOSTCXX)" silentoldconfig
+	$(MAKE) -f $(BASEDIR)/tools/kconfig/Makefile.kconfig HOSTCC="$(HOSTCC)" HOSTCXX="$(HOSTCXX)" silentoldconfig
 
 # Allow people to just run `make` as before and not force them to configure
 $(KCONFIG_CONFIG):
-	$(MAKE) -f $(BASEDIR)/tools/kconfig/Makefile.kconfig ARCH=$(ARCH) SRCARCH=$(SRCARCH) HOSTCC="$(HOSTCC)" HOSTCXX="$(HOSTCXX)" defconfig
+	$(MAKE) -f $(BASEDIR)/tools/kconfig/Makefile.kconfig HOSTCC="$(HOSTCC)" HOSTCXX="$(HOSTCXX)" defconfig
 
 # Break the dependency chain for the first run
 include/config/auto.conf.cmd: ;
