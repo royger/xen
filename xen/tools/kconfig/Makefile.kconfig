@@ -43,6 +43,11 @@ FORCE:
 # Sets toolchain binaries to use
 include $(XEN_ROOT)/config/$(shell uname -s).mk
 
+# Disable format warnings, kconfig makes heavy use of non-literal format
+# strings.
+HOSTCFLAGS += -Wno-format-security
+HOSTCXXFLAGS += -Wno-format-security
+
 # include the original Makefile and Makefile.host from Linux
 include $(src)/Makefile
 include $(src)/Makefile.host
