@@ -9,6 +9,10 @@ CC        ?= $(CROSS_COMPILE)gcc
 CXX       ?= $(CROSS_COMPILE)g++
 LD_LTO    ?= $(CROSS_COMPILE)ld
 endif
+
+HOSTCC    ?= $(CC)
+HOSTCXX   ?= $(CXX)
+
 CPP       ?= $(CC) -E
 AR        ?= $(CROSS_COMPILE)ar
 RANLIB    ?= $(CROSS_COMPILE)ranlib
