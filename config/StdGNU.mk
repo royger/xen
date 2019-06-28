@@ -1,8 +1,6 @@
 # Use Clang/LLVM instead of GCC?
 clang     ?= n
 
-AS         = $(CROSS_COMPILE)as
-LD         = $(CROSS_COMPILE)ld
 ifeq ($(clang),y)
 gcc       := n
 DEF_CC     = clang
@@ -32,19 +30,30 @@ HOSTCC    ?= $(DEF_CC)
 HOSTCXX   ?= $(DEF_CXX)
 endif
 
-CPP        = $(CC) -E
-AR         = $(CROSS_COMPILE)ar
-RANLIB     = $(CROSS_COMPILE)ranlib
-NM         = $(CROSS_COMPILE)nm
-STRIP      = $(CROSS_COMPILE)strip
-OBJCOPY    = $(CROSS_COMPILE)objcopy
-OBJDUMP    = $(CROSS_COMPILE)objdump
-SIZEUTIL   = $(CROSS_COMPILE)size
+CPP       ?= $(CC) -E
+AS        ?= as
+AS        := $(CROSS_COMPILE)$(AS)
+LD        ?= ld
+LD        := $(CROSS_COMPILE)$(LD)
+AR        ?= ar
+AR        := $(CROSS_COMPILE)$(AR)
+RANLIB    ?= ranlib
+RANLIB    := $(CROSS_COMPILE)ranlib
+NM        ?= nm
+NM        := $(CROSS_COMPILE)nm
+STRIP     ?= strip
+STRIP     := $(CROSS_COMPILE)strip
+OBJCOPY   ?= objcopy
+OBJCOPY   := $(CROSS_COMPILE)objcopy
+OBJDUMP   ?= objdump
+OBJDUMP   := $(CROSS_COMPILE)objdump
+SIZEUTIL  ?= size
+SIZEUTIL  := $(CROSS_COMPILE)size
 
 # Allow git to be wrappered in the environment
 GIT        ?= git
 
-INSTALL      = install
+INSTALL     ?= install
 INSTALL_DIR  = $(INSTALL) -d -m0755 -p
 INSTALL_DATA = $(INSTALL) -m0644 -p
 INSTALL_PROG = $(INSTALL) -m0755 -p
