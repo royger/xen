@@ -16,6 +16,9 @@ endif
 CC        ?= $(DEF_CC)
 CXX       ?= $(DEF_CXX)
 LD_LTO    ?= $(DEF_LD_LTO)
+
+$(info CROSS_COMPILE: $(CROSS_COMPILE))
+
 CC        := $(CROSS_COMPILE)$(CC)
 CXX       := $(CROSS_COMPILE)$(CXX)
 LD_LTO    := $(CROSS_COMPILE)$(LD_LTO)
