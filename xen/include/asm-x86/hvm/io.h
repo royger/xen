@@ -185,16 +185,8 @@ unsigned int hvm_mmcfg_decode_addr(const struct hvm_mmcfg *mmcfg,
  */
 void register_g2m_portio_handler(struct domain *d);
 
-/* HVM port IO handler for vPCI accesses. */
-void register_vpci_portio_handler(struct domain *d);
-
-/* HVM MMIO handler for PCI MMCFG accesses. */
-int register_vpci_mmcfg_handler(struct domain *d, paddr_t addr,
-                                unsigned int start_bus, unsigned int end_bus,
-                                unsigned int seg);
-
 /* Check if an address is between a MMCFG region for a domain. */
-bool vpci_is_mmcfg_address(const struct domain *d, paddr_t addr);
+bool hvm_is_mmcfg_address(const struct domain *d, paddr_t addr);
 
 #endif /* __ASM_X86_HVM_IO_H__ */
 
