@@ -515,7 +515,7 @@ static void resume_x2apic(void)
     iommu_enable_x2apic();
     __enable_x2apic();
 
-    restore_IO_APIC_setup(ioapic_entries);
+    restore_IO_APIC_setup(ioapic_entries, true);
     unmask_8259A();
 
 out:
@@ -887,6 +887,7 @@ void __init x2apic_bsp_setup(void)
 {
     struct IO_APIC_route_entry **ioapic_entries = NULL;
     const char *orig_name;
+    bool iommu_enabled = true;
 
     if ( !cpu_has_x2apic )
         return;
@@ -934,6 +935,7 @@ void __init x2apic_bsp_setup(void)
         if ( !x2apic_enabled )
         {
             printk("Not enabling x2APIC (upon firmware request)\n");
+            iommu_enabled = false;
             goto restore_out;
         }
         /* fall through */
@@ -944,6 +946,7 @@ void __init x2apic_bsp_setup(void)
 
         printk(XENLOG_ERR
                "Failed to enable Interrupt Remapping: Will not enable x2APIC.\n");
+        iommu_enabled = false;
         goto restore_out;
     }
 
@@ -961,7 +964,12 @@ void __init x2apic_bsp_setup(void)
         printk("Switched to APIC driver %s\n", genapic.name);
 
 restore_out:
-    restore_IO_APIC_setup(ioapic_entries);
+    /*
+     * NB: do not use raw mode when restoring entries if the iommu has been
+     * enabled during the process, because the entries need to be translated
+     * and added to the remapping table in that case.
+     */
+    restore_IO_APIC_setup(ioapic_entries, !iommu_enabled);
     unmask_8259A();
 
 out:
