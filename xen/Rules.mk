@@ -79,7 +79,7 @@ AFLAGS-y                += -D__ASSEMBLY__
 # Older clang's built-in assembler doesn't understand .skip with labels:
 # https://bugs.llvm.org/show_bug.cgi?id=27369
 ifeq ($(clang),y)
-$(call as-option-add,CFLAGS,CC,".L0:\n.L1:\n.skip (.L1 - .L0)",,\
+$(call as-option-add,CFLAGS,CC,".L0: .L1: .skip (.L1 - .L0)",,\
                      -no-integrated-as)
 endif
 
