@@ -281,6 +281,17 @@ int xg_free_unused_page(mfn_t mfn)
     return rangeset_remove_range(mem, mfn_x(mfn), mfn_x(mfn));
 }
 
+int xg_flush_tlbs(void)
+{
+    int rc;
+
+    do {
+        rc = xen_hypercall_hvm_op(HVMOP_flush_tlbs, NULL);
+    } while ( rc == -ERESTART );
+
+    return rc;
+}
+
 static void ap_resume(void *unused)
 {
     map_vcpuinfo();

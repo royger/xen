@@ -15,6 +15,7 @@
 #include <xen/perfc.h>
 #include <xen/spinlock.h>
 #include <asm/current.h>
+#include <asm/guest.h>
 #include <asm/smp.h>
 #include <asm/mc146818rtc.h>
 #include <asm/flushtlb.h>
@@ -234,6 +235,11 @@ void flush_area_mask(const cpumask_t *mask, const void *va, unsigned int flags)
          !cpumask_subset(mask, cpumask_of(cpu)) )
     {
         bool cpus_locked = false;
+
+        if ( xen_guest &&
+             !(flags & ~(FLUSH_TLB | FLUSH_TLB_GLOBAL | FLUSH_VA_VALID)) &&
+             !xg_flush_tlbs() )
+            return;
 
         spin_lock(&flush_lock);
         cpumask_and(&flush_cpumask, mask, &cpu_online_map);

@@ -36,6 +36,7 @@ extern uint32_t xen_cpuid_base;
 const struct hypervisor_ops *xg_probe(void);
 int xg_alloc_unused_page(mfn_t *mfn);
 int xg_free_unused_page(mfn_t mfn);
+int xg_flush_tlbs(void);
 
 DECLARE_PER_CPU(unsigned int, vcpu_id);
 DECLARE_PER_CPU(struct vcpu_info *, vcpu_info);
@@ -46,6 +47,12 @@ DECLARE_PER_CPU(struct vcpu_info *, vcpu_info);
 #define pv_console 0
 
 static inline const struct hypervisor_ops *xg_probe(void) { return NULL; }
+
+static inline int xg_flush_tlbs(void)
+{
+    ASSERT_UNREACHABLE();
+    return -ENOSYS;
+}
 
 #endif /* CONFIG_XEN_GUEST */
 #endif /* __X86_GUEST_XEN_H__ */
