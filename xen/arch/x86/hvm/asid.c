@@ -80,9 +80,19 @@ void hvm_asid_init(int nasids)
     data->next_asid = 1;
 }
 
+void hvm_asid_init_vcpu(struct vcpu *v)
+{
+    spin_lock_init(&v->arch.hvm.n1asid.lock);
+    spin_lock_init(&vcpu_nestedhvm(v).nv_n2asid.lock);
+}
+
 void hvm_asid_flush_vcpu_asid(struct hvm_vcpu_asid *asid)
 {
+    unsigned long flags;
+
+    spin_lock_irqsave(&asid->lock, flags);
     asid->generation = 0;
+    spin_unlock_irqrestore(&asid->lock, flags);
 }
 
 void hvm_asid_flush_vcpu(struct vcpu *v)
@@ -110,9 +120,13 @@ void hvm_asid_flush_core(void)
     data->disabled = 1;
 }
 
-bool_t hvm_asid_handle_vmenter(struct hvm_vcpu_asid *asid)
+bool hvm_asid_handle_vmenter(struct hvm_vcpu_asid *asid)
 {
     struct hvm_asid_data *data = &this_cpu(hvm_asid_data);
+    unsigned long flags;
+    bool flush;
+
+    spin_lock_irqsave(&asid->lock, flags);
 
     /* On erratum #170 systems we must flush the TLB. 
      * Generation overruns are taken here, too. */
@@ -121,7 +135,10 @@ bool_t hvm_asid_handle_vmenter(struct hvm_vcpu_asid *asid)
 
     /* Test if VCPU has valid ASID. */
     if ( asid->generation == data->core_asid_generation )
-        return 0;
+    {
+        spin_unlock_irqrestore(&asid->lock, flags);
+        return false;
+    }
 
     /* If there are no free ASIDs, need to go to a new generation */
     if ( unlikely(data->next_asid > data->max_asid) )
@@ -140,11 +157,15 @@ bool_t hvm_asid_handle_vmenter(struct hvm_vcpu_asid *asid)
      * When we assign ASID 1, flush all TLB entries as we are starting a new
      * generation, and all old ASID allocations are now stale. 
      */
-    return (asid->asid == 1);
+    flush = asid->asid == 1;
+    spin_unlock_irqrestore(&asid->lock, flags);
+
+    return flush;
 
  disabled:
     asid->asid = 0;
-    return 0;
+    spin_unlock_irqrestore(&asid->lock, flags);
+    return false;
 }
 
 /*

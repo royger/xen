@@ -39,6 +39,7 @@ enum hvm_io_completion {
 struct hvm_vcpu_asid {
     uint64_t generation;
     uint32_t asid;
+    spinlock_t lock;
 };
 
 /*
