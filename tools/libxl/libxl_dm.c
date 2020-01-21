@@ -2110,17 +2110,21 @@ void libxl__spawn_stub_dm(libxl__egc *egc, libxl__domain_create_state *dcs)
     xs_transaction_t t;
 
     /* convenience aliases */
-    libxl_domain_config *const dm_config = &sdss->dm_config;
     libxl_domain_config *const guest_config = sdss->dm.guest_config;
     const int guest_domid = sdss->dm.guest_domid;
     libxl__domain_build_state *const d_state = sdss->dm.build_state;
-    libxl__domain_build_state *const stubdom_state = &sdss->dm_state;
+    libxl__domain_build_state *stubdom_state;
+    libxl_domain_config *dm_config;
 
     /* Initialise private part of sdss */
-    libxl__domain_build_state_init(stubdom_state);
     dmss_init(&sdss->dm);
     dmss_init(&sdss->pvqemu);
     libxl__xswait_init(&sdss->xswait);
+    GCNEW(sdss->dcs);
+    stubdom_state = &sdss->dcs->build_state;
+    libxl__domain_build_state_init(stubdom_state);
+    GCNEW(sdss->dcs->guest_config);
+    dm_config = sdss->dcs->guest_config;
 
     if (guest_config->b_info.device_model_version !=
         LIBXL_DEVICE_MODEL_VERSION_QEMU_XEN_TRADITIONAL) {
@@ -2198,7 +2202,7 @@ void libxl__spawn_stub_dm(libxl__egc *egc, libxl__domain_create_state *dcs)
     if (ret)
         goto out;
     uint32_t dm_domid = sdss->pvqemu.guest_domid;
-    ret = libxl__domain_build(gc, dm_domid, dcs);
+    ret = libxl__domain_build(gc, dm_domid, sdss->dcs);
     if (ret)
         goto out;
 
@@ -2264,11 +2268,11 @@ static void spawn_stub_launch_dm(libxl__egc *egc,
     libxl__device_console *console;
 
     /* convenience aliases */
-    libxl_domain_config *const dm_config = &sdss->dm_config;
+    libxl_domain_config *const dm_config = sdss->dcs->guest_config;
     libxl_domain_config *const guest_config = sdss->dm.guest_config;
     const int guest_domid = sdss->dm.guest_domid;
     libxl__domain_build_state *const d_state = sdss->dm.build_state;
-    libxl__domain_build_state *const stubdom_state = &sdss->dm_state;
+    libxl__domain_build_state *const stubdom_state = &sdss->dcs->build_state;
     uint32_t dm_domid = sdss->pvqemu.guest_domid;
     int need_qemu;
 
@@ -2354,8 +2358,8 @@ static void spawn_stub_launch_dm(libxl__egc *egc,
 
     sdss->pvqemu.spawn.ao = ao;
     sdss->pvqemu.guest_domid = dm_domid;
-    sdss->pvqemu.guest_config = &sdss->dm_config;
-    sdss->pvqemu.build_state = &sdss->dm_state;
+    sdss->pvqemu.guest_config = sdss->dcs->guest_config;
+    sdss->pvqemu.build_state = &sdss->dcs->build_state;
     sdss->pvqemu.callback = spawn_stubdom_pvqemu_cb;
 
     if (!need_qemu) {
@@ -2464,7 +2468,7 @@ static void stubdom_xswait_cb(libxl__egc *egc, libxl__xswait_state *xswait,
     if (strcmp(p, "running"))
         return;
  out:
-    libxl__domain_build_state_dispose(&sdss->dm_state);
+    libxl__domain_build_state_dispose(&sdss->dcs->build_state);
     libxl__xswait_stop(gc, xswait);
     dmss_dispose(gc, &sdss->dm);
     dmss_dispose(gc, &sdss->pvqemu);

@@ -4102,8 +4102,7 @@ typedef struct {
     /* filled in by user, must remain valid: */
     libxl__dm_spawn_cb *callback; /* called as callback(,&sdss->dm,) */
     /* private to libxl__spawn_stub_dm: */
-    libxl_domain_config dm_config;
-    libxl__domain_build_state dm_state;
+    libxl__domain_create_state *dcs;
     libxl__dm_spawn_state pvqemu;
     libxl__destroy_domid_state dis;
     libxl__multidev multidev;
