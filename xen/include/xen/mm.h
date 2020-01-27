@@ -644,7 +644,16 @@ static inline void filtered_flush_tlb_mask(uint32_t tlbflush_timestamp)
     if ( !cpumask_empty(&mask) )
     {
         perfc_incr(need_flush_tlb_flush);
+#if CONFIG_X86
+        /*
+         * filtered_flush_tlb_mask is used after modifying the p2m in
+         * populate_physmap, Xen needs to trigger an ASID tickle as this is a
+         * requirement on AMD hardware.
+         */
+        flush_mask(&mask, FLUSH_TLB | FLUSH_HVM_ASID_CORE);
+#else
         flush_tlb_mask(&mask);
+#endif
     }
 }
 
