@@ -480,4 +480,6 @@ static inline int fls(unsigned int x)
 #define hweight16(x) generic_hweight16(x)
 #define hweight8(x) generic_hweight8(x)
 
+#define BIT_WORD(nr) ((nr) / BITS_PER_LONG)
+
 #endif /* _X86_BITOPS_H */
