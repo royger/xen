@@ -25,6 +25,32 @@
 #include <irq_vectors.h>
 #include <mach_apic.h>
 
+DEFINE_PER_CPU_READ_MOSTLY(cpumask_var_t, scratch_cpumask);
+
+#ifndef NDEBUG
+cpumask_t *scratch_cpumask(bool use)
+{
+    static DEFINE_PER_CPU(void *, scratch_cpumask_use);
+
+    /*
+     * Scratch cpumask cannot be used in IRQ context, or else we would have to
+     * make sure all users have interrupts disabled while using the scratch
+     * mask.
+     */
+    BUG_ON(in_irq());
+
+    if ( use && unlikely(this_cpu(scratch_cpumask_use)) )
+    {
+        printk("%p: scratch CPU mask already in use by %p\n",
+               __builtin_return_address(0), this_cpu(scratch_cpumask_use));
+        BUG();
+    }
+    this_cpu(scratch_cpumask_use) = use ? __builtin_return_address(0) : NULL;
+
+    return use ? this_cpu(scratch_cpumask) : NULL;
+}
+#endif
+
 /* Helper functions to prepare APIC register values. */
 static unsigned int prepare_ICR(unsigned int shortcut, int vector)
 {
