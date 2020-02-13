@@ -644,6 +644,7 @@ static void cmci_interrupt(struct cpu_user_regs *regs)
     mctelem_cookie_t mctc;
     struct mca_summary bs;
 
+    mc_enter();
     ack_APIC_irq();
 
     mctc = mcheck_mca_logout(
@@ -665,6 +666,7 @@ static void cmci_interrupt(struct cpu_user_regs *regs)
     }
     else if ( mctc != NULL )
         mctelem_dismiss(mctc);
+    mc_exit();
 }
 
 static void intel_init_cmci(struct cpuinfo_x86 *c)
