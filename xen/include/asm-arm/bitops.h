@@ -22,7 +22,7 @@
 
 #define BITS_PER_WORD           32
 #define BIT_MASK(nr)            (1UL << ((nr) % BITS_PER_WORD))
-#define BIT_WORD(nr)            ((nr) / BITS_PER_WORD)
+#define BITOP_WORD(nr)          ((nr) / BITS_PER_WORD)
 #define BITS_PER_BYTE           8
 
 #define ADDR (*(volatile int *) addr)
@@ -87,7 +87,7 @@ static inline int __test_and_set_bit(int nr, volatile void *addr)
 {
         unsigned int mask = BIT_MASK(nr);
         volatile unsigned int *p =
-                ((volatile unsigned int *)addr) + BIT_WORD(nr);
+                ((volatile unsigned int *)addr) + BITOP_WORD(nr);
         unsigned int old = *p;
 
         *p = old | mask;
@@ -120,7 +120,7 @@ static inline int __test_and_change_bit(int nr,
 {
         unsigned int mask = BIT_MASK(nr);
         volatile unsigned int *p =
-                ((volatile unsigned int *)addr) + BIT_WORD(nr);
+                ((volatile unsigned int *)addr) + BITOP_WORD(nr);
         unsigned int old = *p;
 
         *p = old ^ mask;
@@ -135,7 +135,7 @@ static inline int __test_and_change_bit(int nr,
 static inline int test_bit(int nr, const volatile void *addr)
 {
         const volatile unsigned int *p = (const volatile unsigned int *)addr;
-        return 1UL & (p[BIT_WORD(nr)] >> (nr & (BITS_PER_WORD-1)));
+        return 1UL & (p[BITOP_WORD(nr)] >> (nr & (BITS_PER_WORD-1)));
 }
 
 /*
