@@ -326,7 +326,27 @@ static void __init e820_fixup(struct e820map *e820)
 
 static int flush_tlb(const cpumask_t *mask, const void *va, unsigned int flags)
 {
-    return xen_hypercall_hvm_op(HVMOP_flush_tlbs, NULL);
+    xen_hvm_flush_tlbs_t op = {
+        .va = (unsigned long)va,
+        .order = (flags - 1) & FLUSH_ORDER_MASK,
+        .flags = ((flags & FLUSH_TLB_GLOBAL) ? HVMOP_flush_global : 0) |
+                 ((flags & FLUSH_VA_VALID) ? HVMOP_flush_va_valid : 0),
+        .mask_size = BITS_TO_LONGS(nr_cpu_ids),
+    };
+    static int8_t __read_mostly advanced_flush = -1;
+
+    if ( advanced_flush == -1 )
+    {
+        uint32_t eax, ebx, ecx, edx;
+
+        ASSERT(xen_cpuid_base);
+        cpuid(xen_cpuid_base + 4, &eax, &ebx, &ecx, &edx);
+        advanced_flush = (eax & XEN_HVM_CPUID_ADVANCED_FLUSH) ? 1 : 0;
+    }
+
+    set_xen_guest_handle(op.vcpu_mask, cpumask_bits(mask));
+
+    return xen_hypercall_hvm_op(HVMOP_flush_tlbs, advanced_flush ? &op : NULL);
 }
 
 static const struct hypervisor_ops __initconstrel ops = {

@@ -966,8 +966,10 @@ void cpuid_hypervisor_leaves(const struct vcpu *v, uint32_t leaf,
         /*
          * Indicate that memory mapped from other domains (either grants or
          * foreign pages) has valid IOMMU entries.
+         *
+         * Also signal support for more selective assisted flush support.
          */
-        res->a |= XEN_HVM_CPUID_IOMMU_MAPPINGS;
+        res->a |= XEN_HVM_CPUID_IOMMU_MAPPINGS | XEN_HVM_CPUID_ADVANCED_FLUSH;
 
         /* Indicate presence of vcpu id and set it in ebx */
         res->a |= XEN_HVM_CPUID_VCPU_ID_PRESENT;
