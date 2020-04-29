@@ -99,8 +99,29 @@ DEFINE_XEN_GUEST_HANDLE(xen_hvm_set_pci_link_route_t);
 
 #endif /* __XEN_INTERFACE_VERSION__ < 0x00040900 */
 
-/* Flushes all VCPU TLBs: @arg must be NULL. */
+/*
+ * Flushes all VCPU TLBs: @arg can be NULL or xen_hvm_flush_tlbs_t.
+ *
+ * Support for passing a xen_hvm_flush_tlbs_t parameter is signaled in CPUID,
+ * see XEN_HVM_CPUID_ADVANCED_FLUSH.
+ */
 #define HVMOP_flush_tlbs          5
+struct xen_hvm_flush_tlbs {
+    /* Virtual address to be flushed. */
+    uint64_t va;
+    uint16_t order;
+    uint16_t flags;
+/* Flush global mappings. */
+#define HVMOP_flush_global      (1u << 0)
+/* VA for the flush has a valid mapping. */
+#define HVMOP_flush_va_valid    (1u << 1)
+    /* Number of uint64_t elements in vcpu_mask. */
+    uint32_t mask_size;
+    /* Bitmask of vcpus that should be flushed. */
+    XEN_GUEST_HANDLE(const_uint64) vcpu_mask;
+};
+typedef struct xen_hvm_flush_tlbs xen_hvm_flush_tlbs_t;
+DEFINE_XEN_GUEST_HANDLE(xen_hvm_flush_tlbs_t);
 
 /*
  * hvmmem_type_t should not be defined when generating the corresponding
