@@ -102,6 +102,8 @@
 #define XEN_HVM_CPUID_IOMMU_MAPPINGS   (1u << 2)
 #define XEN_HVM_CPUID_VCPU_ID_PRESENT  (1u << 3) /* vcpu id is present in EBX */
 #define XEN_HVM_CPUID_DOMID_PRESENT    (1u << 4) /* domid is present in ECX */
+/* Supports more fine grained assisted flush, see HVMOP_flush_tlbs. */
+#define XEN_HVM_CPUID_ADVANCED_FLUSH   (1u << 5)
 
 /*
  * Leaf 6 (0x40000x05)

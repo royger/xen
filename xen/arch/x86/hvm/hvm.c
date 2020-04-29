@@ -4011,17 +4011,42 @@ static void hvm_s3_resume(struct domain *d)
     }
 }
 
-static bool always_flush(void *ctxt, struct vcpu *v)
+static bool flush_check(void *mask, struct vcpu *v)
 {
-    return true;
+    return mask ? test_bit(v->vcpu_id, (unsigned long *)mask) : true;
 }
 
-static int hvmop_flush_tlb_all(void)
+static int hvmop_flush_tlb(XEN_GUEST_HANDLE_PARAM(xen_hvm_flush_tlbs_t) uop)
 {
+    xen_hvm_flush_tlbs_t op;
+    DECLARE_BITMAP(mask, HVM_MAX_VCPUS) = { };
+    bool valid_mask = false;
+
     if ( !is_hvm_domain(current->domain) )
         return -EINVAL;
 
-    return paging_flush_tlb(always_flush, NULL) ? 0 : -ERESTART;
+    if ( !guest_handle_is_null(uop) )
+    {
+        if ( copy_from_guest(&op, uop, 1) )
+            return -EFAULT;
+
+        /*
+         * TODO: implement support for the other features present in
+         * xen_hvm_flush_tlbs_t: flushing a specific virtual address and not
+         * flushing global mappings.
+         */
+
+        if ( op.mask_size > ARRAY_SIZE(mask) )
+            return -EINVAL;
+
+        if ( copy_from_guest(mask, op.vcpu_mask, op.mask_size) )
+            return -EFAULT;
+
+        valid_mask = true;
+    }
+
+    return paging_flush_tlb(flush_check, valid_mask ? mask : NULL) ? 0
+                                                                   : -ERESTART;
 }
 
 static int hvmop_set_evtchn_upcall_vector(
@@ -5017,7 +5042,7 @@ long do_hvm_op(unsigned long op, XEN_GUEST_HANDLE_PARAM(void) arg)
         break;
 
     case HVMOP_flush_tlbs:
-        rc = guest_handle_is_null(arg) ? hvmop_flush_tlb_all() : -EINVAL;
+        rc = hvmop_flush_tlb(guest_handle_cast(arg, xen_hvm_flush_tlbs_t));
         break;
 
     case HVMOP_get_mem_type:
