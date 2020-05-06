@@ -958,6 +958,9 @@ const char *hvm_efer_valid(const struct vcpu *v, uint64_t value,
     if ( (value & EFER_FFXSE) && !p->extd.ffxsr )
         return "FFXSE without feature";
 
+    if ( (value & EFER_TCE) && !p->extd.tce )
+        return "TCE without feature";
+
     return NULL;
 }
 

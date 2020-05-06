@@ -178,6 +178,7 @@ XEN_CPUFEATURE(SKINIT,        3*32+12) /*   SKINIT/STGI instructions */
 XEN_CPUFEATURE(WDT,           3*32+13) /*   Watchdog timer */
 XEN_CPUFEATURE(LWP,           3*32+15) /*   Light Weight Profiling */
 XEN_CPUFEATURE(FMA4,          3*32+16) /*A  4 operands MAC instructions */
+XEN_CPUFEATURE(TCE,           3*32+17) /*S  Translation Cache Extension */
 XEN_CPUFEATURE(NODEID_MSR,    3*32+19) /*   NodeId MSR */
 XEN_CPUFEATURE(TBM,           3*32+21) /*A  trailing bit manipulations */
 XEN_CPUFEATURE(TOPOEXT,       3*32+22) /*   topology extensions CPUID leafs */

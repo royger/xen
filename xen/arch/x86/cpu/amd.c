@@ -803,6 +803,10 @@ static void init_amd(struct cpuinfo_x86 *c)
 		disable_c1_ramping();
 
 	check_syscfg_dram_mod_en();
+
+	/* Enable TCE if available */
+	if (cpu_has(c, X86_FEATURE_TCE))
+		write_efer(read_efer() | EFER_TCE);
 }
 
 const struct cpu_dev amd_cpu_dev = {

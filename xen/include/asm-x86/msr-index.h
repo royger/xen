@@ -96,6 +96,7 @@
 #define _EFER_NX		11 /* No execute enable */
 #define _EFER_SVME		12 /* AMD: SVM enable */
 #define _EFER_FFXSE		14 /* AMD: Fast FXSAVE/FXRSTOR enable */
+#define _EFER_TCE		15 /* AMD: Translation Cache Extension enable */
 
 #define EFER_SCE		(1<<_EFER_SCE)
 #define EFER_LME		(1<<_EFER_LME)
@@ -103,9 +104,10 @@
 #define EFER_NX			(1<<_EFER_NX)
 #define EFER_SVME		(1<<_EFER_SVME)
 #define EFER_FFXSE		(1<<_EFER_FFXSE)
+#define EFER_TCE		(1<<_EFER_TCE)
 
 #define EFER_KNOWN_MASK		(EFER_SCE | EFER_LME | EFER_LMA | EFER_NX | \
-				 EFER_SVME | EFER_FFXSE)
+				 EFER_SVME | EFER_FFXSE | EFER_TCE)
 
 /* Intel MSRs. Some also available on other CPUs */
 #define MSR_IA32_PERFCTR0		0x000000c1
