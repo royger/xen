@@ -2236,6 +2236,7 @@ int nvmx_msr_read_intercept(unsigned int msr, u64 *msr_content)
         /* 1-settings */
         data = PIN_BASED_EXT_INTR_MASK |
                PIN_BASED_NMI_EXITING |
+               PIN_BASED_VIRTUAL_NMIS |
                PIN_BASED_PREEMPT_TIMER;
         data = gen_vmx_msr(data, VMX_PINBASED_CTLS_DEFAULT1, host_data);
         break;
