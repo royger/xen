@@ -278,7 +278,7 @@ static void populate_physmap(struct memop_args *a)
 
 out:
     if ( need_tlbflush )
-        filtered_flush_tlb_mask(tlbflush_timestamp);
+        filtered_flush_tlb_mask_sync(tlbflush_timestamp);
 
     if ( a->memflags & MEMF_no_icache_flush )
         invalidate_icache();
