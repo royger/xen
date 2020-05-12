@@ -1301,7 +1301,6 @@ static enum pf_type __page_fault_type(unsigned long addr,
 
     l1t = map_domain_page(_mfn(mfn));
     l1e = l1e_read_atomic(&l1t[l1_table_offset(addr)]);
-    mfn = l1e_get_pfn(l1e);
     unmap_domain_page(l1t);
     if ( ((l1e_get_flags(l1e) & required_flags) != required_flags) ||
          (l1e_get_flags(l1e) & disallowed_flags) )
