@@ -92,7 +92,8 @@ static int pt_irq_vector(struct periodic_time *pt, enum hvm_intsrc src)
                 + (isa_irq & 7));
 
     ASSERT(src == hvm_intsrc_lapic);
-    gsi = pt->source == PTSRC_isa ? hvm_isa_irq_to_gsi(isa_irq) : pt->irq;
+    gsi = pt->source == PTSRC_isa ? hvm_isa_irq_to_gsi(v->domain, isa_irq)
+                                  : pt->irq;
     vector = vioapic_get_vector(v->domain, gsi);
     if ( vector < 0 )
     {
@@ -128,7 +129,7 @@ static int pt_irq_masked(struct periodic_time *pt)
         if ( !(pic_imr & (1 << (pt->irq & 7))) && vlapic_accept_pic_intr(v) )
             return 0;
 
-        gsi = hvm_isa_irq_to_gsi(pt->irq);
+        gsi = hvm_isa_irq_to_gsi(v->domain, pt->irq);
     }
 
     /* Fallthrough to check if the interrupt is masked on the IO APIC. */
