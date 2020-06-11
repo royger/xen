@@ -512,7 +512,8 @@ static bool emulation_flags_ok(const struct domain *d, uint32_t emflags)
     if ( is_hvm_domain(d) )
     {
         if ( is_hardware_domain(d) &&
-             emflags != (X86_EMU_VPCI | X86_EMU_LAPIC | X86_EMU_IOAPIC) )
+             emflags != (X86_EMU_VPCI | X86_EMU_LAPIC | X86_EMU_IOAPIC |
+                         X86_EMU_PIT) )
             return false;
         if ( !is_hardware_domain(d) &&
              emflags != (X86_EMU_ALL & ~X86_EMU_VPCI) &&
@@ -577,9 +578,11 @@ int arch_domain_create(struct domain *d,
     }
 
     emflags = config->arch.emulation_flags;
-
-    if ( is_hardware_domain(d) && is_pv_domain(d) )
-        emflags |= XEN_X86_EMU_PIT;
+    if ( is_hardware_domain(d) )
+        emflags |= XEN_X86_EMU_PIT |
+                   (is_hvm_domain(d) ? (XEN_X86_EMU_LAPIC | XEN_X86_EMU_IOAPIC |
+                                        XEN_X86_EMU_VPCI)
+                                     : 0);
 
     if ( emflags & ~XEN_X86_EMU_ALL )
     {
