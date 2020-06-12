@@ -308,6 +308,9 @@ int pt_update_irq(struct vcpu *v)
     uint64_t max_lag;
     int irq, pt_vector = -1;
     bool level;
+    time_cb *cb = NULL;
+    void *cb_priv;
+
 
     spin_lock(&v->arch.hvm.tm_lock);
 
@@ -367,53 +370,42 @@ int pt_update_irq(struct vcpu *v)
              v->domain->arch.hvm.vpic[irq >> 3].int_output )
             hvm_isa_irq_assert(v->domain, irq, NULL);
         else
-        {
             pt_vector = hvm_isa_irq_assert(v->domain, irq, vioapic_get_vector);
-            /*
-             * hvm_isa_irq_assert may not set the corresponding bit in vIRR
-             * when mask field of IOAPIC RTE is set. Check it again.
-             */
-            if ( pt_vector < 0 || !vlapic_test_irq(vcpu_vlapic(v), pt_vector) )
-                pt_vector = -1;
-        }
         break;
 
     case PTSRC_ioapic:
         pt_vector = hvm_ioapic_assert(v->domain, irq, level);
-        if ( pt_vector < 0 || !vlapic_test_irq(vcpu_vlapic(v), pt_vector) )
-        {
-            pt_vector = -1;
-            if ( level )
-            {
-                /*
-                 * Level interrupts are always asserted because the pin assert
-                 * count is incremented regardless of whether the pin is masked
-                 * or the vector latched in IRR, so also execute the callback
-                 * associated with the timer.
-                 */
-                time_cb *cb = NULL;
-                void *cb_priv;
-
-                spin_lock(&v->arch.hvm.tm_lock);
-                /* Make sure the timer is still on the list. */
-                list_for_each_entry ( pt, &v->arch.hvm.tm_list, list )
-                    if ( pt == earliest_pt )
-                    {
-                        pt_irq_fired(v, pt);
-                        cb = pt->cb;
-                        cb_priv = pt->priv;
-                        break;
-                    }
-                spin_unlock(&v->arch.hvm.tm_lock);
-
-                if ( cb != NULL )
-                    cb(v, cb_priv);
-            }
-        }
         break;
     }
 
-    return pt_vector;
+    if ( pt_vector < 0 || vlapic_test_irq(vcpu_vlapic(v), pt_vector) )
+        return pt_vector;
+
+    /*
+     * Vector has been injected to a different vCPU, or it might have been
+     * masked in the window between the pt_irq_masked check and the injection.
+     * Since pt_irq_fired won't be called because the timer vector won't be
+     * injected execute the callback now.
+     *
+     * TODO: attempt to move this vpt to one of the vCPUs where the vector gets
+     * injected if that's not the case currently.
+     */
+    spin_lock(&v->arch.hvm.tm_lock);
+    /* Make sure the timer is still on the list. */
+    list_for_each_entry ( pt, &v->arch.hvm.tm_list, list )
+        if ( pt == earliest_pt )
+        {
+            pt_irq_fired(v, pt);
+            cb = pt->cb;
+            cb_priv = pt->priv;
+            break;
+        }
+    spin_unlock(&v->arch.hvm.tm_lock);
+
+    if ( cb != NULL )
+        cb(v, cb_priv);
+
+    return -1;
 }
 
 static struct periodic_time *is_pt_irq(
