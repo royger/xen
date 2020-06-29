@@ -1636,7 +1636,7 @@ void hvm_vcpu_destroy(struct vcpu *v)
 void hvm_vcpu_down(struct vcpu *v)
 {
     struct domain *d = v->domain;
-    int online_count = 0;
+    struct vcpu *online = NULL;
 
     /* Doesn't halt us immediately, but we'll never return to guest context. */
     set_bit(_VPF_down, &v->pause_flags);
@@ -1646,15 +1646,18 @@ void hvm_vcpu_down(struct vcpu *v)
     domain_lock(d);
     for_each_vcpu ( d, v )
         if ( !(v->pause_flags & VPF_down) )
-            online_count++;
-    domain_unlock(d);
+            online = v;
 
     /* ... Shut down the domain if not. */
-    if ( online_count == 0 )
+    if ( !online )
     {
         gdprintk(XENLOG_INFO, "All CPUs offline -- powering off.\n");
         domain_shutdown(d, SHUTDOWN_poweroff);
     }
+    else
+        /* Move all vPTs to an online vCPU. */
+        pt_adjust_global_vcpu_target(online);
+    domain_unlock(d);
 }
 
 void hvm_hlt(unsigned int eflags)
