@@ -867,10 +867,7 @@ void vlapic_reg_write(struct vcpu *v, unsigned int reg, uint32_t val)
         val &= array_access_nospec(vlapic_lvt_mask, (reg - APIC_LVTT) >> 4);
         vlapic_set_reg(vlapic, reg, val);
         if ( reg == APIC_LVT0 )
-        {
-            vlapic_adjust_i8259_target(v->domain);
             pt_may_unmask_irq(v->domain, NULL);
-        }
         if ( (reg == APIC_LVTT) && !(val & APIC_LVT_MASKED) )
             pt_may_unmask_irq(NULL, &vlapic->pt);
         if ( reg == APIC_LVTPC )
@@ -1243,63 +1240,34 @@ void vlapic_tdt_msr_set(struct vlapic *vlapic, uint64_t value)
                 vlapic->hw.tdt_msr, guest_tsc);
 }
 
-static int __vlapic_accept_pic_intr(struct vcpu *v)
+bool vlapic_accept_pic_intr(struct vcpu *v)
 {
-    struct domain *d = v->domain;
-    struct vlapic *vlapic = vcpu_vlapic(v);
+    const struct domain *d = v->domain;
+    const struct vlapic *vlapic = vcpu_vlapic(v);
     uint32_t lvt0 = vlapic_get_reg(vlapic, APIC_LVT0);
     union vioapic_redir_entry redir0;
+    bool accept;
 
-    ASSERT(has_vpic(d));
-
-    if ( !has_vioapic(d) )
+    if ( !has_vpic(d) || !has_vioapic(d) )
         return 0;
 
     redir0 = domain_vioapic(d, 0)->redirtbl[0];
 
     /* We deliver 8259 interrupts to the appropriate CPU as follows. */
-    return ((/* IOAPIC pin0 is unmasked and routing to this LAPIC? */
-             ((redir0.fields.delivery_mode == dest_ExtINT) &&
+    accept = /* IOAPIC pin0 is unmasked and routing to this LAPIC? */
+             (redir0.fields.delivery_mode == dest_ExtINT &&
               !redir0.fields.mask &&
-              redir0.fields.dest_id == VLAPIC_ID(vlapic) &&
+              redir0.fields.trig_mode == VIOAPIC_EDGE_TRIG &&
+              vlapic_match_dest(vlapic, NULL, 0, redir0.fields.dest_id,
+                                redir0.fields.dest_mode)  &&
               !vlapic_disabled(vlapic)) ||
              /* LAPIC has LVT0 unmasked for ExtInts? */
              ((lvt0 & (APIC_MODE_MASK|APIC_LVT_MASKED)) == APIC_DM_EXTINT) ||
              /* LAPIC is fully disabled? */
-             vlapic_hw_disabled(vlapic)));
-}
+             vlapic_hw_disabled(vlapic);
 
-int vlapic_accept_pic_intr(struct vcpu *v)
-{
-    if ( vlapic_hw_disabled(vcpu_vlapic(v)) || !has_vpic(v->domain) )
-        return 0;
-
-    TRACE_2D(TRC_HVM_EMUL_LAPIC_PIC_INTR,
-             (v == v->domain->arch.hvm.i8259_target),
-             v ? __vlapic_accept_pic_intr(v) : -1);
-
-    return ((v == v->domain->arch.hvm.i8259_target) &&
-            __vlapic_accept_pic_intr(v));
-}
-
-void vlapic_adjust_i8259_target(struct domain *d)
-{
-    struct vcpu *v;
-
-    if ( !has_vpic(d) )
-        return;
-
-    for_each_vcpu ( d, v )
-        if ( __vlapic_accept_pic_intr(v) )
-            goto found;
-
-    v = d->vcpu ? d->vcpu[0] : NULL;
-
- found:
-    if ( d->arch.hvm.i8259_target == v )
-        return;
-    d->arch.hvm.i8259_target = v;
-    pt_adjust_global_vcpu_target(v);
+    TRACE_1D(TRC_HVM_EMUL_LAPIC_PIC_INTR, accept);
+    return accept;
 }
 
 int vlapic_has_pending_irq(struct vcpu *v)
@@ -1590,7 +1558,6 @@ static int lapic_load_regs(struct domain *d, hvm_domain_context_t *h)
         alternative_vcall(hvm_funcs.process_isr,
                           vlapic_find_highest_isr(s), v);
 
-    vlapic_adjust_i8259_target(d);
     lapic_rearm(s);
     return 0;
 }

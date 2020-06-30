@@ -252,11 +252,7 @@ static void vioapic_write_redirent(
 
     *pent = ent;
 
-    if ( gsi == 0 )
-    {
-        vlapic_adjust_i8259_target(d);
-    }
-    else if ( ent.fields.trig_mode == VIOAPIC_EDGE_TRIG )
+    if ( ent.fields.trig_mode == VIOAPIC_EDGE_TRIG )
         pent->fields.remote_irr = 0;
     else if ( !ent.fields.mask &&
               !ent.fields.remote_irr &&
@@ -462,6 +458,12 @@ static void vioapic_deliver(struct hvm_vioapic *vioapic, unsigned int pin)
                 vcpu_kick(v);
         break;
     }
+
+    case dest_ExtINT:
+        for_each_vcpu ( d, v )
+            if ( vlapic_match_dest(vcpu_vlapic(v), NULL, 0, dest, dest_mode) )
+                vcpu_kick(v);
+        break;
 
     default:
         gdprintk(XENLOG_WARNING, "Unsupported delivery mode %d\n",

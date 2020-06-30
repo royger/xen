@@ -128,10 +128,8 @@ int guest_wrmsr_x2apic(struct vcpu *v, uint32_t msr, uint64_t val);
 void vlapic_tdt_msr_set(struct vlapic *vlapic, uint64_t value);
 uint64_t vlapic_tdt_msr_get(struct vlapic *vlapic);
 
-int vlapic_accept_pic_intr(struct vcpu *v);
+bool vlapic_accept_pic_intr(struct vcpu *v);
 uint32_t vlapic_set_ppr(struct vlapic *vlapic);
-
-void vlapic_adjust_i8259_target(struct domain *d);
 
 void vlapic_EOI_set(struct vlapic *vlapic);
 void vlapic_handle_EOI(struct vlapic *vlapic, u8 vector);

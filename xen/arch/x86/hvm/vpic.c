@@ -112,13 +112,8 @@ static void vpic_update_int_output(struct hvm_hw_vpic *vpic)
         if ( vpic->is_master )
         {
             /* Master INT line is connected in Virtual Wire Mode. */
-            struct vcpu *v = vpic_domain(vpic)->arch.hvm.i8259_target;
-
-            if ( v != NULL )
-            {
-                TRACE_1D(TRC_HVM_EMUL_PIC_KICK, irq);
-                vcpu_kick(v);
-            }
+            TRACE_1D(TRC_HVM_EMUL_PIC_KICK, irq);
+            vioapic_irq_positive_edge(vpic_domain(vpic), 0);
         }
         else
         {

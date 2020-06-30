@@ -139,9 +139,6 @@ struct hvm_domain {
 #define hvm_hw_acpi hvm_hw_pmtimer
     struct hvm_hw_acpi     acpi;
 
-    /* VCPU which is current target for 8259 interrupts. */
-    struct vcpu           *i8259_target;
-
     /* emulated irq to pirq */
     struct radix_tree_root emuirq_pirq;
 
