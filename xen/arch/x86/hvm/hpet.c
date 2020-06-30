@@ -234,7 +234,7 @@ static void hpet_timer_fired(struct vcpu *v, void *data)
 #define  HPET_TINY_TIME_SPAN  ((h->stime_freq >> 10) / STIME_PER_HPET_TICK)
 
 static void hpet_set_timer(HPETState *h, unsigned int tn,
-                           uint64_t guest_time)
+                           uint64_t guest_time, struct vcpu *v)
 {
     uint64_t tn_cmp, cur_tick, diff;
     unsigned int irq;
@@ -314,7 +314,7 @@ static void hpet_set_timer(HPETState *h, unsigned int tn,
                     TRC_PAR_LONG(hpet_tick_to_ns(h, diff)),
                     TRC_PAR_LONG(oneshot ? 0LL :
                                  hpet_tick_to_ns(h, h->hpet.period[tn])));
-    create_periodic_time(vhpet_vcpu(h), &h->pt[tn],
+    create_periodic_time(v, &h->pt[tn],
                          hpet_tick_to_ns(h, diff),
                          oneshot ? 0 : hpet_tick_to_ns(h, h->hpet.period[tn]),
                          irq, timer_level(h, tn) ? hpet_timer_fired : NULL,
@@ -552,7 +552,7 @@ static int hpet_write(
     {
         i = find_first_set_bit(start_timers);
         __clear_bit(i, &start_timers);
-        hpet_set_timer(h, i, guest_time);
+        hpet_set_timer(h, i, guest_time, current);
     }
 
 #undef set_stop_timer
@@ -697,7 +697,7 @@ static int hpet_load(struct domain *d, hvm_domain_context_t *h)
     if ( hpet_enabled(hp) )
         for ( i = 0; i < HPET_TIMER_NUM; i++ )
             if ( timer_enabled(hp, i) )
-                hpet_set_timer(hp, i, guest_time);
+                hpet_set_timer(hp, i, guest_time, vhpet_vcpu(hp));
 
     write_unlock(&hp->lock);
 

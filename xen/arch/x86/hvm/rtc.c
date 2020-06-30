@@ -122,10 +122,9 @@ static void check_for_pf_ticks(RTCState *s)
 
 /* Enable/configure/disable the periodic timer based on the RTC_PIE and
  * RTC_RATE_SELECT settings */
-static void rtc_timer_update(RTCState *s)
+static void rtc_timer_update(RTCState *s, struct vcpu *v)
 {
     int period_code, period, delta;
-    struct vcpu *v = vrtc_vcpu(s);
 
     ASSERT(spin_is_locked(&s->lock));
 
@@ -490,7 +489,7 @@ static int rtc_ioport_write(void *opaque, uint32_t addr, uint32_t data)
         /* UIP bit is read only */
         s->hw.cmos_data[RTC_REG_A] = (data & ~RTC_UIP) | (orig & RTC_UIP);
         if ( (data ^ orig) & ~RTC_UIP )
-            rtc_timer_update(s);
+            rtc_timer_update(s, current);
         break;
     case RTC_REG_B:
         if ( data & RTC_SET )
@@ -522,7 +521,7 @@ static int rtc_ioport_write(void *opaque, uint32_t addr, uint32_t data)
             TRACE_0D(TRC_HVM_EMUL_RTC_STOP_TIMER);
             destroy_periodic_time(&s->pt);
             s->period = 0;
-            rtc_timer_update(s);
+            rtc_timer_update(s, current);
         }
         if ( (data ^ orig) & RTC_SET )
             check_update_timer(s);
@@ -784,7 +783,7 @@ static int rtc_load(struct domain *d, hvm_domain_context_t *h)
     rtc_copy_date(s);
 
     /* Reset the periodic interrupt timer based on the registers */
-    rtc_timer_update(s);
+    rtc_timer_update(s, vrtc_vcpu(s));
     check_update_timer(s);
     alarm_timer_update(s);
 

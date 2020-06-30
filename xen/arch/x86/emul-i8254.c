@@ -163,11 +163,10 @@ static void pit_time_fired(struct vcpu *v, void *priv)
     *count_load_time = get_guest_time(v);
 }
 
-static void pit_load_count(PITState *pit, int channel, int val)
+static void pit_load_count(PITState *pit, struct vcpu *v, int channel, int val)
 {
     u32 period;
     struct hvm_hw_pit_channel *s = &pit->hw.channels[channel];
-    struct vcpu *v = vpit_vcpu(pit);
 
     ASSERT(spin_is_locked(&pit->lock));
 
@@ -177,7 +176,7 @@ static void pit_load_count(PITState *pit, int channel, int val)
     if ( v == NULL )
         pit->count_load_time[channel] = 0;
     else
-        pit->count_load_time[channel] = get_guest_time(v);
+        pit->count_load_time[channel] = get_guest_time(vpit_vcpu(pit));
     s->count = val;
     period = DIV_ROUND(val * SYSTEM_TIME_HZ, PIT_FREQ);
 
@@ -301,17 +300,17 @@ static void pit_ioport_write(struct PITState *pit, uint32_t addr, uint32_t val)
         {
         default:
         case RW_STATE_LSB:
-            pit_load_count(pit, addr, val);
+            pit_load_count(pit, current, addr, val);
             break;
         case RW_STATE_MSB:
-            pit_load_count(pit, addr, val << 8);
+            pit_load_count(pit, current, addr, val << 8);
             break;
         case RW_STATE_WORD0:
             s->write_latch = val;
             s->write_state = RW_STATE_WORD1;
             break;
         case RW_STATE_WORD1:
-            pit_load_count(pit, addr, s->write_latch | (val << 8));
+            pit_load_count(pit, current, addr, s->write_latch | (val << 8));
             s->write_state = RW_STATE_WORD0;
             break;
         }
@@ -438,7 +437,7 @@ static int pit_load(struct domain *d, hvm_domain_context_t *h)
      */
     pit->pt0.last_plt_gtime = get_guest_time(d->vcpu[0]);
     for ( i = 0; i < 3; i++ )
-        pit_load_count(pit, i, pit->hw.channels[i].count);
+        pit_load_count(pit, vpit_vcpu(pit), i, pit->hw.channels[i].count);
 
     spin_unlock(&pit->lock);
 
@@ -472,7 +471,7 @@ void pit_reset(struct domain *d)
         s = &pit->hw.channels[i];
         s->mode = 0xff; /* the init mode */
         s->gate = (i != 2);
-        pit_load_count(pit, i, 0);
+        pit_load_count(pit, vpit_vcpu(pit), i, 0);
     }
 
     spin_unlock(&pit->lock);
