@@ -1952,9 +1952,6 @@ static int svm_msr_read_intercept(unsigned int msr, uint64_t *msr_content)
         break;
 
     default:
-        if ( rdmsr_safe(msr, *msr_content) == 0 )
-            break;
-
         if ( boot_cpu_data.x86 == 0xf && msr == MSR_F10_BU_CFG )
         {
             /* Win2k8 x64 reads this MSR on revF chips, where it
@@ -1967,6 +1964,7 @@ static int svm_msr_read_intercept(unsigned int msr, uint64_t *msr_content)
             break;
         }
 
+        gdprintk(XENLOG_WARNING, "RDMSR 0x%08x unimplemented\n", msr);
         goto gpf;
     }
 
@@ -2154,10 +2152,9 @@ static int svm_msr_write_intercept(unsigned int msr, uint64_t msr_content)
         break;
 
     default:
-        /* Match up with the RDMSR side; ultimately this should go away. */
-        if ( rdmsr_safe(msr, msr_content) == 0 )
-            break;
-
+        gdprintk(XENLOG_WARNING,
+                 "WRMSR 0x%08x val 0x%016"PRIx64" unimplemented\n",
+                 msr, msr_content);
         goto gpf;
     }
 
