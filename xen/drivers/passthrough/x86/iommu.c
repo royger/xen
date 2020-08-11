@@ -182,7 +182,7 @@ static bool __hwdom_init hwdom_iommu_map(const struct domain *d,
             if ( !iommu_hwdom_inclusive && !iommu_hwdom_reserved )
                 return false;
         }
-        else if ( is_hvm_domain(d) || !iommu_hwdom_inclusive || pfn > max_pfn )
+        else if ( pfn > max_pfn )
             return false;
     }
 
@@ -242,7 +242,7 @@ void __hwdom_init arch_iommu_hwdom_init(struct domain *d)
         if ( !hwdom_iommu_map(d, pfn, max_pfn) )
             rc = 0;
         else if ( paging_mode_translate(d) )
-            rc = set_identity_p2m_entry(d, pfn, p2m_access_rw, 0);
+            rc = set_identity_p2m_entry(d, pfn, p2m_access_rwx, 0);
         else
             rc = iommu_map(d, _dfn(pfn), _mfn(pfn), 1ul << PAGE_ORDER_4K,
                            IOMMUF_readable | IOMMUF_writable, &flush_flags);

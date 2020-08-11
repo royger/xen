@@ -1910,7 +1910,7 @@ static int rmrr_identity_mapping(struct domain *d, bool_t map,
 
     while ( base_pfn < end_pfn )
     {
-        int err = set_identity_p2m_entry(d, base_pfn, p2m_access_rw, flag);
+        int err = set_identity_p2m_entry(d, base_pfn, p2m_access_rwx, flag);
 
         if ( err )
             return err;
