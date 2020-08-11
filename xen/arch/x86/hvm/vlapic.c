@@ -144,7 +144,37 @@ bool vlapic_test_irq(const struct vlapic *vlapic, uint8_t vec)
     return vlapic_test_vector(vec, &vlapic->regs->data[APIC_IRR]);
 }
 
-void vlapic_set_irq(struct vlapic *vlapic, uint8_t vec, uint8_t trig)
+void vlapic_set_callback(struct vlapic *vlapic, unsigned int vec,
+                         vlapic_eoi_callback_t *callback, void *data)
+{
+    unsigned long flags;
+    unsigned int index = vec - 16;
+
+    if ( !callback || vec < 16 || vec >= X86_NR_VECTORS )
+    {
+        ASSERT_UNREACHABLE();
+        return;
+    }
+
+    spin_lock_irqsave(&vlapic->callback_lock, flags);
+    if ( vlapic->callbacks[index].callback &&
+         (vlapic->callbacks[index].callback != callback ||
+          vlapic->callbacks[index].data != data) &&
+         (vlapic_test_vector(vec, &vlapic->regs->data[APIC_IRR]) ||
+          vlapic_test_vector(vec, &vlapic->regs->data[APIC_ISR])) )
+        printk(XENLOG_G_WARNING
+               "%pv overriding vector %#x callback %ps (%p) data %p "
+               "with %ps (%p) data %p\n",
+               vlapic_vcpu(vlapic), vec, vlapic->callbacks[index].callback,
+               vlapic->callbacks[index].callback, vlapic->callbacks[index].data,
+               callback, callback, data);
+    vlapic->callbacks[index].callback = callback;
+    vlapic->callbacks[index].data = data;
+    spin_unlock_irqrestore(&vlapic->callback_lock, flags);
+}
+
+void vlapic_set_irq_callback(struct vlapic *vlapic, uint8_t vec, uint8_t trig,
+                             vlapic_eoi_callback_t *callback, void *data)
 {
     struct vcpu *target = vlapic_vcpu(vlapic);
 
@@ -159,8 +189,12 @@ void vlapic_set_irq(struct vlapic *vlapic, uint8_t vec, uint8_t trig)
     else
         vlapic_clear_vector(vec, &vlapic->regs->data[APIC_TMR]);
 
+    if ( callback )
+        vlapic_set_callback(vlapic, vec, callback, data);
+
     if ( hvm_funcs.update_eoi_exit_bitmap )
-        alternative_vcall(hvm_funcs.update_eoi_exit_bitmap, target, vec, trig);
+        alternative_vcall(hvm_funcs.update_eoi_exit_bitmap, target, vec,
+                          trig || callback);
 
     if ( hvm_funcs.deliver_posted_intr )
         alternative_vcall(hvm_funcs.deliver_posted_intr, target, vec);
@@ -461,11 +495,24 @@ void vlapic_handle_EOI(struct vlapic *vlapic, u8 vector)
 {
     struct vcpu *v = vlapic_vcpu(vlapic);
     struct domain *d = v->domain;
+    vlapic_eoi_callback_t *callback;
+    void *data;
+    unsigned long flags;
+    unsigned int index = vector - 16;
 
     if ( vlapic_test_vector(vector, &vlapic->regs->data[APIC_TMR]) )
         vioapic_update_EOI(d, vector);
 
     hvm_dpci_msi_eoi(d, vector);
+
+    spin_lock_irqsave(&vlapic->callback_lock, flags);
+    callback = vlapic->callbacks[index].callback;
+    vlapic->callbacks[index].callback = NULL;
+    data = vlapic->callbacks[index].data;
+    spin_unlock_irqrestore(&vlapic->callback_lock, flags);
+
+    if ( callback )
+        callback(v, vector, data);
 }
 
 static bool_t is_multicast_dest(struct vlapic *vlapic, unsigned int short_hand,
@@ -1623,9 +1670,19 @@ int vlapic_init(struct vcpu *v)
 
     clear_page(vlapic->regs);
 
+    vlapic->callbacks = xzalloc_array(typeof(*vlapic->callbacks),
+                                      X86_NR_VECTORS - 16);
+    if ( !vlapic->callbacks )
+    {
+        unmap_domain_page_global(vlapic->regs);
+        free_domheap_page(vlapic->regs_page);
+        return -ENOMEM;
+    }
+
     vlapic_reset(vlapic);
 
     spin_lock_init(&vlapic->esr_lock);
+    spin_lock_init(&vlapic->callback_lock);
 
     tasklet_init(&vlapic->init_sipi.tasklet, vlapic_init_sipi_action, v);
 
@@ -1647,6 +1704,7 @@ void vlapic_destroy(struct vcpu *v)
     destroy_periodic_time(&vlapic->pt);
     unmap_domain_page_global(vlapic->regs);
     free_domheap_page(vlapic->regs_page);
+    XFREE(vlapic->callbacks);
 }
 
 /*
