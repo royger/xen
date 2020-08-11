@@ -503,8 +503,6 @@ void vlapic_handle_EOI(struct vlapic *vlapic, u8 vector)
     if ( vlapic_test_vector(vector, &vlapic->regs->data[APIC_TMR]) )
         vioapic_update_EOI(d, vector);
 
-    hvm_dpci_msi_eoi(d, vector);
-
     spin_lock_irqsave(&vlapic->callback_lock, flags);
     callback = vlapic->callbacks[index].callback;
     vlapic->callbacks[index].callback = NULL;

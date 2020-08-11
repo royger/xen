@@ -796,11 +796,9 @@ static int _hvm_dpci_msi_eoi(struct domain *d,
     return 0;
 }
 
-void hvm_dpci_msi_eoi(struct domain *d, int vector)
+void hvm_dpci_msi_eoi(struct vcpu *v, unsigned int vector, void *unused)
 {
-    if ( !is_iommu_enabled(d) ||
-         (!hvm_domain_irq(d)->dpci && !is_hardware_domain(d)) )
-       return;
+    struct domain *d = v->domain;
 
     spin_lock(&d->event_lock);
     pt_pirq_iterate(d, _hvm_dpci_msi_eoi, (void *)(long)vector);
