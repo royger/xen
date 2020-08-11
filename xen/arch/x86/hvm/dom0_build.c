@@ -1201,14 +1201,14 @@ int __init dom0_construct_pvh(struct domain *d, const module_t *image,
      */
     pvh_init_p2m(d);
 
-    iommu_hwdom_init(d);
-
     rc = pvh_populate_p2m(d);
     if ( rc )
     {
         printk("Failed to setup Dom0 physical memory map\n");
         return rc;
     }
+
+    iommu_hwdom_init(d);
 
     rc = pvh_load_kernel(d, image, image_headroom, initrd, bootstrap_map(image),
                          cmdline, &entry, &start_info);
