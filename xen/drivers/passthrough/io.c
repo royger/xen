@@ -874,7 +874,7 @@ static int _hvm_dpci_msi_eoi(struct domain *d,
     return 0;
 }
 
-void hvm_dpci_msi_eoi(unsigned int vector)
+void hvm_dpci_msi_eoi(unsigned int vector, void *data)
 {
     struct domain *d = current->domain;
 
