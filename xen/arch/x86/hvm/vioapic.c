@@ -394,6 +394,48 @@ static const struct hvm_mmio_ops vioapic_mmio_ops = {
     .write = vioapic_write
 };
 
+static void eoi_callback(struct vcpu *v, unsigned int vector, void *data)
+{
+    struct domain *d = v->domain;
+    struct hvm_irq *hvm_irq = hvm_domain_irq(d);
+    unsigned int i;
+
+    spin_lock(&d->arch.hvm.irq_lock);
+
+    for ( i = 0; i < d->arch.hvm.nr_vioapics; i++ )
+    {
+        struct hvm_vioapic *vioapic = domain_vioapic(d, i);
+        unsigned int pin;
+
+        for ( pin = 0; pin < vioapic->nr_pins; pin++ )
+        {
+            union vioapic_redir_entry *ent = &vioapic->redirtbl[pin];
+
+            if ( ent->fields.vector != vector )
+                continue;
+
+            ent->fields.remote_irr = 0;
+
+            if ( is_iommu_enabled(d) )
+            {
+                spin_unlock(&d->arch.hvm.irq_lock);
+                hvm_dpci_eoi(d, vioapic->base_gsi + pin);
+                spin_lock(&d->arch.hvm.irq_lock);
+            }
+
+            if ( (ent->fields.trig_mode == VIOAPIC_LEVEL_TRIG) &&
+                 !ent->fields.mask && !ent->fields.remote_irr &&
+                 hvm_irq->gsi_assert_count[vioapic->base_gsi + pin] )
+            {
+                ent->fields.remote_irr = 1;
+                vioapic_deliver(vioapic, pin);
+            }
+        }
+    }
+
+    spin_unlock(&d->arch.hvm.irq_lock);
+}
+
 static void ioapic_inj_irq(
     struct hvm_vioapic *vioapic,
     struct vlapic *target,
@@ -407,7 +449,8 @@ static void ioapic_inj_irq(
     ASSERT((delivery_mode == dest_Fixed) ||
            (delivery_mode == dest_LowestPrio));
 
-    vlapic_set_irq(target, vector, trig_mode);
+    vlapic_set_irq_callback(target, vector, trig_mode,
+                            trig_mode ? eoi_callback : NULL, NULL);
 }
 
 static void vioapic_deliver(struct hvm_vioapic *vioapic, unsigned int pin)
@@ -514,49 +557,6 @@ void vioapic_irq_positive_edge(struct domain *d, unsigned int irq)
     }
 }
 
-void vioapic_update_EOI(struct domain *d, u8 vector)
-{
-    struct hvm_irq *hvm_irq = hvm_domain_irq(d);
-    union vioapic_redir_entry *ent;
-    unsigned int i;
-
-    ASSERT(has_vioapic(d));
-
-    spin_lock(&d->arch.hvm.irq_lock);
-
-    for ( i = 0; i < d->arch.hvm.nr_vioapics; i++ )
-    {
-        struct hvm_vioapic *vioapic = domain_vioapic(d, i);
-        unsigned int pin;
-
-        for ( pin = 0; pin < vioapic->nr_pins; pin++ )
-        {
-            ent = &vioapic->redirtbl[pin];
-            if ( ent->fields.vector != vector )
-                continue;
-
-            ent->fields.remote_irr = 0;
-
-            if ( is_iommu_enabled(d) )
-            {
-                spin_unlock(&d->arch.hvm.irq_lock);
-                hvm_dpci_eoi(d, vioapic->base_gsi + pin);
-                spin_lock(&d->arch.hvm.irq_lock);
-            }
-
-            if ( (ent->fields.trig_mode == VIOAPIC_LEVEL_TRIG) &&
-                 !ent->fields.mask && !ent->fields.remote_irr &&
-                 hvm_irq->gsi_assert_count[vioapic->base_gsi + pin] )
-            {
-                ent->fields.remote_irr = 1;
-                vioapic_deliver(vioapic, pin);
-            }
-        }
-    }
-
-    spin_unlock(&d->arch.hvm.irq_lock);
-}
-
 int vioapic_get_mask(const struct domain *d, unsigned int gsi)
 {
     unsigned int pin = 0; /* See gsi_vioapic */
@@ -610,6 +610,8 @@ static int ioapic_save(struct vcpu *v, hvm_domain_context_t *h)
 static int ioapic_load(struct domain *d, hvm_domain_context_t *h)
 {
     struct hvm_vioapic *s;
+    unsigned int i;
+    int rc;
 
     if ( !has_vioapic(d) )
         return -ENODEV;
@@ -620,7 +622,42 @@ static int ioapic_load(struct domain *d, hvm_domain_context_t *h)
          d->arch.hvm.nr_vioapics != 1 )
         return -EOPNOTSUPP;
 
-    return hvm_load_entry(IOAPIC, h, &s->domU);
+    rc = hvm_load_entry(IOAPIC, h, &s->domU);
+    if ( rc )
+        return rc;
+
+    for ( i = 0; i < ARRAY_SIZE(s->domU.redirtbl); i++ )
+    {
+        const union vioapic_redir_entry *ent = &s->domU.redirtbl[i];
+        unsigned int vector = ent->fields.vector;
+        unsigned int delivery_mode = ent->fields.delivery_mode;
+        struct vcpu *v;
+
+        /*
+         * Add a callback for each possible vector injected by a redirection
+         * entry.
+         */
+        if ( delivery_mode != dest_LowestPrio && delivery_mode != dest_Fixed )
+            continue;
+
+        for_each_vcpu ( d, v )
+        {
+            struct vlapic *vlapic = vcpu_vlapic(v);
+
+            /*
+             * NB: if the vlapic registers were restored before the vio-apic
+             * ones we could test whether the vector is set in the vlapic IRR
+             * or ISR registers before unconditionally setting the callback.
+             * This is harmless as eoi_callback is capable of dealing with
+             * spurious callbacks.
+             */
+            if ( vlapic_match_dest(vlapic, NULL, 0, ent->fields.dest_id,
+                                   ent->fields.dest_mode) )
+                vlapic_set_callback(vlapic, vector, eoi_callback, NULL);
+        }
+    }
+
+    return 0;
 }
 
 HVM_REGISTER_SAVE_RESTORE(IOAPIC, ioapic_save, ioapic_load, 1, HVMSR_PER_DOM);

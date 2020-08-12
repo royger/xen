@@ -194,7 +194,13 @@ void vlapic_set_irq_callback(struct vlapic *vlapic, uint8_t vec, uint8_t trig,
 
     if ( hvm_funcs.update_eoi_exit_bitmap )
         alternative_vcall(hvm_funcs.update_eoi_exit_bitmap, target, vec,
-                          trig || callback);
+                          /*
+                           * NB: need to explicitly convert to boolean to avoid
+                           * truncation wrongly resulting in false getting
+                           * passed, for example when the pointer sits on a
+                           * page boundary.
+                           */
+                          (bool)callback);
 
     if ( hvm_funcs.deliver_posted_intr )
         alternative_vcall(hvm_funcs.deliver_posted_intr, target, vec);
@@ -494,14 +500,10 @@ void vlapic_EOI_set(struct vlapic *vlapic)
 void vlapic_handle_EOI(struct vlapic *vlapic, u8 vector)
 {
     struct vcpu *v = vlapic_vcpu(vlapic);
-    struct domain *d = v->domain;
     vlapic_eoi_callback_t *callback;
     void *data;
     unsigned long flags;
     unsigned int index = vector - 16;
-
-    if ( vlapic_test_vector(vector, &vlapic->regs->data[APIC_TMR]) )
-        vioapic_update_EOI(d, vector);
 
     spin_lock_irqsave(&vlapic->callback_lock, flags);
     callback = vlapic->callbacks[index].callback;
