@@ -951,14 +951,15 @@ static int read_msr(unsigned int reg, uint64_t *val,
                 return X86EMUL_OKAY;
             }
         }
-        /* fall through */
-    default:
+        break;
+
     normal:
-        /* Everyone can read the MSR space. */
-        /* gdprintk(XENLOG_WARNING, "Domain attempted RDMSR %08x\n", reg); */
         if ( rdmsr_safe(reg, *val) )
             break;
         return X86EMUL_OKAY;
+
+    default:
+        gdprintk(XENLOG_WARNING, "RDMSR 0x%08x unimplemented\n", reg);
     }
 
     return X86EMUL_UNHANDLEABLE;
@@ -1118,17 +1119,18 @@ static int write_msr(unsigned int reg, uint64_t val,
                 return X86EMUL_OKAY;
             }
         }
-        /* fall through */
-    default:
-        if ( rdmsr_safe(reg, temp) )
-            break;
+        break;
 
-        if ( val != temp )
     invalid:
-            gdprintk(XENLOG_WARNING,
-                     "Domain attempted WRMSR %08x from 0x%016"PRIx64" to 0x%016"PRIx64"\n",
-                     reg, temp, val);
+        gdprintk(XENLOG_WARNING,
+                 "Domain attempted WRMSR %08x from 0x%016"PRIx64" to 0x%016"PRIx64"\n",
+                 reg, temp, val);
         return X86EMUL_OKAY;
+
+    default:
+        gdprintk(XENLOG_WARNING,
+                 "WRMSR 0x%08x val 0x%016"PRIx64" unimplemented\n",
+                 reg, val);
     }
 
     return X86EMUL_UNHANDLEABLE;
