@@ -1005,6 +1005,13 @@ static int write_msr(unsigned int reg, uint64_t val,
         curr->arch.pv.gs_base_user = val;
         return X86EMUL_OKAY;
 
+    case MSR_EFER:
+        /*
+         * Silently drop writes, as Linux PV guests will try to write to the
+         * MSR.
+         */
+        return X86EMUL_OKAY;
+
     case MSR_K7_FID_VID_STATUS:
     case MSR_K7_FID_VID_CTL:
     case MSR_K8_PSTATE_LIMIT:
