@@ -879,6 +879,10 @@ static int read_msr(unsigned int reg, uint64_t *val,
             *val |= APIC_BASE_BSP;
         return X86EMUL_OKAY;
 
+    case MSR_IA32_FEATURE_CONTROL:
+        *val = IA32_FEATURE_CONTROL_LOCK;
+        return X86EMUL_OKAY;
+
     case MSR_FS_BASE:
         if ( is_pv_32bit_domain(currd) )
             break;
