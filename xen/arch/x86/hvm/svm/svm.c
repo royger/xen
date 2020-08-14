@@ -1917,6 +1917,21 @@ static int svm_msr_read_intercept(unsigned int msr, uint64_t *msr_content)
             goto gpf;
         break;
 
+    case MSR_K8_TOP_MEM1:
+    case MSR_K8_TOP_MEM2:
+        *msr_content = 0;
+        break;
+
+    case MSR_K8_SYSCFG:
+        /*
+         * Return MtrrFixDramEn: albeit the current emulated MTRR
+         * implementation doesn't support the Extended Type-Field Format having
+         * such bit set is common on AMD hardware and is harmless as long as
+         * MtrrFixDramModEn isn't set.
+         */
+        *msr_content = K8_MTRRFIXRANGE_DRAM_ENABLE;
+        break;
+
     case MSR_K8_VM_CR:
         *msr_content = 0;
         break;
@@ -2092,6 +2107,12 @@ static int svm_msr_write_intercept(unsigned int msr, uint64_t msr_content)
     case MSR_AMD_FAM15H_EVNTSEL5:
         if ( vpmu_do_wrmsr(msr, msr_content, 0) )
             goto gpf;
+        break;
+
+    case MSR_K8_TOP_MEM1:
+    case MSR_K8_TOP_MEM2:
+    case MSR_K8_SYSCFG:
+        /* Drop writes. */
         break;
 
     case MSR_K8_VM_CR:
