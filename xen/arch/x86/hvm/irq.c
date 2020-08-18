@@ -595,6 +595,81 @@ int hvm_local_events_need_delivery(struct vcpu *v)
     return !hvm_interrupt_blocked(v, intack);
 }
 
+int hvm_gsi_register_callback(struct domain *d, unsigned int gsi,
+                              struct hvm_gsi_eoi_callback *cb)
+{
+    struct hvm_irq *hvm_irq = hvm_domain_irq(d);
+
+    if ( gsi >= hvm_irq->nr_gsis )
+    {
+        ASSERT_UNREACHABLE();
+        return -EINVAL;
+    }
+
+    write_lock(&hvm_irq->gsi_callbacks_lock);
+    list_add(&cb->list, &hvm_irq->gsi_callbacks[gsi]);
+    write_unlock(&hvm_irq->gsi_callbacks_lock);
+
+    return 0;
+}
+
+int hvm_gsi_unregister_callback(struct domain *d, unsigned int gsi,
+                                struct hvm_gsi_eoi_callback *cb)
+{
+    struct hvm_irq *hvm_irq = hvm_domain_irq(d);
+    const struct list_head *tmp;
+    bool found = false;
+
+    if ( gsi >= hvm_irq->nr_gsis )
+    {
+        ASSERT_UNREACHABLE();
+        return -EINVAL;
+    }
+
+    write_lock(&hvm_irq->gsi_callbacks_lock);
+    list_for_each ( tmp, &hvm_irq->gsi_callbacks[gsi] )
+        if ( tmp == &cb->list )
+        {
+            list_del(&cb->list);
+            found = true;
+            break;
+        }
+    write_unlock(&hvm_irq->gsi_callbacks_lock);
+
+    return found ? 0 : -ENOENT;
+}
+
+void hvm_gsi_execute_callbacks(struct domain *d, unsigned int gsi)
+{
+    struct hvm_irq *hvm_irq = hvm_domain_irq(d);
+    struct hvm_gsi_eoi_callback *cb;
+
+    read_lock(&hvm_irq->gsi_callbacks_lock);
+    list_for_each_entry ( cb, &hvm_irq->gsi_callbacks[gsi], list )
+        cb->callback(d, gsi, cb->data);
+    read_unlock(&hvm_irq->gsi_callbacks_lock);
+}
+
+bool hvm_gsi_has_callbacks(const struct domain *d, unsigned int gsi)
+{
+    struct hvm_irq *hvm_irq = hvm_domain_irq(d);
+    bool has_callbacks;
+
+    /*
+     * Note that by the point the function returns the result could be stale,
+     * however the result is only used to decide whether a callback should be
+     * added when injecting a vio-apic vector to the vlapic and all users of
+     * the callbacks interface should always register the callback before
+     * triggering an interrupt.
+     */
+
+    read_lock(&hvm_irq->gsi_callbacks_lock);
+    has_callbacks = !list_empty(&hvm_irq->gsi_callbacks[gsi]);
+    read_unlock(&hvm_irq->gsi_callbacks_lock);
+
+    return has_callbacks;
+}
+
 static void irq_dump(struct domain *d)
 {
     struct hvm_irq *hvm_irq = hvm_domain_irq(d);

@@ -608,7 +608,7 @@ static int hvm_print_line(
 
 int hvm_domain_initialise(struct domain *d)
 {
-    unsigned int nr_gsis;
+    unsigned int nr_gsis, i;
     int rc;
 
     if ( !hvm_enabled )
@@ -655,6 +655,14 @@ int hvm_domain_initialise(struct domain *d)
 
     BUILD_BUG_ON(NR_HVM_DOMU_IRQS < NR_ISAIRQS);
     ASSERT(hvm_domain_irq(d)->nr_gsis >= NR_ISAIRQS);
+
+    /* Initialize the EOI callback list. */
+    hvm_domain_irq(d)->gsi_callbacks = xmalloc_array(struct list_head, nr_gsis);
+    if ( !hvm_domain_irq(d)->gsi_callbacks )
+        goto fail1;
+    rwlock_init(&hvm_domain_irq(d)->gsi_callbacks_lock);
+    for ( i = 0; i < nr_gsis; i++ )
+        INIT_LIST_HEAD(&hvm_domain_irq(d)->gsi_callbacks[i]);
 
     /* need link to containing domain */
     d->arch.hvm.pl_time->domain = d;
@@ -715,6 +723,8 @@ int hvm_domain_initialise(struct domain *d)
  fail1:
     if ( is_hardware_domain(d) )
         xfree(d->arch.hvm.io_bitmap);
+    if ( hvm_domain_irq(d) )
+        XFREE(hvm_domain_irq(d)->gsi_callbacks);
     XFREE(d->arch.hvm.params);
     XFREE(d->arch.hvm.irq);
  fail0:
@@ -777,6 +787,9 @@ void hvm_domain_destroy(struct domain *d)
     vioapic_deinit(d);
 
     XFREE(d->arch.hvm.pl_time);
+
+    if ( hvm_domain_irq(d) )
+        XFREE(hvm_domain_irq(d)->gsi_callbacks);
     XFREE(d->arch.hvm.irq);
 
     list_for_each_safe ( ioport_list, tmp, &d->arch.hvm.g2m_ioport_list )

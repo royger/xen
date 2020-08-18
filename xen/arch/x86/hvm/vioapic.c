@@ -285,6 +285,7 @@ static void vioapic_write_redirent(
             ASSERT(prev_level);
             ASSERT(!top_word);
             hvm_dpci_eoi(d, gsi);
+            hvm_gsi_execute_callbacks(d, gsi);
     }
 
     if ( is_hardware_domain(d) && unmasked )
@@ -410,6 +411,7 @@ static void eoi_callback(struct vcpu *v, unsigned int vector, void *data)
         for ( pin = 0; pin < vioapic->nr_pins; pin++ )
         {
             union vioapic_redir_entry *ent = &vioapic->redirtbl[pin];
+            unsigned int gsi = vioapic->base_gsi + pin;
 
             if ( ent->fields.vector != vector )
                 continue;
@@ -419,13 +421,25 @@ static void eoi_callback(struct vcpu *v, unsigned int vector, void *data)
             if ( is_iommu_enabled(d) )
             {
                 spin_unlock(&d->arch.hvm.irq_lock);
-                hvm_dpci_eoi(d, vioapic->base_gsi + pin);
+                hvm_dpci_eoi(d, gsi);
                 spin_lock(&d->arch.hvm.irq_lock);
             }
 
+            /*
+             * Callbacks don't expect to be executed with any lock held, so
+             * drop the lock that protects the vIO-APIC fields from changing.
+             *
+             * Note that the redirection entry itself cannot go away, so upon
+             * retaking the lock we only need to avoid making assumptions on
+             * redirection entry field values (ie: recheck the IRR field).
+             */
+            spin_unlock(&d->arch.hvm.irq_lock);
+            hvm_gsi_execute_callbacks(d, gsi);
+            spin_lock(&d->arch.hvm.irq_lock);
+
             if ( (ent->fields.trig_mode == VIOAPIC_LEVEL_TRIG) &&
                  !ent->fields.mask && !ent->fields.remote_irr &&
-                 hvm_irq->gsi_assert_count[vioapic->base_gsi + pin] )
+                 hvm_irq->gsi_assert_count[gsi] )
             {
                 ent->fields.remote_irr = 1;
                 vioapic_deliver(vioapic, pin);
@@ -441,7 +455,8 @@ static void ioapic_inj_irq(
     struct vlapic *target,
     uint8_t vector,
     uint8_t trig_mode,
-    uint8_t delivery_mode)
+    uint8_t delivery_mode,
+    bool callback)
 {
     HVM_DBG_LOG(DBG_LEVEL_IOAPIC, "irq %d trig %d deliv %d",
                 vector, trig_mode, delivery_mode);
@@ -450,7 +465,7 @@ static void ioapic_inj_irq(
            (delivery_mode == dest_LowestPrio));
 
     vlapic_set_irq_callback(target, vector, trig_mode,
-                            trig_mode ? eoi_callback : NULL, NULL);
+                            callback ? eoi_callback : NULL, NULL);
 }
 
 static void vioapic_deliver(struct hvm_vioapic *vioapic, unsigned int pin)
@@ -464,6 +479,7 @@ static void vioapic_deliver(struct hvm_vioapic *vioapic, unsigned int pin)
     struct vlapic *target;
     struct vcpu *v;
     unsigned int irq = vioapic->base_gsi + pin;
+    bool callback = trig_mode || hvm_gsi_has_callbacks(d, irq);
 
     ASSERT(spin_is_locked(&d->arch.hvm.irq_lock));
 
@@ -490,7 +506,8 @@ static void vioapic_deliver(struct hvm_vioapic *vioapic, unsigned int pin)
             target = vlapic_lowest_prio(d, NULL, 0, dest, dest_mode);
         if ( target != NULL )
         {
-            ioapic_inj_irq(vioapic, target, vector, trig_mode, delivery_mode);
+            ioapic_inj_irq(vioapic, target, vector, trig_mode, delivery_mode,
+                           callback);
         }
         else
         {
@@ -505,7 +522,7 @@ static void vioapic_deliver(struct hvm_vioapic *vioapic, unsigned int pin)
         for_each_vcpu ( d, v )
             if ( vlapic_match_dest(vcpu_vlapic(v), NULL, 0, dest, dest_mode) )
                 ioapic_inj_irq(vioapic, vcpu_vlapic(v), vector, trig_mode,
-                               delivery_mode);
+                               delivery_mode, callback);
         break;
 
     case dest_NMI:

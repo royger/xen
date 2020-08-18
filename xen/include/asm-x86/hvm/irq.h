@@ -21,6 +21,7 @@
 #ifndef __ASM_X86_HVM_IRQ_H__
 #define __ASM_X86_HVM_IRQ_H__
 
+#include <xen/rwlock.h>
 #include <xen/timer.h>
 
 #include <asm/hvm/hvm.h>
@@ -79,6 +80,10 @@ struct hvm_irq {
 
     struct hvm_irq_dpci *dpci;
 
+    /* List of callbacks for GSI EOI events. Protected by irq_lock. */
+    struct list_head  *gsi_callbacks;
+    rwlock_t gsi_callbacks_lock;
+
     /*
      * Number of wires asserting each GSI.
      *
@@ -135,6 +140,14 @@ struct hvm_gmsi_info {
     uint32_t gflags;
     int dest_vcpu_id; /* -1 :multi-dest, non-negative: dest_vcpu_id */
     bool posted; /* directly deliver to guest via VT-d PI? */
+};
+
+typedef void hvm_gsi_eoi_callback_t(struct domain *d, unsigned int gsi,
+                                    void *data);
+struct hvm_gsi_eoi_callback {
+    hvm_gsi_eoi_callback_t *callback;
+    void *data;
+    struct list_head list;
 };
 
 struct hvm_girq_dpci_mapping {
@@ -223,5 +236,13 @@ void hvm_set_callback_via(struct domain *d, uint64_t via);
 
 struct pirq;
 bool hvm_domain_use_pirq(const struct domain *, const struct pirq *);
+
+int hvm_gsi_register_callback(struct domain *d, unsigned int gsi,
+                              struct hvm_gsi_eoi_callback *cb);
+int hvm_gsi_unregister_callback(struct domain *d, unsigned int gsi,
+                                 struct hvm_gsi_eoi_callback *cb);
+/* NB: Callbacks are not allowed to modify the registered callback list. */
+void hvm_gsi_execute_callbacks(struct domain *d, unsigned int gsi);
+bool hvm_gsi_has_callbacks(const struct domain *d, unsigned int gsi);
 
 #endif /* __ASM_X86_HVM_IRQ_H__ */

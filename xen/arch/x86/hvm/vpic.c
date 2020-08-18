@@ -235,6 +235,8 @@ static void vpic_ioport_write(
                 unsigned int pin = __scanbit(pending, 8);
 
                 ASSERT(pin < 8);
+                hvm_gsi_execute_callbacks(current->domain,
+                        hvm_isa_irq_to_gsi((addr >> 7) ? (pin | 8) : pin));
                 hvm_dpci_eoi(current->domain,
                              hvm_isa_irq_to_gsi((addr >> 7) ? (pin | 8) : pin));
                 __clear_bit(pin, &pending);
@@ -285,6 +287,8 @@ static void vpic_ioport_write(
                 /* Release lock and EOI the physical interrupt (if any). */
                 vpic_update_int_output(vpic);
                 vpic_unlock(vpic);
+                hvm_gsi_execute_callbacks(current->domain,
+                        hvm_isa_irq_to_gsi((addr >> 7) ? (pin | 8) : pin));
                 hvm_dpci_eoi(current->domain,
                              hvm_isa_irq_to_gsi((addr >> 7) ? (pin | 8) : pin));
                 return; /* bail immediately */
