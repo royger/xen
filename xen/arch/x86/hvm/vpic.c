@@ -262,9 +262,14 @@ static void vpic_ioport_write(
                 /* Release lock and EOI the physical interrupt (if any). */
                 vpic_update_int_output(vpic);
                 vpic_unlock(vpic);
+
+                hvm_gsi_execute_callbacks(
+                        hvm_isa_irq_to_gsi((addr >> 7) ? (pin | 8) : pin),
+                        NULL);
                 hvm_dpci_eoi(hvm_isa_irq_to_gsi((addr >> 7) ? (pin | 8) : pin),
                              NULL);
                 return; /* bail immediately */
+
             case 6: /* Set Priority                */
                 vpic->priority_add = (val + 1) & 7;
                 break;

@@ -595,6 +595,66 @@ int hvm_local_events_need_delivery(struct vcpu *v)
     return !hvm_interrupt_blocked(v, intack);
 }
 
+int hvm_gsi_register_callback(struct domain *d, unsigned int gsi,
+                              struct hvm_gsi_eoi_callback *cb)
+{
+    if ( gsi >= hvm_domain_irq(d)->nr_gsis )
+    {
+        ASSERT_UNREACHABLE();
+        return -EINVAL;
+    }
+
+    write_lock(&hvm_domain_irq(d)->gsi_callbacks_lock);
+    list_add(&cb->list, &hvm_domain_irq(d)->gsi_callbacks[gsi]);
+    write_unlock(&hvm_domain_irq(d)->gsi_callbacks_lock);
+
+    return 0;
+}
+
+void hvm_gsi_unregister_callback(struct domain *d, unsigned int gsi,
+                                 struct hvm_gsi_eoi_callback *cb)
+{
+    struct list_head *tmp;
+
+    if ( gsi >= hvm_domain_irq(d)->nr_gsis )
+    {
+        ASSERT_UNREACHABLE();
+        return;
+    }
+
+    write_lock(&hvm_domain_irq(d)->gsi_callbacks_lock);
+    list_for_each ( tmp, &hvm_domain_irq(d)->gsi_callbacks[gsi] )
+        if ( tmp == &cb->list )
+        {
+            list_del(tmp);
+            break;
+        }
+    write_unlock(&hvm_domain_irq(d)->gsi_callbacks_lock);
+}
+
+void hvm_gsi_execute_callbacks(unsigned int gsi, void *data)
+{
+    struct domain *currd = current->domain;
+    struct hvm_gsi_eoi_callback *cb;
+
+    read_lock(&hvm_domain_irq(currd)->gsi_callbacks_lock);
+    list_for_each_entry ( cb, &hvm_domain_irq(currd)->gsi_callbacks[gsi],
+                          list )
+        cb->callback(gsi, cb->data ?: data);
+    read_unlock(&hvm_domain_irq(currd)->gsi_callbacks_lock);
+}
+
+bool hvm_gsi_has_callbacks(struct domain *d, unsigned int gsi)
+{
+    bool has_callbacks;
+
+    read_lock(&hvm_domain_irq(d)->gsi_callbacks_lock);
+    has_callbacks = !list_empty(&hvm_domain_irq(d)->gsi_callbacks[gsi]);
+    read_unlock(&hvm_domain_irq(d)->gsi_callbacks_lock);
+
+    return has_callbacks;
+}
+
 static void irq_dump(struct domain *d)
 {
     struct hvm_irq *hvm_irq = hvm_domain_irq(d);

@@ -393,6 +393,8 @@ static void eoi_callback(unsigned int vector, void *data)
 
         for ( pin = 0; pin < vioapic->nr_pins; pin++ )
         {
+            unsigned int gsi = vioapic->base_gsi + pin;
+
             ent = &vioapic->redirtbl[pin];
             if ( ent->fields.vector != vector )
                 continue;
@@ -402,13 +404,17 @@ static void eoi_callback(unsigned int vector, void *data)
             if ( is_iommu_enabled(d) )
             {
                 spin_unlock(&d->arch.hvm.irq_lock);
-                hvm_dpci_eoi(vioapic->base_gsi + pin, ent);
+                hvm_dpci_eoi(gsi, ent);
                 spin_lock(&d->arch.hvm.irq_lock);
             }
 
+            spin_unlock(&d->arch.hvm.irq_lock);
+            hvm_gsi_execute_callbacks(gsi, ent);
+            spin_lock(&d->arch.hvm.irq_lock);
+
             if ( (ent->fields.trig_mode == VIOAPIC_LEVEL_TRIG) &&
                  !ent->fields.mask &&
-                 hvm_irq->gsi_assert_count[vioapic->base_gsi + pin] )
+                 hvm_irq->gsi_assert_count[gsi] )
             {
                 ent->fields.remote_irr = 1;
                 vioapic_deliver(vioapic, pin);
@@ -424,7 +430,8 @@ static void ioapic_inj_irq(
     struct vlapic *target,
     uint8_t vector,
     uint8_t trig_mode,
-    uint8_t delivery_mode)
+    uint8_t delivery_mode,
+    bool callback)
 {
     HVM_DBG_LOG(DBG_LEVEL_IOAPIC, "irq %d trig %d deliv %d",
                 vector, trig_mode, delivery_mode);
@@ -433,7 +440,7 @@ static void ioapic_inj_irq(
            (delivery_mode == dest_LowestPrio));
 
     vlapic_set_irq_callback(target, vector, trig_mode,
-                            trig_mode ? eoi_callback : NULL, NULL);
+                            callback ? eoi_callback : NULL, NULL);
 }
 
 static void vioapic_deliver(struct hvm_vioapic *vioapic, unsigned int pin)
@@ -447,6 +454,7 @@ static void vioapic_deliver(struct hvm_vioapic *vioapic, unsigned int pin)
     struct vlapic *target;
     struct vcpu *v;
     unsigned int irq = vioapic->base_gsi + pin;
+    bool callback = trig_mode || hvm_gsi_has_callbacks(d, irq);
 
     ASSERT(spin_is_locked(&d->arch.hvm.irq_lock));
 
@@ -473,7 +481,8 @@ static void vioapic_deliver(struct hvm_vioapic *vioapic, unsigned int pin)
             target = vlapic_lowest_prio(d, NULL, 0, dest, dest_mode);
         if ( target != NULL )
         {
-            ioapic_inj_irq(vioapic, target, vector, trig_mode, delivery_mode);
+            ioapic_inj_irq(vioapic, target, vector, trig_mode, delivery_mode,
+                           callback);
         }
         else
         {
@@ -488,7 +497,7 @@ static void vioapic_deliver(struct hvm_vioapic *vioapic, unsigned int pin)
         for_each_vcpu ( d, v )
             if ( vlapic_match_dest(vcpu_vlapic(v), NULL, 0, dest, dest_mode) )
                 ioapic_inj_irq(vioapic, vcpu_vlapic(v), vector, trig_mode,
-                               delivery_mode);
+                               delivery_mode, callback);
         break;
 
     case dest_NMI:
@@ -620,7 +629,7 @@ static int ioapic_load(struct domain *d, hvm_domain_context_t *h)
          * Add a callback for each possible vector injected by a redirection
          * entry.
          */
-        if ( vector < 16 || !ent->fields.remote_irr ||
+        if ( vector < 16 ||
              (delivery_mode != dest_LowestPrio && delivery_mode != dest_Fixed) )
             continue;
 
