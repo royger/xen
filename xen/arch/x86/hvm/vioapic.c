@@ -353,7 +353,7 @@ static int vioapic_write(
 
 #if VIOAPIC_VERSION_ID >= 0x20
     case VIOAPIC_REG_EOI:
-        vioapic_update_EOI(v->domain, val);
+        vioapic_update_EOI(val);
         break;
 #endif
 
@@ -495,8 +495,9 @@ void vioapic_irq_positive_edge(struct domain *d, unsigned int irq)
     }
 }
 
-void vioapic_update_EOI(struct domain *d, u8 vector)
+void vioapic_update_EOI(unsigned int vector)
 {
+    struct domain *d = current->domain;
     struct hvm_irq *hvm_irq = hvm_domain_irq(d);
     union vioapic_redir_entry *ent;
     unsigned int i;
