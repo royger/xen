@@ -522,7 +522,7 @@ void vioapic_update_EOI(unsigned int vector)
             if ( is_iommu_enabled(d) )
             {
                 spin_unlock(&d->arch.hvm.irq_lock);
-                hvm_dpci_eoi(d, vioapic->base_gsi + pin, ent);
+                hvm_dpci_eoi(vioapic->base_gsi + pin, ent);
                 spin_lock(&d->arch.hvm.irq_lock);
             }
 

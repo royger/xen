@@ -1003,9 +1003,9 @@ static void hvm_gsi_eoi(struct domain *d, unsigned int gsi,
     hvm_pirq_eoi(pirq, ent);
 }
 
-void hvm_dpci_eoi(struct domain *d, unsigned int guest_gsi,
-                  const union vioapic_redir_entry *ent)
+void hvm_dpci_eoi(unsigned int guest_gsi, const union vioapic_redir_entry *ent)
 {
+    struct domain *d = current->domain;
     const struct hvm_irq_dpci *hvm_irq_dpci;
     const struct hvm_girq_dpci_mapping *girq;
 
