@@ -284,7 +284,6 @@ static void vioapic_write_redirent(
              */
             ASSERT(prev_level);
             ASSERT(!top_word);
-            hvm_dpci_eoi(d, gsi);
             hvm_gsi_execute_callbacks(d, gsi);
     }
 
@@ -417,13 +416,6 @@ static void eoi_callback(struct vcpu *v, unsigned int vector, void *data)
                 continue;
 
             ent->fields.remote_irr = 0;
-
-            if ( is_iommu_enabled(d) )
-            {
-                spin_unlock(&d->arch.hvm.irq_lock);
-                hvm_dpci_eoi(d, gsi);
-                spin_lock(&d->arch.hvm.irq_lock);
-            }
 
             /*
              * Callbacks don't expect to be executed with any lock held, so

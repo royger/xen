@@ -156,6 +156,7 @@ struct hvm_girq_dpci_mapping {
     uint8_t device;
     uint8_t intx;
     uint8_t machine_gsi;
+    struct hvm_gsi_eoi_callback cb;
 };
 
 #define NR_ISAIRQS  16
