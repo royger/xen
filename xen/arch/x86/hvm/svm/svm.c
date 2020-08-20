@@ -2125,6 +2125,12 @@ static int svm_msr_write_intercept(unsigned int msr, uint64_t msr_content)
         nsvm->ns_msr_hsavepa = msr_content;
         break;
 
+    case MSR_F10_BU_CFG:
+        /* See comment in svm_msr_read_intercept. */
+        if ( boot_cpu_data.x86 != 0xf )
+            goto gpf;
+        break;
+
     case MSR_AMD64_TSC_RATIO:
         if ( msr_content & TSC_RATIO_RSVD_BITS )
             goto gpf;
