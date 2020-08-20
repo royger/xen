@@ -327,9 +327,10 @@ static void hvm_gsi_eoi(struct domain *d, unsigned int gsi,
     hvm_pirq_eoi(pirq, ent);
 }
 
-void hvm_dpci_eoi(unsigned int guest_gsi, const union vioapic_redir_entry *ent)
+static void dpci_eoi(unsigned int guest_gsi, void *data)
 {
     struct domain *d = current->domain;
+    const union vioapic_redir_entry *ent = data;
     const struct hvm_irq_dpci *hvm_irq_dpci;
     const struct hvm_girq_dpci_mapping *girq;
 
@@ -565,7 +566,7 @@ int pt_irq_create_bind(
             unsigned int link;
 
             digl = xmalloc(struct dev_intx_gsi_link);
-            girq = xmalloc(struct hvm_girq_dpci_mapping);
+            girq = xzalloc(struct hvm_girq_dpci_mapping);
 
             if ( !digl || !girq )
             {
@@ -578,10 +579,21 @@ int pt_irq_create_bind(
             girq->bus = digl->bus = pt_irq_bind->u.pci.bus;
             girq->device = digl->device = pt_irq_bind->u.pci.device;
             girq->intx = digl->intx = pt_irq_bind->u.pci.intx;
-            list_add_tail(&digl->list, &pirq_dpci->digl_list);
+            girq->cb.callback = dpci_eoi;
 
             guest_gsi = hvm_pci_intx_gsi(digl->device, digl->intx);
             link = hvm_pci_intx_link(digl->device, digl->intx);
+
+            rc = hvm_gsi_register_callback(d, guest_gsi, &girq->cb);
+            if ( rc )
+            {
+                spin_unlock(&d->event_lock);
+                xfree(girq);
+                xfree(digl);
+                return rc;
+            }
+
+            list_add_tail(&digl->list, &pirq_dpci->digl_list);
 
             hvm_irq_dpci->link_cnt[link]++;
 
@@ -590,7 +602,16 @@ int pt_irq_create_bind(
         }
         else
         {
+            struct hvm_gsi_eoi_callback *cb =
+                xzalloc(struct hvm_gsi_eoi_callback);
+
             ASSERT(is_hardware_domain(d));
+
+            if ( !cb )
+            {
+                spin_unlock(&d->event_lock);
+                return -ENOMEM;
+            }
 
             /* MSI_TRANSLATE is not supported for the hardware domain. */
             if ( pt_irq_bind->irq_type != PT_IRQ_TYPE_PCI ||
@@ -601,6 +622,19 @@ int pt_irq_create_bind(
                 return -EINVAL;
             }
             guest_gsi = pirq;
+
+            cb->callback = dpci_eoi;
+            /*
+             * IRQ binds created for the hardware domain are never destroyed,
+             * so it's fine to not keep a reference to cb here.
+             */
+            rc = hvm_gsi_register_callback(d, guest_gsi, cb);
+            if ( rc )
+            {
+                spin_unlock(&d->event_lock);
+                xfree(cb);
+                return rc;
+            }
         }
 
         /* Bind the same mirq once in the same domain */
@@ -789,6 +823,7 @@ int pt_irq_destroy_bind(
                  girq->machine_gsi == machine_gsi )
             {
                 list_del(&girq->list);
+                hvm_gsi_unregister_callback(d, guest_gsi, &girq->cb);
                 xfree(girq);
                 girq = NULL;
                 break;

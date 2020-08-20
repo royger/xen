@@ -266,8 +266,6 @@ static void vpic_ioport_write(
                 hvm_gsi_execute_callbacks(
                         hvm_isa_irq_to_gsi((addr >> 7) ? (pin | 8) : pin),
                         NULL);
-                hvm_dpci_eoi(hvm_isa_irq_to_gsi((addr >> 7) ? (pin | 8) : pin),
-                             NULL);
                 return; /* bail immediately */
 
             case 6: /* Set Priority                */

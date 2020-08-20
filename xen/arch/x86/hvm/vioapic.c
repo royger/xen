@@ -401,13 +401,6 @@ static void eoi_callback(unsigned int vector, void *data)
 
             ent->fields.remote_irr = 0;
 
-            if ( is_iommu_enabled(d) )
-            {
-                spin_unlock(&d->arch.hvm.irq_lock);
-                hvm_dpci_eoi(gsi, ent);
-                spin_lock(&d->arch.hvm.irq_lock);
-            }
-
             spin_unlock(&d->arch.hvm.irq_lock);
             hvm_gsi_execute_callbacks(gsi, ent);
             spin_lock(&d->arch.hvm.irq_lock);
