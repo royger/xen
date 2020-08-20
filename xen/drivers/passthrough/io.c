@@ -276,6 +276,92 @@ static struct vcpu *vector_hashing_dest(const struct domain *d,
     return dest;
 }
 
+static void hvm_pirq_eoi(struct pirq *pirq,
+                         const union vioapic_redir_entry *ent)
+{
+    struct hvm_pirq_dpci *pirq_dpci;
+
+    if ( !pirq )
+    {
+        ASSERT_UNREACHABLE();
+        return;
+    }
+
+    pirq_dpci = pirq_dpci(pirq);
+
+    /*
+     * No need to get vector lock for timer
+     * since interrupt is still not EOIed
+     */
+    if ( --pirq_dpci->pending ||
+         (ent && ent->fields.mask) ||
+         !pt_irq_need_timer(pirq_dpci->flags) )
+        return;
+
+    stop_timer(&pirq_dpci->timer);
+    pirq_guest_eoi(pirq);
+}
+
+static void __hvm_dpci_eoi(struct domain *d,
+                           const struct hvm_girq_dpci_mapping *girq,
+                           const union vioapic_redir_entry *ent)
+{
+    struct pirq *pirq = pirq_info(d, girq->machine_gsi);
+
+    if ( !hvm_domain_use_pirq(d, pirq) )
+        hvm_pci_intx_deassert(d, girq->device, girq->intx);
+
+    hvm_pirq_eoi(pirq, ent);
+}
+
+static void hvm_gsi_eoi(struct domain *d, unsigned int gsi,
+                        const union vioapic_redir_entry *ent)
+{
+    struct pirq *pirq = pirq_info(d, gsi);
+
+    /* Check if GSI is actually mapped. */
+    if ( !pirq_dpci(pirq) )
+        return;
+
+    hvm_gsi_deassert(d, gsi);
+    hvm_pirq_eoi(pirq, ent);
+}
+
+void hvm_dpci_eoi(unsigned int guest_gsi, const union vioapic_redir_entry *ent)
+{
+    struct domain *d = current->domain;
+    const struct hvm_irq_dpci *hvm_irq_dpci;
+    const struct hvm_girq_dpci_mapping *girq;
+
+    if ( !is_iommu_enabled(d) )
+        return;
+
+    if ( is_hardware_domain(d) )
+    {
+        spin_lock(&d->event_lock);
+        hvm_gsi_eoi(d, guest_gsi, ent);
+        goto unlock;
+    }
+
+    if ( guest_gsi < NR_ISAIRQS )
+    {
+        hvm_dpci_isairq_eoi(d, guest_gsi);
+        return;
+    }
+
+    spin_lock(&d->event_lock);
+    hvm_irq_dpci = domain_get_irq_dpci(d);
+
+    if ( !hvm_irq_dpci )
+        goto unlock;
+
+    list_for_each_entry ( girq, &hvm_irq_dpci->girq[guest_gsi], list )
+        __hvm_dpci_eoi(d, girq, ent);
+
+unlock:
+    spin_unlock(&d->event_lock);
+}
+
 int pt_irq_create_bind(
     struct domain *d, const struct xen_domctl_bind_pt_irq *pt_irq_bind)
 {
@@ -949,92 +1035,6 @@ static void hvm_dirq_assist(struct domain *d, struct hvm_pirq_dpci *pirq_dpci)
     }
 
  out:
-    spin_unlock(&d->event_lock);
-}
-
-static void hvm_pirq_eoi(struct pirq *pirq,
-                         const union vioapic_redir_entry *ent)
-{
-    struct hvm_pirq_dpci *pirq_dpci;
-
-    if ( !pirq )
-    {
-        ASSERT_UNREACHABLE();
-        return;
-    }
-
-    pirq_dpci = pirq_dpci(pirq);
-
-    /*
-     * No need to get vector lock for timer
-     * since interrupt is still not EOIed
-     */
-    if ( --pirq_dpci->pending ||
-         (ent && ent->fields.mask) ||
-         !pt_irq_need_timer(pirq_dpci->flags) )
-        return;
-
-    stop_timer(&pirq_dpci->timer);
-    pirq_guest_eoi(pirq);
-}
-
-static void __hvm_dpci_eoi(struct domain *d,
-                           const struct hvm_girq_dpci_mapping *girq,
-                           const union vioapic_redir_entry *ent)
-{
-    struct pirq *pirq = pirq_info(d, girq->machine_gsi);
-
-    if ( !hvm_domain_use_pirq(d, pirq) )
-        hvm_pci_intx_deassert(d, girq->device, girq->intx);
-
-    hvm_pirq_eoi(pirq, ent);
-}
-
-static void hvm_gsi_eoi(struct domain *d, unsigned int gsi,
-                        const union vioapic_redir_entry *ent)
-{
-    struct pirq *pirq = pirq_info(d, gsi);
-
-    /* Check if GSI is actually mapped. */
-    if ( !pirq_dpci(pirq) )
-        return;
-
-    hvm_gsi_deassert(d, gsi);
-    hvm_pirq_eoi(pirq, ent);
-}
-
-void hvm_dpci_eoi(unsigned int guest_gsi, const union vioapic_redir_entry *ent)
-{
-    struct domain *d = current->domain;
-    const struct hvm_irq_dpci *hvm_irq_dpci;
-    const struct hvm_girq_dpci_mapping *girq;
-
-    if ( !is_iommu_enabled(d) )
-        return;
-
-    if ( is_hardware_domain(d) )
-    {
-        spin_lock(&d->event_lock);
-        hvm_gsi_eoi(d, guest_gsi, ent);
-        goto unlock;
-    }
-
-    if ( guest_gsi < NR_ISAIRQS )
-    {
-        hvm_dpci_isairq_eoi(d, guest_gsi);
-        return;
-    }
-
-    spin_lock(&d->event_lock);
-    hvm_irq_dpci = domain_get_irq_dpci(d);
-
-    if ( !hvm_irq_dpci )
-        goto unlock;
-
-    list_for_each_entry ( girq, &hvm_irq_dpci->girq[guest_gsi], list )
-        __hvm_dpci_eoi(d, girq, ent);
-
-unlock:
     spin_unlock(&d->event_lock);
 }
 
