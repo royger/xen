@@ -203,7 +203,6 @@ static int nvmx_intr_intercept(struct vcpu *v, struct hvm_intack intack)
             {
                 /* for now, duplicate the ack path in vmx_intr_assist */
                 hvm_vcpu_ack_pending_irq(v, intack);
-                pt_intr_post(v, intack);
 
                 intack = hvm_vcpu_has_pending_irq(v);
                 if ( unlikely(intack.source != hvm_intsrc_none) )
@@ -242,7 +241,6 @@ void vmx_intr_assist(void)
     struct vcpu *v = current;
     unsigned int tpr_threshold = 0;
     enum hvm_intblk intblk;
-    int pt_vector;
 
     /* Block event injection when single step with MTF. */
     if ( unlikely(v->arch.hvm.single_step) )
@@ -263,8 +261,6 @@ void vmx_intr_assist(void)
 #endif
 
     /* Crank the handle on interrupt state. */
-    pt_vector = pt_update_irq(v);
-
     do {
         unsigned long intr_info;
 
@@ -337,58 +333,6 @@ void vmx_intr_assist(void)
     {
         unsigned long status;
 
-       /*
-        * intack.vector is the highest priority vector. So we set eoi_exit_bitmap
-        * for intack.vector - give a chance to post periodic time interrupts when
-        * periodic time interrupts become the highest one
-        */
-        if ( pt_vector != -1 )
-        {
-#ifndef NDEBUG
-            /*
-             * We assert that intack.vector is the highest priority vector for
-             * only an interrupt from vlapic can reach this point and the
-             * highest vector is chosen in hvm_vcpu_has_pending_irq().
-             * But, in fact, the assertion failed sometimes. It is suspected
-             * that PIR is not synced to vIRR which makes pt_vector is left in
-             * PIR. In order to verify this suspicion, dump some information
-             * when the assertion fails.
-             */
-            if ( unlikely(intack.vector < pt_vector) )
-            {
-                const struct vlapic *vlapic;
-                const struct pi_desc *pi_desc;
-                const uint32_t *word;
-                unsigned int i;
-
-                printk(XENLOG_ERR "%pv: intack: %u:%02x pt: %02x\n",
-                       current, intack.source, intack.vector, pt_vector);
-
-                vlapic = vcpu_vlapic(v);
-                if ( vlapic && vlapic->regs )
-                {
-                    word = (const void *)&vlapic->regs->data[APIC_IRR];
-                    printk(XENLOG_ERR "vIRR:");
-                    for ( i = X86_NR_VECTORS / 32; i-- ; )
-                        printk(" %08x", word[i*4]);
-                    printk("\n");
-                }
-
-                pi_desc = &v->arch.hvm.vmx.pi_desc;
-                if ( pi_desc )
-                {
-                    word = (const void *)&pi_desc->pir;
-                    printk(XENLOG_ERR " PIR:");
-                    for ( i = X86_NR_VECTORS / 32; i-- ; )
-                        printk(" %08x", word[i]);
-                    printk("\n");
-                }
-            }
-#endif
-            ASSERT(intack.vector >= pt_vector);
-            vmx_set_eoi_exit_bitmap(v, intack.vector);
-        }
-
         /* we need update the RVI field */
         __vmread(GUEST_INTR_STATUS, &status);
         status &= ~VMX_GUEST_INTR_STATUS_SUBFIELD_BITMASK;
@@ -397,14 +341,11 @@ void vmx_intr_assist(void)
         __vmwrite(GUEST_INTR_STATUS, status);
 
         vmx_sync_exit_bitmap(v);
-
-        pt_intr_post(v, intack);
     }
     else
     {
         HVMTRACE_2D(INJ_VIRQ, intack.vector, /*fake=*/ 0);
         vmx_inject_extint(intack.vector, intack.source);
-        pt_intr_post(v, intack);
     }
 
     /* Is there another IRQ to queue up behind this one? */

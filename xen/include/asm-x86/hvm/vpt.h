@@ -23,6 +23,7 @@
 #include <xen/list.h>
 #include <xen/rwlock.h>
 #include <asm/hvm/hvm.h>
+#include <asm/hvm/irq.h>
 
 /*
  * Abstract layer of periodic time, one short time.
@@ -50,6 +51,7 @@ struct periodic_time {
     struct timer timer;         /* ac_timer */
     time_cb *cb;
     void *priv;                 /* point back to platform time source */
+    struct hvm_gsi_eoi_callback eoi_cb; /* EOI callback registration data */
 };
 
 
@@ -151,9 +153,6 @@ struct pl_time {    /* platform time */
 
 void pt_save_timer(struct vcpu *v);
 void pt_restore_timer(struct vcpu *v);
-int pt_update_irq(struct vcpu *v);
-struct hvm_intack;
-void pt_intr_post(struct vcpu *v, struct hvm_intack intack);
 void pt_migrate(struct vcpu *v);
 
 void pt_adjust_global_vcpu_target(struct vcpu *v);
