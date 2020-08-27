@@ -146,8 +146,6 @@ void svm_intr_assist(void)
         return;
 
     /* Crank the handle on interrupt state. */
-    pt_update_irq(v);
-
     do {
         intack = hvm_vcpu_has_pending_irq(v);
         if ( likely(intack.source == hvm_intsrc_none) )
@@ -219,7 +217,6 @@ void svm_intr_assist(void)
     {
         HVMTRACE_2D(INJ_VIRQ, intack.vector, /*fake=*/ 0);
         svm_inject_extint(v, intack.vector);
-        pt_intr_post(v, intack);
     }
 
     /* Is there another IRQ to queue up behind this one? */

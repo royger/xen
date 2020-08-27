@@ -27,6 +27,8 @@
 #define mode_is(d, name) \
     ((d)->arch.hvm.params[HVM_PARAM_TIMER_MODE] == HVMPTM_##name)
 
+static bool inject_interrupt(struct periodic_time *pt);
+
 void hvm_init_guest_time(struct domain *d)
 {
     struct pl_time *pl = d->arch.hvm.pl_time;
@@ -74,35 +76,6 @@ void hvm_set_guest_time(struct vcpu *v, u64 guest_time)
         if ( v == current )
             update_vcpu_system_time(v);
     }
-}
-
-static int pt_irq_vector(struct periodic_time *pt, enum hvm_intsrc src)
-{
-    struct vcpu *v = pt->vcpu;
-    unsigned int gsi, isa_irq;
-    int vector;
-
-    if ( pt->source == PTSRC_lapic )
-        return pt->irq;
-
-    isa_irq = pt->irq;
-
-    if ( src == hvm_intsrc_pic )
-        return (v->domain->arch.hvm.vpic[isa_irq >> 3].irq_base
-                + (isa_irq & 7));
-
-    ASSERT(src == hvm_intsrc_lapic);
-    gsi = pt->source == PTSRC_isa ? hvm_isa_irq_to_gsi(isa_irq) : pt->irq;
-    vector = vioapic_get_vector(v->domain, gsi);
-    if ( vector < 0 )
-    {
-        dprintk(XENLOG_WARNING, "d%u: invalid GSI (%u) for platform timer\n",
-                v->domain->domain_id, gsi);
-        domain_crash(v->domain);
-        return -1;
-    }
-
-    return vector;
 }
 
 static int pt_irq_masked(struct periodic_time *pt)
@@ -247,32 +220,12 @@ void pt_restore_timer(struct vcpu *v)
     pt_vcpu_lock(v);
 
     list_for_each_entry ( pt, head, list )
-    {
         if ( pt->pending_intr_nr == 0 )
-        {
-            pt_process_missed_ticks(pt);
             set_timer(&pt->timer, pt->scheduled);
-        }
-    }
 
     pt_thaw_time(v);
 
     pt_vcpu_unlock(v);
-}
-
-static void pt_timer_fn(void *data)
-{
-    struct periodic_time *pt = data;
-
-    pt_lock(pt);
-
-    pt->pending_intr_nr++;
-    pt->scheduled += pt->period;
-    pt->do_not_freeze = 0;
-
-    vcpu_kick(pt->vcpu);
-
-    pt_unlock(pt);
 }
 
 static void pt_irq_fired(struct vcpu *v, struct periodic_time *pt)
@@ -285,89 +238,108 @@ static void pt_irq_fired(struct vcpu *v, struct periodic_time *pt)
             list_del(&pt->list);
         pt->on_list = false;
         pt->pending_intr_nr = 0;
+
+        return;
     }
-    else if ( mode_is(v->domain, one_missed_tick_pending) ||
-              mode_is(v->domain, no_missed_ticks_pending) )
+
+    if ( mode_is(v->domain, one_missed_tick_pending) ||
+         mode_is(v->domain, no_missed_ticks_pending) )
     {
-        pt->last_plt_gtime = hvm_get_guest_time(v);
         pt_process_missed_ticks(pt);
         pt->pending_intr_nr = 0; /* 'collapse' all missed ticks */
+    }
+    else if ( !pt->pending_intr_nr )
+        pt_process_missed_ticks(pt);
+
+    if ( !pt->pending_intr_nr )
         set_timer(&pt->timer, pt->scheduled);
+}
+
+static void pt_timer_fn(void *data)
+{
+    struct periodic_time *pt = data;
+    struct vcpu *v;
+    time_cb *cb = NULL;
+    void *cb_priv;
+    unsigned int irq;
+
+    pt_lock(pt);
+
+    v = pt->vcpu;
+    irq = pt->irq;
+
+    if ( inject_interrupt(pt) )
+    {
+        pt->scheduled += pt->period;
+        pt->do_not_freeze = 0;
+        cb = pt->cb;
+        cb_priv = pt->priv;
     }
     else
     {
-        pt->last_plt_gtime += pt->period;
-        if ( --pt->pending_intr_nr == 0 )
-        {
-            pt_process_missed_ticks(pt);
-            if ( pt->pending_intr_nr == 0 )
-                set_timer(&pt->timer, pt->scheduled);
-        }
+        /* Masked. */
+        if ( pt->on_list )
+            list_del(&pt->list);
+        pt->on_list = false;
+        pt->pending_intr_nr++;
     }
 
-    if ( mode_is(v->domain, delay_for_missed_ticks) &&
-         (hvm_get_guest_time(v) < pt->last_plt_gtime) )
-        hvm_set_guest_time(v, pt->last_plt_gtime);
+    pt_unlock(pt);
+
+    if ( cb )
+        cb(v, cb_priv);
 }
 
-int pt_update_irq(struct vcpu *v)
+/*
+ * The same callback is shared between LAPIC and PIC/IO-APIC based timers, as
+ * we ignore the first parameter that's different between them.
+ */
+static void eoi_callback(unsigned int unused, void *data)
 {
-    struct list_head *head = &v->arch.hvm.tm_list;
-    struct periodic_time *pt, *temp, *earliest_pt;
-    uint64_t max_lag;
-    int irq, pt_vector = -1;
-    bool level;
+    struct periodic_time *pt = data;
+    struct vcpu *v;
+    time_cb *cb = NULL;
+    void *cb_priv;
 
-    pt_vcpu_lock(v);
+    pt_lock(pt);
 
-    earliest_pt = NULL;
-    max_lag = -1ULL;
-    list_for_each_entry_safe ( pt, temp, head, list )
+    pt_irq_fired(pt->vcpu, pt);
+    if ( pt->pending_intr_nr )
     {
-        if ( pt->pending_intr_nr )
+        if ( inject_interrupt(pt) )
         {
-            /* RTC code takes care of disabling the timer itself. */
-            if ( (pt->irq != RTC_IRQ || !pt->priv) && pt_irq_masked(pt) &&
-                 /* Level interrupts should be asserted even if masked. */
-                 !pt->level )
-            {
-                /* suspend timer emulation */
+            pt->pending_intr_nr--;
+            cb = pt->cb;
+            cb_priv = pt->priv;
+            v = pt->vcpu;
+        }
+        else
+        {
+            /* Masked. */
+            if ( pt->on_list )
                 list_del(&pt->list);
-                pt->on_list = 0;
-            }
-            else
-            {
-                if ( (pt->last_plt_gtime + pt->period) < max_lag )
-                {
-                    max_lag = pt->last_plt_gtime + pt->period;
-                    earliest_pt = pt;
-                }
-            }
+            pt->on_list = false;
         }
     }
 
-    if ( earliest_pt == NULL )
-    {
-        pt_vcpu_unlock(v);
-        return -1;
-    }
+    pt_unlock(pt);
 
-    earliest_pt->irq_issued = 1;
-    irq = earliest_pt->irq;
-    level = earliest_pt->level;
+    if ( cb != NULL )
+        cb(v, cb_priv);
+}
 
-    pt_vcpu_unlock(v);
+static bool inject_interrupt(struct periodic_time *pt)
+{
+    struct vcpu *v = pt->vcpu;
+    unsigned int irq = pt->irq;
 
-    switch ( earliest_pt->source )
+    if ( pt_irq_masked(pt) )
+        return false;
+
+    switch ( pt->source )
     {
     case PTSRC_lapic:
-        /*
-         * If periodic timer interrupt is handled by lapic, its vector in
-         * IRR is returned and used to set eoi_exit_bitmap for virtual
-         * interrupt delivery case. Otherwise return -1 to do nothing.
-         */
-        vlapic_set_irq(vcpu_vlapic(v), irq, 0);
-        pt_vector = irq;
+        vlapic_set_irq_callback(vcpu_vlapic(v), pt->irq, 0, eoi_callback, pt);
         break;
 
     case PTSRC_isa:
@@ -376,98 +348,26 @@ int pt_update_irq(struct vcpu *v)
              v->domain->arch.hvm.vpic[irq >> 3].int_output )
             hvm_isa_irq_assert(v->domain, irq, NULL);
         else
-        {
-            pt_vector = hvm_isa_irq_assert(v->domain, irq, vioapic_get_vector);
-            /*
-             * hvm_isa_irq_assert may not set the corresponding bit in vIRR
-             * when mask field of IOAPIC RTE is set. Check it again.
-             */
-            if ( pt_vector < 0 || !vlapic_test_irq(vcpu_vlapic(v), pt_vector) )
-                pt_vector = -1;
-        }
+            hvm_isa_irq_assert(v->domain, irq, vioapic_get_vector);
         break;
 
     case PTSRC_ioapic:
-        pt_vector = hvm_ioapic_assert(v->domain, irq, level);
-        if ( pt_vector < 0 || !vlapic_test_irq(vcpu_vlapic(v), pt_vector) )
-        {
-            pt_vector = -1;
-            if ( level )
-            {
-                /*
-                 * Level interrupts are always asserted because the pin assert
-                 * count is incremented regardless of whether the pin is masked
-                 * or the vector latched in IRR, so also execute the callback
-                 * associated with the timer.
-                 */
-                time_cb *cb = NULL;
-                void *cb_priv;
-
-                pt_vcpu_lock(v);
-                /* Make sure the timer is still on the list. */
-                list_for_each_entry ( pt, &v->arch.hvm.tm_list, list )
-                    if ( pt == earliest_pt )
-                    {
-                        pt_irq_fired(v, pt);
-                        cb = pt->cb;
-                        cb_priv = pt->priv;
-                        break;
-                    }
-                pt_vcpu_unlock(v);
-
-                if ( cb != NULL )
-                    cb(v, cb_priv);
-            }
-        }
+        hvm_ioapic_assert(v->domain, irq, pt->level);
         break;
     }
 
-    return pt_vector;
-}
+    /* Update time when an interrupt is injected. */
+    if ( mode_is(v->domain, one_missed_tick_pending) ||
+         mode_is(v->domain, no_missed_ticks_pending) )
+        pt->last_plt_gtime = hvm_get_guest_time(v);
+    else
+        pt->last_plt_gtime += pt->period;
 
-static struct periodic_time *is_pt_irq(
-    struct vcpu *v, struct hvm_intack intack)
-{
-    struct list_head *head = &v->arch.hvm.tm_list;
-    struct periodic_time *pt;
+    if ( mode_is(v->domain, delay_for_missed_ticks) &&
+         hvm_get_guest_time(v) < pt->last_plt_gtime )
+        hvm_set_guest_time(v, pt->last_plt_gtime);
 
-    list_for_each_entry ( pt, head, list )
-    {
-        if ( pt->pending_intr_nr && pt->irq_issued &&
-             (intack.vector == pt_irq_vector(pt, intack.source)) )
-            return pt;
-    }
-
-    return NULL;
-}
-
-void pt_intr_post(struct vcpu *v, struct hvm_intack intack)
-{
-    struct periodic_time *pt;
-    time_cb *cb;
-    void *cb_priv;
-
-    if ( intack.source == hvm_intsrc_vector )
-        return;
-
-    pt_vcpu_lock(v);
-
-    pt = is_pt_irq(v, intack);
-    if ( pt == NULL )
-    {
-        pt_vcpu_unlock(v);
-        return;
-    }
-
-    pt_irq_fired(v, pt);
-
-    cb = pt->cb;
-    cb_priv = pt->priv;
-
-    pt_vcpu_unlock(v);
-
-    if ( cb != NULL )
-        cb(v, cb_priv);
+    return true;
 }
 
 void pt_migrate(struct vcpu *v)
@@ -543,6 +443,24 @@ void create_periodic_time(
     pt->cb = cb;
     pt->priv = data;
 
+    switch ( pt->source )
+    {
+        int rc;
+
+    case PTSRC_isa:
+        irq = hvm_isa_irq_to_gsi(irq);
+        /* fallthrough */
+    case PTSRC_ioapic:
+        pt->eoi_cb.callback = eoi_callback;
+        pt->eoi_cb.data = pt;
+        rc = hvm_gsi_register_callback(v->domain, irq, &pt->eoi_cb);
+        if ( rc )
+            gdprintk(XENLOG_WARNING,
+                     "unable to register callback for timer GSI %u: %d\n",
+                     irq, rc);
+        break;
+    }
+
     pt->on_list = 1;
     list_add(&pt->list, &v->arch.hvm.tm_list);
 
@@ -554,6 +472,8 @@ void create_periodic_time(
 
 void destroy_periodic_time(struct periodic_time *pt)
 {
+    unsigned int gsi;
+
     /* Was this structure previously initialised by create_periodic_time()? */
     if ( pt->vcpu == NULL )
         return;
@@ -563,6 +483,17 @@ void destroy_periodic_time(struct periodic_time *pt)
         list_del(&pt->list);
     pt->on_list = 0;
     pt->pending_intr_nr = 0;
+
+    gsi = pt->irq;
+    switch ( pt->source )
+    {
+    case PTSRC_isa:
+        gsi = hvm_isa_irq_to_gsi(pt->irq);
+        /* fallthrough */
+    case PTSRC_ioapic:
+        hvm_gsi_unregister_callback(pt->vcpu->domain, gsi, &pt->eoi_cb);
+        break;
+    }
     pt_unlock(pt);
 
     /*
@@ -617,20 +548,29 @@ void pt_adjust_global_vcpu_target(struct vcpu *v)
     write_unlock(&pl_time->vhpet.lock);
 }
 
-
 static void pt_resume(struct periodic_time *pt)
 {
+    struct vcpu *v;
+    time_cb *cb = NULL;
+    void *cb_priv;
+
     if ( pt->vcpu == NULL )
         return;
 
     pt_lock(pt);
-    if ( pt->pending_intr_nr && !pt->on_list )
+    if ( pt->pending_intr_nr && !pt->on_list && inject_interrupt(pt) )
     {
+        pt->pending_intr_nr--;
+        cb = pt->cb;
+        cb_priv = pt->priv;
+        v = pt->vcpu;
         pt->on_list = 1;
         list_add(&pt->list, &pt->vcpu->arch.hvm.tm_list);
-        vcpu_kick(pt->vcpu);
     }
     pt_unlock(pt);
+
+    if ( cb )
+        cb(v, cb_priv);
 }
 
 void pt_may_unmask_irq(struct domain *d, struct periodic_time *vlapic_pt)
