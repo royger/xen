@@ -489,7 +489,6 @@ void hvm_set_info_guest(struct vcpu *v)
 void hvm_migrate_timers(struct vcpu *v)
 {
     rtc_migrate_timers(v);
-    pt_migrate(v);
 }
 
 void hvm_migrate_pirq(struct hvm_pirq_dpci *pirq_dpci, const struct vcpu *v)
@@ -544,7 +543,7 @@ void hvm_do_resume(struct vcpu *v)
 {
     check_wakeup_from_wait();
 
-    pt_restore_timer(v);
+    pt_thaw_time(v);
 
     if ( !vcpu_ioreq_handle_completion(v) )
         return;
@@ -1559,7 +1558,6 @@ int hvm_vcpu_initialise(struct vcpu *v)
     hvm_asid_flush_vcpu(v);
 
     spin_lock_init(&v->arch.hvm.tm_lock);
-    INIT_LIST_HEAD(&v->arch.hvm.tm_list);
 
     rc = hvm_vcpu_cacheattr_init(v); /* teardown: vcpu_cacheattr_destroy */
     if ( rc != 0 )

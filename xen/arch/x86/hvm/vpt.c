@@ -126,24 +126,6 @@ static int pt_irq_masked(struct periodic_time *pt)
 }
 
 /*
- * Functions which read (maybe write) all periodic_time instances
- * attached to a particular vCPU use pt_vcpu_{un}lock locking helpers.
- *
- * Such users are explicitly forbidden from changing the value of the
- * pt->vcpu field, because another thread holding the pt_migrate lock
- * may already be spinning waiting for your vcpu lock.
- */
-static void pt_vcpu_lock(struct vcpu *v)
-{
-    spin_lock(&v->arch.hvm.tm_lock);
-}
-
-static void pt_vcpu_unlock(struct vcpu *v)
-{
-    spin_unlock(&v->arch.hvm.tm_lock);
-}
-
-/*
  * Functions which want to modify a particular periodic_time object
  * use pt_{un}lock locking helpers.
  *
@@ -176,14 +158,12 @@ static void pt_process_missed_ticks(struct periodic_time *pt)
         return;
 
     missed_ticks = missed_ticks / (s_time_t) pt->period + 1;
-    if ( mode_is(pt->vcpu->domain, no_missed_ticks_pending) )
-        pt->do_not_freeze = !pt->pending_intr_nr;
-    else
+    if ( !mode_is(pt->vcpu->domain, no_missed_ticks_pending) )
         pt->pending_intr_nr += missed_ticks;
     pt->scheduled += missed_ticks * pt->period;
 }
 
-static void pt_freeze_time(struct vcpu *v)
+void pt_freeze_time(struct vcpu *v)
 {
     if ( !mode_is(v->domain, delay_for_missed_ticks) )
         return;
@@ -191,7 +171,7 @@ static void pt_freeze_time(struct vcpu *v)
     v->arch.hvm.guest_time = hvm_get_guest_time(v);
 }
 
-static void pt_thaw_time(struct vcpu *v)
+void pt_thaw_time(struct vcpu *v)
 {
     if ( !mode_is(v->domain, delay_for_missed_ticks) )
         return;
@@ -203,52 +183,11 @@ static void pt_thaw_time(struct vcpu *v)
     v->arch.hvm.guest_time = 0;
 }
 
-void pt_save_timer(struct vcpu *v)
-{
-    struct list_head *head = &v->arch.hvm.tm_list;
-    struct periodic_time *pt;
-
-    if ( v->pause_flags & VPF_blocked )
-        return;
-
-    pt_vcpu_lock(v);
-
-    list_for_each_entry ( pt, head, list )
-        if ( !pt->do_not_freeze )
-            stop_timer(&pt->timer);
-
-    pt_freeze_time(v);
-
-    pt_vcpu_unlock(v);
-}
-
-void pt_restore_timer(struct vcpu *v)
-{
-    struct list_head *head = &v->arch.hvm.tm_list;
-    struct periodic_time *pt;
-
-    pt_vcpu_lock(v);
-
-    list_for_each_entry ( pt, head, list )
-        if ( pt->pending_intr_nr == 0 )
-            set_timer(&pt->timer, pt->scheduled);
-
-    pt_thaw_time(v);
-
-    pt_vcpu_unlock(v);
-}
-
 static void irq_eoi(struct periodic_time *pt)
 {
-    pt->irq_issued = false;
-
     if ( pt->one_shot )
     {
-        if ( pt->on_list )
-            list_del(&pt->list);
-        pt->on_list = false;
         pt->pending_intr_nr = 0;
-
         return;
     }
 
@@ -266,7 +205,11 @@ static void irq_eoi(struct periodic_time *pt)
     }
 
     if ( !pt->pending_intr_nr )
+    {
+        /* Make sure timer follows vCPU. */
+        migrate_timer(&pt->timer, current->processor);
         set_timer(&pt->timer, pt->scheduled);
+    }
 }
 
 static void pt_timer_fn(void *data)
@@ -282,20 +225,14 @@ static void pt_timer_fn(void *data)
     v = pt->vcpu;
     irq = pt->irq;
 
-    if ( inject_interrupt(pt) )
-    {
-        pt->scheduled += pt->period;
-        pt->do_not_freeze = 0;
-        cb = pt->cb;
-        cb_priv = pt->priv;
-    }
+    pt->scheduled += pt->period;
+
+    if ( !inject_interrupt(pt) )
+        pt->pending_intr_nr++;
     else
     {
-        /* Masked. */
-        if ( pt->on_list )
-            list_del(&pt->list);
-        pt->on_list = false;
-        pt->pending_intr_nr++;
+        cb = pt->cb;
+        cb_priv = pt->priv;
     }
 
     pt_unlock(pt);
@@ -313,22 +250,12 @@ static void eoi_callback(struct periodic_time *pt)
     pt_lock(pt);
 
     irq_eoi(pt);
-    if ( pt->pending_intr_nr )
+    if ( pt->pending_intr_nr && inject_interrupt(pt) )
     {
-        if ( inject_interrupt(pt) )
-        {
-            pt->pending_intr_nr--;
-            cb = pt->cb;
-            cb_priv = pt->priv;
-            v = pt->vcpu;
-        }
-        else
-        {
-            /* Masked. */
-            if ( pt->on_list )
-                list_del(&pt->list);
-            pt->on_list = false;
-        }
+        pt->pending_intr_nr--;
+        cb = pt->cb;
+        cb_priv = pt->priv;
+        v = pt->vcpu;
     }
 
     pt_unlock(pt);
@@ -397,19 +324,6 @@ static bool inject_interrupt(struct periodic_time *pt)
     return true;
 }
 
-void pt_migrate(struct vcpu *v)
-{
-    struct list_head *head = &v->arch.hvm.tm_list;
-    struct periodic_time *pt;
-
-    pt_vcpu_lock(v);
-
-    list_for_each_entry ( pt, head, list )
-        migrate_timer(&pt->timer, v->processor);
-
-    pt_vcpu_unlock(v);
-}
-
 void create_periodic_time(
     struct vcpu *v, struct periodic_time *pt, uint64_t delta,
     uint64_t period, uint8_t irq, time_cb *cb, void *data, bool level)
@@ -429,8 +343,6 @@ void create_periodic_time(
     write_lock(&v->domain->arch.hvm.pl_time->pt_migrate);
 
     pt->pending_intr_nr = 0;
-    pt->do_not_freeze = 0;
-    pt->irq_issued = 0;
 
     /* Periodic timer must be at least 0.1ms. */
     if ( (period < 100000) && period )
@@ -488,11 +400,6 @@ void create_periodic_time(
         break;
     }
 
-    pt_vcpu_lock(v);
-    pt->on_list = 1;
-    list_add(&pt->list, &v->arch.hvm.tm_list);
-    pt_vcpu_unlock(v);
-
     init_timer(&pt->timer, pt_timer_fn, pt, v->processor);
     set_timer(&pt->timer, pt->scheduled);
 
@@ -508,9 +415,6 @@ void destroy_periodic_time(struct periodic_time *pt)
         return;
 
     pt_lock(pt);
-    if ( pt->on_list )
-        list_del(&pt->list);
-    pt->on_list = 0;
     pt->pending_intr_nr = 0;
 
     gsi = pt->irq;
@@ -532,64 +436,6 @@ void destroy_periodic_time(struct periodic_time *pt)
     kill_timer(&pt->timer);
 }
 
-static void pt_adjust_vcpu(struct periodic_time *pt, struct vcpu *v)
-{
-    ASSERT(pt->source == PTSRC_isa || pt->source == PTSRC_ioapic);
-
-    if ( pt->vcpu == NULL )
-        return;
-
-    write_lock(&v->domain->arch.hvm.pl_time->pt_migrate);
-
-    if ( pt->vcpu == v )
-        goto out;
-
-    pt_vcpu_lock(pt->vcpu);
-    if ( pt->on_list )
-        list_del(&pt->list);
-    pt_vcpu_unlock(pt->vcpu);
-
-    pt->vcpu = v;
-
-    pt_vcpu_lock(v);
-    if ( pt->on_list )
-    {
-        list_add(&pt->list, &v->arch.hvm.tm_list);
-        migrate_timer(&pt->timer, v->processor);
-    }
-    pt_vcpu_unlock(v);
-
- out:
-    write_unlock(&v->domain->arch.hvm.pl_time->pt_migrate);
-}
-
-void pt_adjust_global_vcpu_target(struct vcpu *v)
-{
-    struct PITState *vpit;
-    struct pl_time *pl_time;
-    int i;
-
-    if ( !v || !has_vpit(v->domain) )
-        return;
-
-    vpit = &v->domain->arch.vpit;
-
-    spin_lock(&vpit->lock);
-    pt_adjust_vcpu(&vpit->pt0, v);
-    spin_unlock(&vpit->lock);
-
-    pl_time = v->domain->arch.hvm.pl_time;
-
-    spin_lock(&pl_time->vrtc.lock);
-    pt_adjust_vcpu(&pl_time->vrtc.pt, v);
-    spin_unlock(&pl_time->vrtc.lock);
-
-    write_lock(&pl_time->vhpet.lock);
-    for ( i = 0; i < HPET_TIMER_NUM; i++ )
-        pt_adjust_vcpu(&pl_time->vhpet.pt[i], v);
-    write_unlock(&pl_time->vhpet.lock);
-}
-
 static void pt_resume(struct periodic_time *pt)
 {
     struct vcpu *v;
@@ -600,14 +446,12 @@ static void pt_resume(struct periodic_time *pt)
         return;
 
     pt_lock(pt);
-    if ( pt->pending_intr_nr && !pt->on_list && inject_interrupt(pt) )
+    if ( pt->pending_intr_nr && inject_interrupt(pt) )
     {
         pt->pending_intr_nr--;
         cb = pt->cb;
         cb_priv = pt->priv;
         v = pt->vcpu;
-        pt->on_list = 1;
-        list_add(&pt->list, &pt->vcpu->arch.hvm.tm_list);
     }
     pt_unlock(pt);
 

@@ -2040,8 +2040,8 @@ void context_switch(struct vcpu *prev, struct vcpu *next)
     vpmu_switch_from(prev);
     np2m_schedule(NP2M_SCHEDLE_OUT);
 
-    if ( is_hvm_domain(prevd) && !list_empty(&prev->arch.hvm.tm_list) )
-        pt_save_timer(prev);
+    if ( is_hvm_domain(prevd) )
+        pt_freeze_time(prev);
 
     local_irq_disable();
 
