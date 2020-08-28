@@ -31,13 +31,10 @@
 typedef void time_cb(struct vcpu *v, void *opaque);
 
 struct periodic_time {
-    struct list_head list;
-    bool on_list;
     bool one_shot;
-    bool do_not_freeze;
-    bool irq_issued;
     bool warned_timeout_too_short;
     bool level;
+    bool masked;
 #define PTSRC_isa    1 /* ISA time source */
 #define PTSRC_lapic  2 /* LAPIC time source */
 #define PTSRC_ioapic 3 /* IOAPIC time source */
@@ -147,9 +144,7 @@ struct pl_time {    /* platform time */
 
 void pt_save_timer(struct vcpu *v);
 void pt_restore_timer(struct vcpu *v);
-void pt_migrate(struct vcpu *v);
 
-void pt_adjust_global_vcpu_target(struct vcpu *v);
 #define pt_global_vcpu_target(d) \
     (is_hvm_domain(d) && (d)->arch.hvm.i8259_target ? \
      (d)->arch.hvm.i8259_target : \
@@ -158,7 +153,7 @@ void pt_adjust_global_vcpu_target(struct vcpu *v);
 void pt_may_unmask_irq(struct domain *d, struct periodic_time *vlapic_pt);
 
 /* Is given periodic timer active? */
-#define pt_active(pt) ((pt)->on_list || (pt)->pending_intr_nr)
+#define pt_active(pt) !(pt)->masked
 
 /*
  * Create/destroy a periodic (or one-shot!) timer.

@@ -489,7 +489,6 @@ void hvm_set_info_guest(struct vcpu *v)
 void hvm_migrate_timers(struct vcpu *v)
 {
     rtc_migrate_timers(v);
-    pt_migrate(v);
 }
 
 void hvm_migrate_pirq(struct hvm_pirq_dpci *pirq_dpci, const struct vcpu *v)
