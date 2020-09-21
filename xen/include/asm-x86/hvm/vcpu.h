@@ -148,9 +148,6 @@ struct hvm_vcpu {
     s64                 cache_tsc_offset;
     u64                 guest_time;
 
-    /* Lock for virtual platform timers. */
-    spinlock_t          tm_lock;
-
     bool                flag_dr_dirty;
     bool                debug_state_latch;
     bool                single_step;

@@ -1654,6 +1654,7 @@ int vlapic_init(struct vcpu *v)
         return 0;
     }
 
+    init_periodic_timer(&vlapic->pt);
     vlapic->pt.source = PTSRC_lapic;
 
     vlapic->regs_page = alloc_domheap_page(v->domain, MEMF_no_owner);

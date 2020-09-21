@@ -125,27 +125,6 @@ static int pt_irq_masked(struct periodic_time *pt)
     return 1;
 }
 
-/*
- * Functions which want to modify a particular periodic_time object
- * use pt_{un}lock locking helpers.
- *
- * These users lock whichever vCPU the periodic_time is attached to,
- * but since the vCPU could be modified without holding any lock, they
- * need to take an additional lock that protects against pt->vcpu
- * changing.
- */
-static void pt_lock(struct periodic_time *pt)
-{
-    read_lock(&pt->vcpu->domain->arch.hvm.pl_time->pt_migrate);
-    spin_lock(&pt->vcpu->arch.hvm.tm_lock);
-}
-
-static void pt_unlock(struct periodic_time *pt)
-{
-    spin_unlock(&pt->vcpu->arch.hvm.tm_lock);
-    read_unlock(&pt->vcpu->domain->arch.hvm.pl_time->pt_migrate);
-}
-
 static void pt_process_missed_ticks(struct periodic_time *pt)
 {
     s_time_t missed_ticks, now = NOW();
@@ -220,7 +199,7 @@ static void pt_timer_fn(void *data)
     void *cb_priv;
     unsigned int irq;
 
-    pt_lock(pt);
+    spin_lock(&pt->lock);
 
     v = pt->vcpu;
     irq = pt->irq;
@@ -235,7 +214,7 @@ static void pt_timer_fn(void *data)
         cb_priv = pt->priv;
     }
 
-    pt_unlock(pt);
+    spin_unlock(&pt->lock);
 
     if ( cb )
         cb(v, cb_priv);
@@ -247,7 +226,7 @@ static void eoi_callback(struct periodic_time *pt)
     time_cb *cb = NULL;
     void *cb_priv = NULL;
 
-    pt_lock(pt);
+    spin_lock(&pt->lock);
 
     irq_eoi(pt);
     if ( pt->pending_intr_nr && inject_interrupt(pt) )
@@ -258,7 +237,7 @@ static void eoi_callback(struct periodic_time *pt)
         v = pt->vcpu;
     }
 
-    pt_unlock(pt);
+    spin_unlock(&pt->lock);
 
     if ( cb )
         cb(v, cb_priv);
@@ -324,6 +303,11 @@ static bool inject_interrupt(struct periodic_time *pt)
     return true;
 }
 
+void init_periodic_timer(struct periodic_time *pt)
+{
+    spin_lock_init(&pt->lock);
+}
+
 void create_periodic_time(
     struct vcpu *v, struct periodic_time *pt, uint64_t delta,
     uint64_t period, uint8_t irq, time_cb *cb, void *data, bool level)
@@ -340,7 +324,7 @@ void create_periodic_time(
 
     destroy_periodic_time(pt);
 
-    write_lock(&v->domain->arch.hvm.pl_time->pt_migrate);
+    spin_lock(&pt->lock);
 
     pt->pending_intr_nr = 0;
 
@@ -403,18 +387,21 @@ void create_periodic_time(
     init_timer(&pt->timer, pt_timer_fn, pt, v->processor);
     set_timer(&pt->timer, pt->scheduled);
 
-    write_unlock(&v->domain->arch.hvm.pl_time->pt_migrate);
+    spin_unlock(&pt->lock);
 }
 
 void destroy_periodic_time(struct periodic_time *pt)
 {
     unsigned int gsi;
 
+    spin_lock(&pt->lock);
     /* Was this structure previously initialised by create_periodic_time()? */
     if ( pt->vcpu == NULL )
+    {
+        spin_unlock(&pt->lock);
         return;
+    }
 
-    pt_lock(pt);
     pt->pending_intr_nr = 0;
 
     gsi = pt->irq;
@@ -427,7 +414,7 @@ void destroy_periodic_time(struct periodic_time *pt)
         hvm_gsi_unregister_callback(pt->vcpu->domain, gsi, &pt->eoi_cb);
         break;
     }
-    pt_unlock(pt);
+    spin_unlock(&pt->lock);
 
     /*
      * pt_timer_fn() can run until this kill_timer() returns. We must do this
@@ -442,10 +429,13 @@ static void pt_resume(struct periodic_time *pt)
     time_cb *cb = NULL;
     void *cb_priv;
 
+    spin_lock(&pt->lock);
     if ( pt->vcpu == NULL )
+    {
+        spin_unlock(&pt->lock);
         return;
+    }
 
-    pt_lock(pt);
     if ( pt->pending_intr_nr && inject_interrupt(pt) )
     {
         pt->pending_intr_nr--;
@@ -453,7 +443,7 @@ static void pt_resume(struct periodic_time *pt)
         cb_priv = pt->priv;
         v = pt->vcpu;
     }
-    pt_unlock(pt);
+    spin_unlock(&pt->lock);
 
     if ( cb )
         cb(v, cb_priv);

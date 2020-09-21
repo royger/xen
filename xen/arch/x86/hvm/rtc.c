@@ -821,6 +821,7 @@ void rtc_init(struct domain *d)
     init_timer(&s->update_timer, rtc_update_timer, s, smp_processor_id());
     init_timer(&s->update_timer2, rtc_update_timer2, s, smp_processor_id());
     init_timer(&s->alarm_timer, rtc_alarm_cb, s, smp_processor_id());
+    init_periodic_timer(&s->pt);
 
     register_portio_handler(d, RTC_PORT(0), 2, handle_rtc_io);
 

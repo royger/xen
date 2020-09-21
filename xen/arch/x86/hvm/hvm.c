@@ -666,8 +666,6 @@ int hvm_domain_initialise(struct domain *d)
     /* need link to containing domain */
     d->arch.hvm.pl_time->domain = d;
 
-    rwlock_init(&d->arch.hvm.pl_time->pt_migrate);
-
     /* Set the default IO Bitmap. */
     if ( is_hardware_domain(d) )
     {
@@ -1556,8 +1554,6 @@ int hvm_vcpu_initialise(struct vcpu *v)
     struct domain *d = v->domain;
 
     hvm_asid_flush_vcpu(v);
-
-    spin_lock_init(&v->arch.hvm.tm_lock);
 
     rc = hvm_vcpu_cacheattr_init(v); /* teardown: vcpu_cacheattr_destroy */
     if ( rc != 0 )
