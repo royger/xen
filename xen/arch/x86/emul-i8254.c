@@ -479,6 +479,7 @@ void pit_init(struct domain *d, unsigned long cpu_khz)
         return;
 
     spin_lock_init(&pit->lock);
+    init_periodic_timer(&pit->pt0);
 
     if ( is_hvm_domain(d) )
     {

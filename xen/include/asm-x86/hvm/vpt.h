@@ -49,6 +49,7 @@ struct periodic_time {
     time_cb *cb;
     void *priv;                 /* point back to platform time source */
     struct hvm_gsi_eoi_callback eoi_cb; /* EOI callback registration data */
+    spinlock_t lock;
 };
 
 
@@ -127,13 +128,6 @@ struct pl_time {    /* platform time */
     struct RTCState  vrtc;
     struct HPETState vhpet;
     struct PMTState  vpmt;
-    /*
-     * rwlock to prevent periodic_time vCPU migration. Take the lock in read
-     * mode in order to prevent the vcpu field of periodic_time from changing.
-     * Lock must be taken in write mode when changes to the vcpu field are
-     * performed, as it allows exclusive access to all the timers of a domain.
-     */
-    rwlock_t pt_migrate;
     /* guest_time = Xen sys time + stime_offset */
     int64_t stime_offset;
     /* Ensures monotonicity in appropriate timer modes. */
@@ -168,6 +162,7 @@ void create_periodic_time(
     struct vcpu *v, struct periodic_time *pt, uint64_t delta,
     uint64_t period, uint8_t irq, time_cb *cb, void *data, bool level);
 void destroy_periodic_time(struct periodic_time *pt);
+void init_periodic_timer(struct periodic_time *pt);
 
 int pv_pit_handler(int port, int data, int write);
 void pit_reset(struct domain *d);
