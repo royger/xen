@@ -484,6 +484,7 @@ void pit_init(struct domain *d, unsigned long cpu_khz)
     {
         register_portio_handler(d, PIT_BASE, 4, handle_pit_io);
         register_portio_handler(d, 0x61, 1, handle_speaker_io);
+        init_periodic_timer(&pit->pt0);
     }
 
     pit_reset(d);

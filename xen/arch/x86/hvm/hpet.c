@@ -739,12 +739,18 @@ static void hpet_set(HPETState *h)
 
 void hpet_init(struct domain *d)
 {
+    HPETState *h = domain_vhpet(d);
+    unsigned int i;
+
     if ( !has_vhpet(d) )
         return;
 
-    hpet_set(domain_vhpet(d));
+    hpet_set(h);
     register_mmio_handler(d, &hpet_mmio_ops);
     d->arch.hvm.params[HVM_PARAM_HPET_ENABLED] = 1;
+
+    for ( i = 0; i < HPET_TIMER_NUM; i++ )
+        init_periodic_timer(&h->pt[i]);
 }
 
 void hpet_deinit(struct domain *d)
