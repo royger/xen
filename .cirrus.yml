@@ -1,0 +1,16 @@
+freebsd_instance:
+  image_family: freebsd-13-0
+
+task:
+  environment:
+    APPEND_LIB: /usr/local/lib
+    APPEND_INCLUDES: /usr/local/include
+
+  install_script: pkg install -y seabios markdown gettext-tools gmake \
+                                 pkgconf python libiconv bison perl5 \
+                                 yajl lzo2 pixman argp-standalone \
+                                 libxml2 glib20
+
+  build_script:
+    - ./configure --with-system-seabios=/usr/local/share/seabios/bios.bin
+    - gmake -j`sysctl -n hw.ncpu` clang=y
