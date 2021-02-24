@@ -20,7 +20,7 @@
  * this program; If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <inttypes.h>
+#include "types.h"
 #include <xen/libelf/elfstructs.h>
 #ifdef __sun__
 #include <sys/machelf.h>

@@ -19,7 +19,7 @@
  * Authors: Andrew D. Ball <aball@us.ibm.com>
  */
 
-#include <stdint.h>
+#include "types.h"
 #include <xen/xen.h>
 #include <xen/version.h>
 #include "smbios_types.h"

@@ -25,7 +25,7 @@
 #ifndef SMBIOS_TYPES_H
 #define SMBIOS_TYPES_H
 
-#include <stdint.h>
+#include "types.h"
 
 /* SMBIOS entry point -- must be written to a 16-bit aligned address
    between 0xf0000 and 0xfffff. 

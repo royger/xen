@@ -24,7 +24,6 @@
 #include "vnuma.h"
 #include <acpi2_0.h>
 #include <libacpi.h>
-#include <stdint.h>
 #include <xen/xen.h>
 #include <xen/memory.h>
 #include <xen/sched.h>

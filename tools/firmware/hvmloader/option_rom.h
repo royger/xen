@@ -1,7 +1,7 @@
 #ifndef __HVMLOADER_OPTION_ROM_H__
 #define __HVMLOADER_OPTION_ROM_H__
 
-#include <stdint.h>
+#include "types.h"
 
 struct option_rom_header {
     uint8_t signature[2]; /* "\x55\xaa" */

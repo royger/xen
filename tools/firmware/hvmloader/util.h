@@ -1,10 +1,7 @@
 #ifndef __HVMLOADER_UTIL_H__
 #define __HVMLOADER_UTIL_H__
 
-#include <stdarg.h>
-#include <stdint.h>
-#include <stddef.h>
-#include <stdbool.h>
+#include "types.h"
 #include <xen/xen.h>
 #include <xen/hvm/hvm_info_table.h>
 #include "e820.h"

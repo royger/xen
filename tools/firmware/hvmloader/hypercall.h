@@ -31,7 +31,7 @@
 #ifndef __HVMLOADER_HYPERCALL_H__
 #define __HVMLOADER_HYPERCALL_H__
 
-#include <stdint.h>
+#include "types.h"
 #include <xen/xen.h>
 #include "config.h"
 

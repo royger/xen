@@ -1,8 +1,7 @@
 #ifndef __HVMLOADER_CONFIG_H__
 #define __HVMLOADER_CONFIG_H__
 
-#include <stdint.h>
-#include <stdbool.h>
+#include "types.h"
 
 enum virtual_vga { VGA_none, VGA_std, VGA_cirrus, VGA_pt };
 extern enum virtual_vga virtual_vga;

@@ -23,7 +23,7 @@
 #ifndef PIR_TYPES_H
 #define PIR_TYPES_H
 
-#include <stdint.h>
+#include "types.h"
 
 #define NR_PIR_SLOTS 6
 

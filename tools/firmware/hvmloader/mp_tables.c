@@ -27,7 +27,7 @@
  * this program; If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <stdint.h>
+#include "types.h"
 #include "config.h"
 
 /* number of non-processor MP table entries */
