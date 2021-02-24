@@ -7,6 +7,9 @@ CFLAGS += $(CFLAGS_xeninclude) -I.. -I../../../libacpi
 $(call cc-option-add,CFLAGS,CC,-fno-pic)
 $(call cc-option-add,CFLAGS,CC,-fno-PIE)
 
+# Build in standalone mode: we mustn't use any headers that are host-specific
+CFLAGS += -ffreestanding
+
 SUBDIRS = tcgbios
 
 .PHONY: all
