@@ -17,3 +17,14 @@ $(call cc-options-add,CFLAGS,CC,$(EMBEDDED_EXTRA_CFLAGS))
 
 # Extra CFLAGS suitable for an embedded type of environment.
 CFLAGS += -fno-builtin -msoft-float
+
+# Use our own set of library headers to build firmware.
+#
+# Ideally we would instead use -ffreestanding, but that relies on the compiler
+# having the right order for include paths (ie: compiler private headers before
+# system ones). This is not the case in Alpine at least which searches system
+# headers before compiler ones, and has been reported upstream:
+# https://gitlab.alpinelinux.org/alpine/aports/-/issues/12477
+# In the meantime (and for resilience against broken compilers) use our own set
+# of headers that provide what's needed for the firmware build.
+CFLAGS += -nostdinc -I$(XEN_ROOT)/tools/firmware/include
