@@ -308,6 +308,18 @@ debian-unstable-gcc-debug-randconfig:
     CONTAINER: debian:unstable
     RANDCONFIG: y
 
+debian-unstable-gcc-nrcpus1:
+  extends: .gcc-x86-64-build
+  variables:
+    CONTAINER: debian:unstable
+    CONFIG_NR_CPUS: 1
+
+debian-unstable-gcc-debug-nrcpus1:
+  extends: .gcc-x86-64-build-debug
+  variables:
+    CONTAINER: debian:unstable
+    CONFIG_NR_CPUS: 1
+
 debian-unstable-32-clang:
   extends: .clang-x86-32-build
   variables:

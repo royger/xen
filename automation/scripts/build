@@ -11,6 +11,22 @@ cc-ver()
 # random config or default config
 if [[ "${RANDCONFIG}" == "y" ]]; then
     make -j$(nproc) -C xen KCONFIG_ALLCONFIG=tools/kconfig/allrandom.config randconfig
+elif [[ "${!CONFIG_@}" != "" ]]; then
+    for config in "${!CONFIG_@}"; do
+        printf '%s=%s\n' "$config" "${!config}" >> xen/.config
+    done
+    make -j$(nproc) -C xen olddefconfig
+    for config in "${!CONFIG_@}"; do
+        if [[ "${!config}" != "n" ]]; then
+            option=$(printf '%s=%s' "$config" "${!config}")
+        else
+            option=$(printf '# %s is not set' "$config")
+        fi
+        if ! grep -q "^${option}$" xen/.config; then
+            echo "Failed to set ${config} in Kconfig"
+            exit 1;
+        fi
+    done
 else
     make -j$(nproc) -C xen defconfig
 fi
