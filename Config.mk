@@ -65,6 +65,10 @@ DEPS_RM = $(DEPS) $(DEPS_INCLUDE)
 %.d2: %.d
 	sed "s!\(^\| \)$$PWD/! !" $^ >$@.tmp && mv -f $@.tmp $@
 
+# Make sure the configure generated files are up to date
+%: %.in
+	$(error $@ is outdated, please re-run configure)
+
 include $(XEN_ROOT)/config/$(XEN_OS).mk
 include $(XEN_ROOT)/config/$(XEN_TARGET_ARCH).mk
 
