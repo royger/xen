@@ -659,3 +659,31 @@ out:
 
     return rc;
 }
+
+xc_cpu_policy_t xc_cpu_policy_init(void)
+{
+    xc_cpu_policy_t policy = calloc(1, sizeof(*policy));
+
+    if ( !policy )
+        return NULL;
+
+    policy->cpuid = calloc(1, sizeof(*policy->cpuid));
+    policy->msr = calloc(1, sizeof(*policy->msr));
+    if ( !policy->cpuid || !policy->msr )
+    {
+        xc_cpu_policy_destroy(policy);
+        return NULL;
+    }
+
+    return policy;
+}
+
+void xc_cpu_policy_destroy(xc_cpu_policy_t policy)
+{
+    if ( !policy )
+        return;
+
+    free(policy->cpuid);
+    free(policy->msr);
+    free(policy);
+}
