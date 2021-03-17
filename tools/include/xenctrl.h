@@ -2613,6 +2613,9 @@ int xc_cpu_policy_get_cpuid(xc_interface *xch, const xc_cpu_policy_t policy,
                             xen_cpuid_leaf_t *out);
 int xc_cpu_policy_get_msr(xc_interface *xch, const xc_cpu_policy_t policy,
                           uint32_t msr, xen_msr_entry_t *out);
+int xc_cpu_policy_update_cpuid(xc_interface *xch, xc_cpu_policy_t policy,
+                               const xen_cpuid_leaf_t *leaves,
+                               uint32_t nr);
 
 int xc_get_cpu_levelling_caps(xc_interface *xch, uint32_t *caps);
 int xc_get_cpu_featureset(xc_interface *xch, uint32_t index,

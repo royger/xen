@@ -984,3 +984,70 @@ int xc_cpu_policy_get_msr(xc_interface *xch, const xc_cpu_policy_t policy,
     free(msrs);
     return rc;
 }
+
+int xc_cpu_policy_update_cpuid(xc_interface *xch, xc_cpu_policy_t policy,
+                               const xen_cpuid_leaf_t *leaves,
+                               uint32_t nr)
+{
+    unsigned int err_leaf = -1, err_subleaf = -1;
+    unsigned int nr_leaves, nr_msrs, i, j;
+    xen_cpuid_leaf_t *current;
+    int rc = xc_cpu_policy_get_size(xch, &nr_leaves, &nr_msrs);
+
+    if ( rc )
+    {
+        PERROR("Failed to obtain policy info size");
+        return -1;
+    }
+
+    current = calloc(nr_leaves, sizeof(*current));
+    if ( !current )
+    {
+        PERROR("Failed to allocate resources");
+        errno = ENOMEM;
+        return -1;
+    }
+
+    rc = xc_cpu_policy_serialise(xch, policy, current, &nr_leaves, NULL, 0);
+    if ( rc )
+        goto out;
+
+    for ( i = 0; i < nr; i++ )
+    {
+        const xen_cpuid_leaf_t *update = &leaves[i];
+
+        for ( j = 0; j < nr_leaves; j++ )
+            if ( current[j].leaf == update->leaf &&
+                 current[j].subleaf == update->subleaf )
+            {
+                /*
+                 * NB: cannot use an assignation because of the const vs
+                 * non-const difference.
+                 */
+                memcpy(&current[j], update, sizeof(*update));
+                break;
+            }
+
+        if ( j == nr_leaves )
+        {
+            /* Failed to find a matching leaf, append to the end. */
+            current = realloc(current, (nr_leaves + 1) * sizeof(*current));
+            memcpy(&current[nr_leaves], update, sizeof(*update));
+            nr_leaves++;
+        }
+    }
+
+    rc = x86_cpuid_copy_from_buffer(policy->cpuid, current, nr_leaves,
+                                    &err_leaf, &err_subleaf);
+    if ( rc )
+    {
+        ERROR("Failed to deserialise CPUID (err leaf %#x, subleaf %#x) (%d = %s)",
+              err_leaf, err_subleaf, -rc, strerror(-rc));
+        errno = -rc;
+        rc = -1;
+    }
+
+ out:
+    free(current);
+    return rc;
+}
