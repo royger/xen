@@ -850,3 +850,45 @@ int xc_cpu_policy_get_cpuid(xc_interface *xch, const xc_cpu_policy_t policy,
     *out = *tmp;
     return 0;
 }
+
+static int compare_entries(const void *l, const void *r)
+{
+    const xen_msr_entry_t *lhs = l;
+    const xen_msr_entry_t *rhs = r;
+
+    if ( lhs->idx == rhs->idx )
+        return 0;
+    return lhs->idx < rhs->idx ? -1 : 1;
+}
+
+static xen_msr_entry_t *find_entry(xen_msr_entry_t *entries,
+                                   unsigned int nr_entries, unsigned int index)
+{
+    const xen_msr_entry_t key = { index };
+
+    return bsearch(&key, entries, nr_entries, sizeof(*entries), compare_entries);
+}
+
+int xc_cpu_policy_get_msr(xc_interface *xch, const xc_cpu_policy_t policy,
+                          uint32_t msr, xen_msr_entry_t *out)
+{
+    unsigned int nr_entries = ARRAY_SIZE(policy->entries);
+    xen_msr_entry_t *tmp;
+    int rc;
+
+    rc = xc_cpu_policy_serialise(xch, policy, NULL, 0,
+                                 policy->entries, &nr_entries);
+    if ( rc )
+        return rc;
+
+    tmp = find_entry(policy->entries, nr_entries, msr);
+    if ( !tmp )
+    {
+        /* Unable to find a matching MSR. */
+        errno = ENOENT;
+        return -1;
+    }
+
+    *out = *tmp;
+    return 0;
+}
