@@ -876,3 +876,49 @@ int xc_cpu_policy_serialise(xc_interface *xch, const xc_cpu_policy_t p,
 
     return 0;
 }
+
+int xc_cpu_policy_get_cpuid(xc_interface *xch, const xc_cpu_policy_t policy,
+                            uint32_t leaf, uint32_t subleaf,
+                            xen_cpuid_leaf_t *out)
+{
+    unsigned int nr_leaves, nr_msrs, i;
+    xen_cpuid_leaf_t *leaves;
+    int rc = xc_get_cpu_policy_size(xch, &nr_leaves, &nr_msrs);
+
+    if ( rc )
+    {
+        PERROR("Failed to obtain policy info size");
+        return -errno;
+    }
+
+    leaves = calloc(nr_leaves, sizeof(*leaves));
+    if ( !leaves )
+    {
+        PERROR("Failed to allocate resources");
+        return -ENOMEM;
+    }
+
+    rc = xc_cpu_policy_serialise(xch, policy, leaves, &nr_leaves, NULL, 0);
+    if ( rc )
+        goto out;
+
+    for ( i = 0; i < nr_leaves; i++ )
+        if ( leaves[i].leaf == leaf && leaves[i].subleaf == subleaf )
+        {
+            *out = leaves[i];
+            goto out;
+        }
+
+    /* Unable to find a matching leaf. */
+    rc = -ENOENT;
+
+ out:
+    free(leaves);
+    return rc;
+}
+
+int xc_cpu_policy_get_msr(const xc_cpu_policy_t policy,
+                          uint32_t msr, xen_msr_entry_t *out)
+{
+
+}
