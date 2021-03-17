@@ -808,6 +808,46 @@ int xc_cpu_policy_get_domain(xc_interface *xch, uint32_t domid,
     return rc;
 }
 
+int xc_cpu_policy_set_domain(xc_interface *xch, uint32_t domid,
+                             const xc_cpu_policy_t policy)
+{
+    uint32_t err_leaf = -1, err_subleaf = -1, err_msr = -1;
+    unsigned int nr_leaves, nr_msrs;
+    xen_cpuid_leaf_t *leaves = NULL;
+    xen_msr_entry_t *msrs = NULL;
+    int rc;
+
+    if ( !policy || !policy->cpuid || !policy->msr )
+        return -EINVAL;
+
+    rc = allocate_buffers(xch, &nr_leaves, &leaves, &nr_msrs, &msrs);
+    if ( rc )
+        return rc;
+
+    rc = xc_cpu_policy_serialise(xch, policy, leaves, &nr_leaves,
+                                 msrs, &nr_msrs);
+    if ( rc )
+        goto out;
+
+    rc = xc_set_domain_cpu_policy(xch, domid, nr_leaves, leaves, nr_msrs, msrs,
+                                  &err_leaf, &err_subleaf, &err_msr);
+    if ( rc )
+    {
+        ERROR("Failed to set domain %u policy (%d = %s)", domid, -rc,
+              strerror(-rc));
+        if ( err_leaf != -1 )
+            ERROR("CPUID leaf %u subleaf %u", err_leaf, err_subleaf);
+        if ( err_msr != -1 )
+            ERROR("MSR index %#x\n", err_msr);
+        goto out;
+    }
+
+ out:
+    free(leaves);
+    free(msrs);
+    return rc;
+}
+
 int xc_cpu_policy_serialise(xc_interface *xch, const xc_cpu_policy_t p,
                             xen_cpuid_leaf_t *leaves, uint32_t *nr_leaves,
                             xen_msr_entry_t *msrs, uint32_t *nr_msrs)
