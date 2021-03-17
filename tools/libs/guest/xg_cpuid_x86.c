@@ -917,8 +917,41 @@ int xc_cpu_policy_get_cpuid(xc_interface *xch, const xc_cpu_policy_t policy,
     return rc;
 }
 
-int xc_cpu_policy_get_msr(const xc_cpu_policy_t policy,
+int xc_cpu_policy_get_msr(xc_interface *xch, const xc_cpu_policy_t policy,
                           uint32_t msr, xen_msr_entry_t *out)
 {
+    unsigned int nr_leaves, nr_msrs, i;
+    xen_msr_entry_t *msrs;
+    int rc = xc_get_cpu_policy_size(xch, &nr_leaves, &nr_msrs);
 
+    if ( rc )
+    {
+        PERROR("Failed to obtain policy info size");
+        return -errno;
+    }
+
+    msrs = calloc(nr_msrs, sizeof(*msrs));
+    if ( !msrs )
+    {
+        PERROR("Failed to allocate resources");
+        return -ENOMEM;
+    }
+
+    rc = xc_cpu_policy_serialise(xch, policy, NULL, 0, msrs, &nr_msrs);
+    if ( rc )
+        goto out;
+
+    for ( i = 0; i < nr_msrs; i++ )
+        if ( msrs[i].idx == msr )
+        {
+            *out = msrs[i];
+            goto out;
+        }
+
+    /* Unable to find a matching MSR. */
+    rc = -ENOENT;
+
+ out:
+    free(msrs);
+    return rc;
 }
