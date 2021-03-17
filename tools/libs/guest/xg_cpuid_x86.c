@@ -687,3 +687,99 @@ void xc_cpu_policy_destroy(xc_cpu_policy_t policy)
     free(policy->msr);
     free(policy);
 }
+
+static int allocate_buffers(xc_interface *xch,
+                            unsigned int *nr_leaves, xen_cpuid_leaf_t **leaves,
+                            unsigned int *nr_msrs, xen_msr_entry_t **msrs)
+{
+    int rc;
+
+    *leaves = NULL;
+    *msrs = NULL;
+
+    rc = xc_cpu_policy_get_size(xch, nr_leaves, nr_msrs);
+    if ( rc )
+    {
+        PERROR("Failed to obtain policy info size");
+        return -errno;
+    }
+
+    *leaves = calloc(*nr_leaves, sizeof(**leaves));
+    *msrs = calloc(*nr_msrs, sizeof(**msrs));
+    if ( !*leaves || !*msrs )
+    {
+        PERROR("Failed to allocate resources");
+        free(*leaves);
+        free(*msrs);
+        return -ENOMEM;
+    }
+
+    return 0;
+}
+
+static int deserialize_policy(xc_interface *xch, xc_cpu_policy_t policy,
+                              unsigned int nr_leaves,
+                              const xen_cpuid_leaf_t *leaves,
+                              unsigned int nr_msrs, const xen_msr_entry_t *msrs)
+{
+    uint32_t err_leaf = -1, err_subleaf = -1, err_msr = -1;
+    int rc;
+
+    rc = x86_cpuid_copy_from_buffer(policy->cpuid, leaves, nr_leaves,
+                                    &err_leaf, &err_subleaf);
+    if ( rc )
+    {
+        ERROR("Failed to deserialise CPUID (err leaf %#x, subleaf %#x) (%d = %s)",
+              err_leaf, err_subleaf, -rc, strerror(-rc));
+        return rc;
+    }
+
+    rc = x86_msr_copy_from_buffer(policy->msr, msrs, nr_msrs, &err_msr);
+    if ( rc )
+    {
+        ERROR("Failed to deserialise MSR (err MSR %#x) (%d = %s)",
+              err_msr, -rc, strerror(-rc));
+        return rc;
+    }
+
+    return 0;
+}
+
+int xc_cpu_policy_get_system(xc_interface *xch, unsigned int idx,
+                             xc_cpu_policy_t policy)
+{
+    unsigned int nr_leaves, nr_msrs;
+    xen_cpuid_leaf_t *leaves = NULL;
+    xen_msr_entry_t *msrs = NULL;
+    int rc;
+
+    if ( !policy || !policy->cpuid || !policy->msr )
+    {
+        errno = EINVAL;
+        return -1;
+    }
+
+    rc = allocate_buffers(xch, &nr_leaves, &leaves, &nr_msrs, &msrs);
+    if ( rc )
+    {
+        errno = -rc;
+        return -1;
+    }
+
+    rc = xc_get_system_cpu_policy(xch, idx, &nr_leaves, leaves, &nr_msrs, msrs);
+    if ( rc )
+    {
+        PERROR("Failed to obtain %u policy", idx);
+        rc = -1;
+        goto out;
+    }
+
+    rc = deserialize_policy(xch, policy, nr_leaves, leaves, nr_msrs, msrs);
+    if ( rc )
+        errno = -rc;
+
+ out:
+    free(leaves);
+    free(msrs);
+    return rc;
+}
