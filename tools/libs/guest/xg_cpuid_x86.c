@@ -32,6 +32,7 @@ enum {
 #include <xen/arch-x86/cpufeatureset.h>
 };
 
+#include <xen/asm/msr-index.h>
 #include <xen/asm/x86-vendors.h>
 
 #include <xen/lib/x86/cpu-policy.h>
@@ -943,4 +944,133 @@ bool xc_cpu_policy_is_compatible(xc_interface *xch, const xc_cpu_policy_t host,
         ERROR("MSR index %#x is not compatible", err.msr);
 
     return false;
+}
+
+static bool level_msr(unsigned int index, uint64_t val1, uint64_t val2,
+                      uint64_t *out)
+{
+    *out = 0;
+
+    switch ( index )
+    {
+    case MSR_INTEL_PLATFORM_INFO:
+        *out = val1 & val2;
+        return true;
+
+    case MSR_ARCH_CAPABILITIES:
+        *out = val1 & val2;
+        /*
+         * Set RSBA if present on any of the input values to notice the guest
+         * might run on vulnerable hardware at some point.
+         */
+        *out |= (val1 | val2) & ARCH_CAPS_RSBA;
+        return true;
+    }
+
+    return false;
+}
+
+/* Only level featuresets so far. */
+static bool level_leaf(const xen_cpuid_leaf_t *l1, const xen_cpuid_leaf_t *l2,
+                       xen_cpuid_leaf_t *out)
+{
+    *out = (xen_cpuid_leaf_t){ };
+
+    switch ( l1->leaf )
+    {
+    case 0x1:
+    case 0x80000001:
+        out->c = l1->c & l2->c;
+        out->d = l1->d & l2->d;
+        return true;
+
+    case 0xd:
+        if ( l1->subleaf != 1 )
+            break;
+        /*
+         * Only take Da1 into account, the rest of subleaves will be dropped
+         * and recalculated by recalculate_xstate.
+         */
+        out->a = l1->a & l2->a;
+        return true;
+
+    case 0x7:
+        if ( l1->subleaf )
+            /* subleaf 0 EAX contains the max subleaf count. */
+            out->a = l1->a & l2->a;
+        out->b = l1->b & l2->b;
+        out->c = l1->c & l2->c;
+        out->d = l1->d & l2->d;
+        return true;
+
+    case 0x80000007:
+        out->d = l1->d & l2->d;
+        return true;
+
+    case 0x80000008:
+        out->b = l1->b & l2->b;
+        return true;
+    }
+
+    return false;
+}
+
+int xc_cpu_policy_calc_compatible(xc_interface *xch,
+                                  const xc_cpu_policy_t p1,
+                                  const xc_cpu_policy_t p2,
+                                  xc_cpu_policy_t out)
+{
+    unsigned int nr_leaves, nr_msrs, i, index;
+    unsigned int p1_nr_leaves, p2_nr_leaves;
+    unsigned int p1_nr_entries, p2_nr_entries;
+    int rc;
+
+    p1_nr_leaves = p2_nr_leaves = ARRAY_SIZE(p1->leaves);
+    p1_nr_entries = p2_nr_entries = ARRAY_SIZE(p1->entries);
+
+    rc = xc_cpu_policy_serialise(xch, p1, p1->leaves, &p1_nr_leaves,
+                                 p1->entries, &p1_nr_entries);
+    if ( rc )
+        return rc;
+    rc = xc_cpu_policy_serialise(xch, p2, p2->leaves, &p2_nr_leaves,
+                                 p2->entries, &p2_nr_entries);
+    if ( rc )
+        return rc;
+
+    index = 0;
+    for ( i = 0; i < p1_nr_leaves; i++ )
+    {
+        xen_cpuid_leaf_t *l1 = &p1->leaves[i];
+        xen_cpuid_leaf_t *l2 = find_leaf(p2->leaves, p2_nr_leaves,
+                                         l1->leaf, l1->subleaf);
+
+        if ( l2 && level_leaf(&out->leaves[index], l1, l2) )
+        {
+            out->leaves[index].leaf = l1->leaf;
+            out->leaves[index].subleaf = l1->subleaf;
+            index++;
+        }
+    }
+    nr_leaves = index;
+
+    index = 0;
+    for ( i = 0; i < p1_nr_entries; i++ )
+    {
+        xen_msr_entry_t *l1 = &p1->entries[i];
+        xen_msr_entry_t *l2 = find_entry(p2->entries, p2_nr_entries, l1->idx);
+
+        if ( l2 &&
+             level_msr(l1->idx, l1->val, l2->val, &out->entries[index].val) )
+            out->entries[index++].idx = l1->idx;
+    }
+    nr_msrs = index;
+
+    rc = deserialize_policy(xch, out, nr_leaves, nr_msrs);
+    if ( rc )
+    {
+        errno = -rc;
+        rc = -1;
+    }
+
+    return rc;
 }
