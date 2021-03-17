@@ -1051,3 +1051,68 @@ int xc_cpu_policy_update_cpuid(xc_interface *xch, xc_cpu_policy_t policy,
     free(current);
     return rc;
 }
+
+int xc_cpu_policy_update_msrs(xc_interface *xch, xc_cpu_policy_t policy,
+                              const xen_msr_entry_t *msrs, uint32_t nr)
+{
+    unsigned int err_msr = -1;
+    unsigned int nr_leaves, nr_msrs, i, j;
+    xen_msr_entry_t *current;
+    int rc = xc_cpu_policy_get_size(xch, &nr_leaves, &nr_msrs);
+
+    if ( rc )
+    {
+        PERROR("Failed to obtain policy info size");
+        return -1;
+    }
+
+    current = calloc(nr_msrs, sizeof(*current));
+    if ( !current )
+    {
+        PERROR("Failed to allocate resources");
+        errno = ENOMEM;
+        return -1;
+    }
+
+    rc = xc_cpu_policy_serialise(xch, policy, NULL, 0, current, &nr_msrs);
+    if ( rc )
+        goto out;
+
+    for ( i = 0; i < nr; i++ )
+    {
+        const xen_msr_entry_t *update = &msrs[i];
+
+        for ( j = 0; j < nr_msrs; j++ )
+            if ( current[j].idx == update->idx )
+            {
+                /*
+                 * NB: cannot use an assignation because of the const vs
+                 * non-const difference.
+                 */
+                memcpy(&current[j], update, sizeof(*update));
+                break;
+            }
+
+        if ( j == nr_msrs )
+        {
+            /* Failed to find a matching MSR, append to the end. */
+            current = realloc(current, (nr_msrs + 1) * sizeof(*current));
+            memcpy(&current[nr_msrs], update, sizeof(*update));
+            nr_msrs++;
+        }
+    }
+
+    rc = x86_msr_copy_from_buffer(policy->msr, current, nr_msrs, &err_msr);
+    if ( rc )
+    {
+        ERROR("Failed to deserialise MSRS (err index %#x) (%d = %s)",
+              err_msr, -rc, strerror(-rc));
+        errno = -rc;
+        rc = -1;
+    }
+
+ out:
+    free(current);
+    return rc;
+
+}
