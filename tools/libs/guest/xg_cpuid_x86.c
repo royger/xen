@@ -1083,3 +1083,20 @@ int xc_cpu_policy_update_msrs(xc_interface *xch, xc_cpu_policy_t policy,
     return rc;
 
 }
+
+bool xc_cpu_policy_is_compatible(xc_interface *xch, const xc_cpu_policy_t p1,
+                                 const xc_cpu_policy_t p2)
+{
+    struct cpu_policy_errors err;
+    int rc = x86_cpu_policies_are_compatible(p1, p2, &err);
+
+    if ( !rc )
+        return true;
+
+    if ( err.leaf != -1 )
+        ERROR("Leaf %#x subleaf %#x is not compatible", err.leaf, err.subleaf);
+    if ( err.msr != -1 )
+        ERROR("MSR index %#x is not compatible", err.msr);
+
+    return false;
+}
