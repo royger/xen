@@ -280,9 +280,9 @@ static int compare_leaves(const void *l, const void *r)
 
 static xen_cpuid_leaf_t *find_leaf(
     xen_cpuid_leaf_t *leaves, unsigned int nr_leaves,
-    const struct xc_xend_cpuid *xend)
+    unsigned int leaf, unsigned int subleaf)
 {
-    const xen_cpuid_leaf_t key = { xend->leaf, xend->subleaf };
+    const xen_cpuid_leaf_t key = { leaf, subleaf };
 
     return bsearch(&key, leaves, nr_leaves, sizeof(*leaves), compare_leaves);
 }
@@ -365,9 +365,12 @@ static int xc_cpuid_xend_policy(
     rc = -EINVAL;
     for ( ; xend->leaf != XEN_CPUID_INPUT_UNUSED; ++xend )
     {
-        xen_cpuid_leaf_t *cur_leaf = find_leaf(cur, nr_cur, xend);
-        const xen_cpuid_leaf_t *def_leaf = find_leaf(def, nr_def, xend);
-        const xen_cpuid_leaf_t *host_leaf = find_leaf(host, nr_host, xend);
+        xen_cpuid_leaf_t *cur_leaf = find_leaf(cur, nr_cur,
+                                               xend->leaf, xend->subleaf);
+        const xen_cpuid_leaf_t *def_leaf = find_leaf(def, nr_def,
+                                                     xend->leaf, xend->subleaf);
+        const xen_cpuid_leaf_t *host_leaf = find_leaf(host, nr_host, xend->leaf,
+                                                      xend->subleaf);
 
         if ( cur_leaf == NULL || def_leaf == NULL || host_leaf == NULL )
         {
@@ -820,5 +823,30 @@ int xc_cpu_policy_serialise(xc_interface *xch, const xc_cpu_policy_t p,
     }
 
     errno = 0;
+    return 0;
+}
+
+int xc_cpu_policy_get_cpuid(xc_interface *xch, const xc_cpu_policy_t policy,
+                            uint32_t leaf, uint32_t subleaf,
+                            xen_cpuid_leaf_t *out)
+{
+    unsigned int nr_leaves = ARRAY_SIZE(policy->leaves);
+    xen_cpuid_leaf_t *tmp;
+    int rc;
+
+    rc = xc_cpu_policy_serialise(xch, policy, policy->leaves, &nr_leaves,
+                                 NULL, 0);
+    if ( rc )
+        return rc;
+
+    tmp = find_leaf(policy->leaves, nr_leaves, leaf, subleaf);
+    if ( !tmp )
+    {
+        /* Unable to find a matching leaf. */
+        errno = ENOENT;
+        return -1;
+    }
+
+    *out = *tmp;
     return 0;
 }
