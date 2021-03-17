@@ -775,3 +775,35 @@ int xc_cpu_policy_get_system(xc_interface *xch, unsigned int idx,
     free(msrs);
     return rc;
 }
+
+int xc_cpu_policy_get_domain(xc_interface *xch, uint32_t domid,
+                             xc_cpu_policy_t policy)
+{
+    unsigned int nr_leaves, nr_msrs;
+    xen_cpuid_leaf_t *leaves = NULL;
+    xen_msr_entry_t *msrs = NULL;
+    int rc;
+
+    if ( !policy || !policy->cpuid || !policy->msr )
+        return -EINVAL;
+
+    rc = allocate_buffers(xch, &nr_leaves, &leaves, &nr_msrs, &msrs);
+    if ( rc )
+        return rc;
+
+    rc = xc_get_domain_cpu_policy(xch, domid, &nr_leaves, leaves, &nr_msrs,
+                                  msrs);
+    if ( rc )
+    {
+        PERROR("Failed to obtain domain %u policy", domid);
+        rc = -errno;
+        goto out;
+    }
+
+    rc = deserialize_policy(xch, policy, nr_leaves, leaves, nr_msrs, msrs);
+
+ out:
+    free(leaves);
+    free(msrs);
+    return rc;
+}
