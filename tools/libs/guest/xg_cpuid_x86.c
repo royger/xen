@@ -32,6 +32,7 @@ enum {
 #include <xen/arch-x86/cpufeatureset.h>
 };
 
+#include <xen/asm/msr-index.h>
 #include <xen/asm/x86-vendors.h>
 
 #include <xen/lib/x86/cpu-policy.h>
@@ -1132,4 +1133,118 @@ bool xc_cpu_policy_is_compatible(xc_interface *xch, const xc_cpu_policy_t p1,
         ERROR("MSR index %#x is not compatible", err.msr);
 
     return false;
+}
+
+static uint64_t level_msr(unsigned int index, uint64_t val1, uint64_t val2)
+{
+    uint64_t val;
+
+    switch( index )
+    {
+    case MSR_ARCH_CAPABILITIES:
+        val = val1 & val2;
+        /*
+         * Set RSBA if present on any of the input values to notice the guest
+         * might run on vulnerable hardware at some point.
+         */
+        val |= (val1 | val2) & ARCH_CAPS_RSBA;
+        break;
+
+    default:
+        val = val1 & val2;
+        break;
+    }
+
+    return val;
+}
+
+int xc_cpu_policy_calc_compatible(xc_interface *xch,
+                                  const xc_cpu_policy_t p1,
+                                  const xc_cpu_policy_t p2,
+                                  xc_cpu_policy_t out)
+{
+    xen_cpuid_leaf_t *leaves = NULL, *p1_leaves = NULL, *p2_leaves = NULL;
+    xen_msr_entry_t *msrs = NULL, *p1_msrs = NULL, *p2_msrs = NULL;
+    unsigned int nr_leaves, nr_msrs, i, j, index;
+    unsigned int p1_nr_leaves, p1_nr_msrs, p2_nr_leaves, p2_nr_msrs;
+    int rc;
+
+    if ( xc_cpu_policy_get_size(xch, &nr_leaves, &nr_msrs) )
+    {
+        PERROR("Failed to obtain policy info size");
+        return -1;
+    }
+
+    leaves = calloc(nr_leaves, sizeof(*leaves));
+    p1_leaves = calloc(nr_leaves, sizeof(*p1_leaves));
+    p2_leaves = calloc(nr_leaves, sizeof(*p2_leaves));
+    msrs = calloc(nr_msrs, sizeof(*msrs));
+    p1_msrs = calloc(nr_msrs, sizeof(*p1_msrs));
+    p2_msrs = calloc(nr_msrs, sizeof(*p2_msrs));
+
+    p1_nr_leaves = p2_nr_leaves = nr_leaves;
+    p1_nr_msrs = p2_nr_msrs = nr_msrs;
+
+    if ( !leaves || !p1_leaves || !p2_leaves ||
+         !msrs || !p1_msrs || !p2_msrs )
+    {
+        ERROR("Failed to allocate resources");
+        errno = ENOMEM;
+        rc = -1;
+        goto out;
+    }
+
+    rc = xc_cpu_policy_serialise(xch, p1, p1_leaves, &p1_nr_leaves,
+                                 p1_msrs, &p1_nr_msrs);
+    if ( rc )
+        goto out;
+    rc = xc_cpu_policy_serialise(xch, p2, p2_leaves, &p2_nr_leaves,
+                                 p2_msrs, &p2_nr_msrs);
+    if ( rc )
+        goto out;
+
+    index = 0;
+    for ( i = 0; i < p1_nr_leaves; i++ )
+        for ( j = 0; j < p2_nr_leaves; j++ )
+            if ( p1_leaves[i].leaf == p2_leaves[j].leaf &&
+                 p1_leaves[i].subleaf == p2_leaves[j].subleaf )
+            {
+                leaves[index].leaf = p1_leaves[i].leaf;
+                leaves[index].subleaf = p1_leaves[i].subleaf;
+                leaves[index].a = p1_leaves[i].a & p2_leaves[j].a;
+                leaves[index].b = p1_leaves[i].b & p2_leaves[j].b;
+                leaves[index].c = p1_leaves[i].c & p2_leaves[j].c;
+                leaves[index].d = p1_leaves[i].d & p2_leaves[j].d;
+                index++;
+            }
+    nr_leaves = index;
+
+    index = 0;
+    for ( i = 0; i < p1_nr_msrs; i++ )
+        for ( j = 0; j < p2_nr_msrs; j++ )
+            if ( p1_msrs[i].idx == p2_msrs[j].idx )
+            {
+                msrs[index].idx = p1_msrs[i].idx;
+                msrs[index].val = level_msr(p1_msrs[i].idx,
+                                            p1_msrs[i].val, p2_msrs[j].val);
+                index++;
+            }
+    nr_msrs = index;
+
+    rc = deserialize_policy(xch, out, nr_leaves, leaves, nr_msrs, msrs);
+    if ( rc )
+    {
+        errno = -rc;
+        rc = -1;
+    }
+
+ out:
+    free(leaves);
+    free(p1_leaves);
+    free(p2_leaves);
+    free(msrs);
+    free(p1_msrs);
+    free(p2_msrs);
+
+    return rc;
 }
