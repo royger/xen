@@ -432,6 +432,8 @@ int xc_cpuid_apply_policy(xc_interface *xch, uint32_t domid, bool restore,
     unsigned int i, nr_leaves, nr_msrs;
     xen_cpuid_leaf_t *leaves = NULL;
     struct cpuid_policy *p = NULL;
+    xc_cpu_policy_t *policy = NULL;
+    xc_cpu_policy_t *host = NULL;
     uint32_t err_leaf = -1, err_subleaf = -1, err_msr = -1;
     uint32_t host_featureset[FEATURESET_NR_ENTRIES] = {};
     uint32_t len = ARRAY_SIZE(host_featureset);
@@ -454,7 +456,9 @@ int xc_cpuid_apply_policy(xc_interface *xch, uint32_t domid, bool restore,
 
     rc = -ENOMEM;
     if ( (leaves = calloc(nr_leaves, sizeof(*leaves))) == NULL ||
-         (p = calloc(1, sizeof(*p))) == NULL )
+         (p = calloc(1, sizeof(*p))) == NULL ||
+         (policy = xc_cpu_policy_init()) == NULL ||
+         (host = xc_cpu_policy_init()) == NULL )
         goto out;
 
     /* Get the host policy. */
@@ -472,6 +476,8 @@ int xc_cpuid_apply_policy(xc_interface *xch, uint32_t domid, bool restore,
             goto out;
         }
     }
+
+    cpuid_featureset_to_policy(host_featureset, &host->cpuid);
 
     /* Get the domain's default policy. */
     nr_msrs = 0;
@@ -496,23 +502,9 @@ int xc_cpuid_apply_policy(xc_interface *xch, uint32_t domid, bool restore,
 
     if ( restore )
     {
-        /*
-         * Account for feature which have been disabled by default since Xen 4.13,
-         * so migrated-in VM's don't risk seeing features disappearing.
-         */
-        p->basic.rdrand = test_bit(X86_FEATURE_RDRAND, host_featureset);
-        p->feat.hle = test_bit(X86_FEATURE_HLE, host_featureset);
-        p->feat.rtm = test_bit(X86_FEATURE_RTM, host_featureset);
-
-        if ( di.hvm )
-        {
-            p->feat.mpx = test_bit(X86_FEATURE_MPX, host_featureset);
-        }
-
-        /* Clamp maximum leaves to the ones supported on 4.12. */
-        p->basic.max_leaf = min(p->basic.max_leaf, 0xdu);
-        p->feat.max_subleaf = 0;
-        p->extd.max_leaf = min(p->extd.max_leaf, 0x8000001c);
+        policy->cpuid = *p;
+        xc_cpu_policy_make_compat_4_12(xch, policy, host, di.hvm);
+        *p = policy->cpuid;
     }
 
     if ( featureset )
@@ -662,6 +654,8 @@ int xc_cpuid_apply_policy(xc_interface *xch, uint32_t domid, bool restore,
 out:
     free(p);
     free(leaves);
+    xc_cpu_policy_destroy(policy);
+    xc_cpu_policy_destroy(host);
 
     return rc;
 }
@@ -918,4 +912,24 @@ bool xc_cpu_policy_is_compatible(xc_interface *xch, xc_cpu_policy_t *host,
         ERROR("MSR index %#x is not compatible", err.msr);
 
     return false;
+}
+
+void xc_cpu_policy_make_compat_4_12(xc_interface *xch, xc_cpu_policy_t *policy,
+                                    const xc_cpu_policy_t *host, bool hvm)
+{
+    /*
+     * Account for features which have been disabled by default since Xen 4.13,
+     * so migrated-in VM's don't risk seeing features disappearing.
+     */
+    policy->cpuid.basic.rdrand = host->cpuid.basic.rdrand;
+    policy->cpuid.feat.hle = host->cpuid.feat.hle;
+    policy->cpuid.feat.rtm = host->cpuid.feat.rtm;
+
+    if ( hvm )
+        policy->cpuid.feat.mpx = host->cpuid.feat.mpx;
+
+    /* Clamp maximum leaves to the ones supported on pre-4.13. */
+    policy->cpuid.basic.max_leaf = min(policy->cpuid.basic.max_leaf, 0xdu);
+    policy->cpuid.feat.max_subleaf = 0;
+    policy->cpuid.extd.max_leaf = min(policy->cpuid.extd.max_leaf, 0x8000001c);
 }
