@@ -2627,6 +2627,10 @@ int xc_cpu_policy_calc_compatible(xc_interface *xch,
                                   const xc_cpu_policy_t p2,
                                   xc_cpu_policy_t out);
 
+/* Make a policy compatible with previous Xen versions. */
+int xc_cpu_policy_make_compatible(xc_interface *xch, xc_cpu_policy_t policy,
+                                  bool hvm);
+
 int xc_get_cpu_levelling_caps(xc_interface *xch, uint32_t *caps);
 int xc_get_cpu_featureset(xc_interface *xch, uint32_t index,
                           uint32_t *nr_features, uint32_t *featureset);

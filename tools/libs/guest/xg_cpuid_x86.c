@@ -436,6 +436,7 @@ int xc_cpuid_apply_policy(xc_interface *xch, uint32_t domid, bool restore,
     unsigned int i, nr_leaves, nr_msrs;
     xen_cpuid_leaf_t *leaves = NULL;
     struct cpuid_policy *p = NULL;
+    struct cpu_policy policy = { };
     uint32_t err_leaf = -1, err_subleaf = -1, err_msr = -1;
     uint32_t host_featureset[FEATURESET_NR_ENTRIES] = {};
     uint32_t len = ARRAY_SIZE(host_featureset);
@@ -504,12 +505,8 @@ int xc_cpuid_apply_policy(xc_interface *xch, uint32_t domid, bool restore,
      */
     if ( restore )
     {
-        p->basic.rdrand = test_bit(X86_FEATURE_RDRAND, host_featureset);
-
-        if ( di.hvm )
-        {
-            p->feat.mpx = test_bit(X86_FEATURE_MPX, host_featureset);
-        }
+        policy.cpuid = p;
+        xc_cpu_policy_make_compatible(xch, &policy, di.hvm);
     }
 
     if ( featureset )
@@ -1228,5 +1225,35 @@ int xc_cpu_policy_calc_compatible(xc_interface *xch,
     free(p1_msrs);
     free(p2_msrs);
 
+    return rc;
+}
+
+int xc_cpu_policy_make_compatible(xc_interface *xch, xc_cpu_policy_t policy,
+                                  bool hvm)
+{
+    xc_cpu_policy_t host;
+    int rc;
+
+    host = xc_cpu_policy_init();
+    if ( !host )
+    {
+        errno = ENOMEM;
+        return -1;
+    }
+
+    rc = xc_cpu_policy_get_system(xch, XEN_SYSCTL_cpu_policy_host, host);
+    if ( rc )
+    {
+        ERROR("Failed to get host policy");
+        goto out;
+    }
+
+    policy->cpuid->basic.rdrand = host->cpuid->basic.rdrand;
+
+    if ( hvm )
+        policy->cpuid->feat.mpx = host->cpuid->feat.mpx;
+
+ out:
+    xc_cpu_policy_destroy(host);
     return rc;
 }
