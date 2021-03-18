@@ -291,7 +291,7 @@ int libxl_cpuid_parse_config(libxl_cpuid_policy_list *cpuid, const char* str)
     char *sep, *val, *endptr;
     int i;
     const struct cpuid_flags *flag;
-    struct xc_xend_cpuid *entry;
+    struct xc_cpuid *entry;
     unsigned long num;
     char flags[33], *resstr;
 
@@ -369,7 +369,7 @@ int libxl_cpuid_parse_config_xend(libxl_cpuid_policy_list *cpuid,
     char *endptr;
     unsigned long value;
     uint32_t leaf, subleaf = XEN_CPUID_INPUT_UNUSED;
-    struct xc_xend_cpuid *entry;
+    struct xc_cpuid *entry;
 
     /* parse the leaf number */
     value = strtoul(str, &endptr, 0);

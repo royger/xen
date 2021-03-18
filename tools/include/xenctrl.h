@@ -1880,7 +1880,7 @@ int xc_domain_debug_control(xc_interface *xch,
  *   'k' -> pass through host value
  *   's' -> legacy alias for 'k'
  */
-struct xc_xend_cpuid {
+struct xc_cpuid {
     union {
         struct {
             uint32_t leaf, subleaf;
@@ -1907,7 +1907,7 @@ int xc_cpuid_apply_policy(xc_interface *xch,
                           uint32_t domid, bool restore,
                           const uint32_t *featureset,
                           unsigned int nr_features, bool pae, bool itsc,
-                          bool nested_virt, const struct xc_xend_cpuid *xend);
+                          bool nested_virt, const struct xc_cpuid *xend);
 int xc_mca_op(xc_interface *xch, struct xen_mc *mc);
 int xc_mca_op_inject_v2(xc_interface *xch, unsigned int flags,
                         xc_cpumap_t cpumap, unsigned int nr_cpus);
@@ -2634,6 +2634,10 @@ int xc_cpu_policy_make_compatible(xc_interface *xch, xc_cpu_policy_t policy,
 /* Setup the policy topology. */
 int xc_cpu_policy_topology(xc_interface *xch, xc_cpu_policy_t policy,
                            bool hvm);
+
+/* Apply an xc_cpuid object to the policy. */
+int xc_cpu_policy_apply_cpuid(xc_interface *xch, xc_cpu_policy_t policy,
+                              const struct xc_cpuid *cpuid, bool hvm);
 
 int xc_get_cpu_levelling_caps(xc_interface *xch, uint32_t *caps);
 int xc_get_cpu_featureset(xc_interface *xch, uint32_t index,
