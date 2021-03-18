@@ -430,6 +430,8 @@ int libxl__cpuid_legacy(libxl_ctx *ctx, uint32_t domid, bool restore,
                         libxl_domain_build_info *info)
 {
     GC_INIT(ctx);
+    xc_cpu_policy_t policy = NULL;
+    bool hvm = info->type == LIBXL_DOMAIN_TYPE_HVM;
     bool pae = true;
     bool itsc;
     int rc;
@@ -443,6 +445,42 @@ int libxl__cpuid_legacy(libxl_ctx *ctx, uint32_t domid, bool restore,
      */
     bool nested_virt = info->nested_hvm.val > 0;
 
+    policy = xc_cpu_policy_init();
+    if (!policy) {
+        LOGE(ERROR, "Failed to init CPU policy");
+        rc = ERROR_FAIL;
+        goto out;
+    }
+
+    rc = xc_cpu_policy_get_domain(ctx->xch, domid, policy);
+    if (rc) {
+        LOGE(ERROR, "Failed to fetch domain %u CPU policy", domid);
+        rc = ERROR_FAIL;
+        goto out;
+    }
+
+    /*
+     * Account for feature which have been disabled by default since Xen 4.13,
+     * so migrated-in VM's don't risk seeing features disappearing.
+     */
+    if (restore) {
+        rc = xc_cpu_policy_make_compatible(ctx->xch, policy, hvm);
+        if (rc) {
+            LOGE(ERROR, "Failed to setup compatible CPU policy for domain  %u",
+                 domid);
+            rc = ERROR_FAIL;
+            goto out;
+        }
+    }
+
+    rc = xc_cpu_policy_legacy_topology(ctx->xch, policy, hvm);
+    if (rc) {
+        LOGE(ERROR, "Failed to setup CPU policy topology for domain  %u",
+             domid);
+        rc = ERROR_FAIL;
+        goto out;
+    }
+
     /*
      * For PV guests, PAE is Xen-controlled (it is the 'p' that differentiates
      * the xen-3.0-x86_32 and xen-3.0-x86_32p ABIs).  It is mandatory as Xen
@@ -453,8 +491,15 @@ int libxl__cpuid_legacy(libxl_ctx *ctx, uint32_t domid, bool restore,
      *
      * HVM guests get a top-level choice of whether PAE is available.
      */
-    if (info->type == LIBXL_DOMAIN_TYPE_HVM)
+    if (hvm)
         pae = libxl_defbool_val(info->u.hvm.pae);
+    rc = libxl_cpuid_parse_config(&info->cpuid, GCSPRINTF("pae=%d", pae));
+    if (rc) {
+        LOG(ERROR, "Unable to set PAE CPUID flag: %d", rc);
+        rc = ERROR_FAIL;
+        goto out;
+    }
+
 
     /*
      * Advertising Invariant TSC to a guest means that the TSC frequency won't
@@ -470,12 +515,46 @@ int libxl__cpuid_legacy(libxl_ctx *ctx, uint32_t domid, bool restore,
      */
     itsc = (libxl_defbool_val(info->disable_migrate) ||
             info->tsc_mode == LIBXL_TSC_MODE_ALWAYS_EMULATE);
+    rc = libxl_cpuid_parse_config(&info->cpuid, GCSPRINTF("invtsc=%d", itsc));
+    if (rc) {
+        LOG(ERROR, "Unable to set Invariant TSC CPUID flag: %d", rc);
+        rc = ERROR_FAIL;
+        goto out;
+    }
 
-    rc = xc_cpuid_apply_policy(ctx->xch, domid, restore, NULL, 0,
-                               pae, itsc, nested_virt, info->cpuid);
+    /* Set Nested virt CPUID bits for HVM. */
+    if (hvm) {
+        rc = libxl_cpuid_parse_config(&info->cpuid, GCSPRINTF("vmx=%d",
+                                                              nested_virt));
+        if (rc) {
+            LOG(ERROR, "Unable to set VMX CPUID flag: %d", rc);
+            rc = ERROR_FAIL;
+            goto out;
+        }
+
+        rc = libxl_cpuid_parse_config(&info->cpuid, GCSPRINTF("svm=%d",
+                                                              nested_virt));
+        if (rc) {
+            LOG(ERROR, "Unable to set SVM CPUID flag: %d", rc);
+            rc = ERROR_FAIL;
+            goto out;
+        }
+    }
+
+    /* Apply the bits from info->cpuid if any. */
+    rc = xc_cpu_policy_apply_cpuid(ctx->xch, policy, info->cpuid, hvm);
+    if (rc) {
+        LOGE(ERROR, "Failed to apply CPUID changes");
+        rc = ERROR_FAIL;
+        goto out;
+    }
+
+    rc = xc_cpu_policy_set_domain(ctx->xch, domid, policy);
     if (rc)
-        LOGE(ERROR, "Failed to apply CPUID policy");
+        LOGE(ERROR, "Failed to set domain %u CPUID policy", domid);
 
+ out:
+    xc_cpu_policy_destroy(policy);
     GC_FREE;
     return rc ? ERROR_FAIL : 0;
 }
