@@ -821,6 +821,15 @@ bool xc_cpu_policy_is_compatible(xc_interface *xch, xc_cpu_policy_t *host,
 void xc_cpu_policy_make_compat_4_12(xc_interface *xch, xc_cpu_policy_t *policy,
                                     const xc_cpu_policy_t *host, bool hvm);
 
+/*
+ * Setup the legacy policy topology.
+ *
+ * The `host` parameter should only be provided when creating a policy for a PV
+ * guest.
+ */
+void xc_cpu_policy_legacy_topology(xc_interface *xch, xc_cpu_policy_t *policy,
+                                   const xc_cpu_policy_t *host);
+
 int xc_get_cpu_levelling_caps(xc_interface *xch, uint32_t *caps);
 int xc_get_cpu_featureset(xc_interface *xch, uint32_t index,
                           uint32_t *nr_features, uint32_t *featureset);
