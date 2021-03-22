@@ -151,7 +151,10 @@ int x86_static_data_complete(struct xc_sr_context *ctx, unsigned int *missing)
 {
     xc_interface *xch = ctx->xch;
     uint32_t nr_leaves = 0, nr_msrs = 0;
-    uint32_t err_l = ~0, err_s = ~0, err_m = ~0;
+    xc_cpu_policy_t policy = xc_cpu_policy_init();
+
+    if ( !policy )
+        return -1;
 
     if ( ctx->x86.restore.cpuid.ptr )
         nr_leaves = ctx->x86.restore.cpuid.size / sizeof(xen_cpuid_leaf_t);
@@ -163,14 +166,25 @@ int x86_static_data_complete(struct xc_sr_context *ctx, unsigned int *missing)
     else
         *missing |= XGR_SDD_MISSING_MSR;
 
-    if ( (nr_leaves || nr_msrs) &&
-         xc_set_domain_cpu_policy(xch, ctx->domid,
-                                  nr_leaves, ctx->x86.restore.cpuid.ptr,
-                                  nr_msrs,   ctx->x86.restore.msr.ptr,
-                                  &err_l, &err_s, &err_m) )
+    if ( nr_leaves &&
+         xc_cpu_policy_update_cpuid(xch, policy,
+                                    ctx->x86.restore.cpuid.ptr, nr_leaves) )
     {
-        PERROR("Failed to set CPUID policy: leaf %08x, subleaf %08x, msr %08x",
-               err_l, err_s, err_m);
+        PERROR("Failed to update CPUID policy");
+        return -1;
+    }
+    if ( nr_msrs &&
+         xc_cpu_policy_update_msrs(xch, policy,
+                                   ctx->x86.restore.msr.ptr, nr_msrs) )
+    {
+        PERROR("Failed to update MSR policy");
+        return -1;
+    }
+
+    if ( (nr_leaves || nr_msrs) &&
+         xc_cpu_policy_set_domain(xch, ctx->domid, policy) )
+    {
+        PERROR("Failed to set CPUID policy");
         return -1;
     }
 
