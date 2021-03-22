@@ -128,9 +128,9 @@ int xc_cpu_policy_get_size(xc_interface *xch, uint32_t *nr_leaves,
     return ret;
 }
 
-int xc_get_system_cpu_policy(xc_interface *xch, uint32_t index,
-                             uint32_t *nr_leaves, xen_cpuid_leaf_t *leaves,
-                             uint32_t *nr_msrs, xen_msr_entry_t *msrs)
+static int get_system_cpu_policy(xc_interface *xch, uint32_t index,
+                                 uint32_t *nr_leaves, xen_cpuid_leaf_t *leaves,
+                                 uint32_t *nr_msrs, xen_msr_entry_t *msrs)
 {
     struct xen_sysctl sysctl = {};
     DECLARE_HYPERCALL_BOUNCE(leaves,
@@ -166,9 +166,9 @@ int xc_get_system_cpu_policy(xc_interface *xch, uint32_t index,
     return ret;
 }
 
-int xc_get_domain_cpu_policy(xc_interface *xch, uint32_t domid,
-                             uint32_t *nr_leaves, xen_cpuid_leaf_t *leaves,
-                             uint32_t *nr_msrs, xen_msr_entry_t *msrs)
+static int get_domain_cpu_policy(xc_interface *xch, uint32_t domid,
+                                 uint32_t *nr_leaves, xen_cpuid_leaf_t *leaves,
+                                 uint32_t *nr_msrs, xen_msr_entry_t *msrs)
 {
     DECLARE_DOMCTL;
     DECLARE_HYPERCALL_BOUNCE(leaves,
@@ -322,7 +322,7 @@ static int xc_cpuid_xend_policy(
     /* Get the domain's current policy. */
     nr_msrs = 0;
     nr_cur = nr_leaves;
-    rc = xc_get_domain_cpu_policy(xch, domid, &nr_cur, cur, &nr_msrs, NULL);
+    rc = get_domain_cpu_policy(xch, domid, &nr_cur, cur, &nr_msrs, NULL);
     if ( rc )
     {
         PERROR("Failed to obtain d%d current policy", domid);
@@ -333,9 +333,9 @@ static int xc_cpuid_xend_policy(
     /* Get the domain's max policy. */
     nr_msrs = 0;
     nr_max = nr_leaves;
-    rc = xc_get_system_cpu_policy(xch, di.hvm ? XEN_SYSCTL_cpu_policy_hvm_max
-                                              : XEN_SYSCTL_cpu_policy_pv_max,
-                                  &nr_max, max, &nr_msrs, NULL);
+    rc = get_system_cpu_policy(xch, di.hvm ? XEN_SYSCTL_cpu_policy_hvm_max
+                                           : XEN_SYSCTL_cpu_policy_pv_max,
+                               &nr_max, max, &nr_msrs, NULL);
     if ( rc )
     {
         PERROR("Failed to obtain %s max policy", di.hvm ? "hvm" : "pv");
@@ -346,8 +346,8 @@ static int xc_cpuid_xend_policy(
     /* Get the host policy. */
     nr_msrs = 0;
     nr_host = nr_leaves;
-    rc = xc_get_system_cpu_policy(xch, XEN_SYSCTL_cpu_policy_host,
-                                  &nr_host, host, &nr_msrs, NULL);
+    rc = get_system_cpu_policy(xch, XEN_SYSCTL_cpu_policy_host,
+                               &nr_host, host, &nr_msrs, NULL);
     if ( rc )
     {
         PERROR("Failed to obtain host policy");
@@ -478,9 +478,9 @@ int xc_cpuid_apply_policy(xc_interface *xch, uint32_t domid, bool restore,
 
     /* Get the domain's default policy. */
     nr_msrs = 0;
-    rc = xc_get_system_cpu_policy(xch, di.hvm ? XEN_SYSCTL_cpu_policy_hvm_default
-                                              : XEN_SYSCTL_cpu_policy_pv_default,
-                                  &nr_leaves, leaves, &nr_msrs, NULL);
+    rc = get_system_cpu_policy(xch, di.hvm ? XEN_SYSCTL_cpu_policy_hvm_default
+                                           : XEN_SYSCTL_cpu_policy_pv_default,
+                               &nr_leaves, leaves, &nr_msrs, NULL);
     if ( rc )
     {
         PERROR("Failed to obtain %s default policy", di.hvm ? "hvm" : "pv");
@@ -760,7 +760,7 @@ int xc_cpu_policy_get_system(xc_interface *xch, unsigned int idx,
         return -1;
     }
 
-    rc = xc_get_system_cpu_policy(xch, idx, &nr_leaves, leaves, &nr_msrs, msrs);
+    rc = get_system_cpu_policy(xch, idx, &nr_leaves, leaves, &nr_msrs, msrs);
     if ( rc )
     {
         PERROR("Failed to obtain %u policy", idx);
@@ -796,8 +796,8 @@ int xc_cpu_policy_get_domain(xc_interface *xch, uint32_t domid,
         return -1;
     }
 
-    rc = xc_get_domain_cpu_policy(xch, domid, &nr_leaves, leaves, &nr_msrs,
-                                  msrs);
+    rc = get_domain_cpu_policy(xch, domid, &nr_leaves, leaves, &nr_msrs,
+                               msrs);
     if ( rc )
     {
         PERROR("Failed to obtain domain %u policy", domid);
