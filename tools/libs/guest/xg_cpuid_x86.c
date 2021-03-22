@@ -204,11 +204,11 @@ static int get_domain_cpu_policy(xc_interface *xch, uint32_t domid,
     return ret;
 }
 
-int xc_set_domain_cpu_policy(xc_interface *xch, uint32_t domid,
-                             uint32_t nr_leaves, xen_cpuid_leaf_t *leaves,
-                             uint32_t nr_msrs, xen_msr_entry_t *msrs,
-                             uint32_t *err_leaf_p, uint32_t *err_subleaf_p,
-                             uint32_t *err_msr_p)
+static int set_domain_cpu_policy(xc_interface *xch, uint32_t domid,
+                                 uint32_t nr_leaves, xen_cpuid_leaf_t *leaves,
+                                 uint32_t nr_msrs, xen_msr_entry_t *msrs,
+                                 uint32_t *err_leaf_p, uint32_t *err_subleaf_p,
+                                 uint32_t *err_msr_p)
 {
     DECLARE_DOMCTL;
     DECLARE_HYPERCALL_BOUNCE(leaves,
@@ -405,8 +405,8 @@ static int xc_cpuid_xend_policy(
     }
 
     /* Feed the transformed currrent policy back up to Xen. */
-    rc = xc_set_domain_cpu_policy(xch, domid, nr_cur, cur, 0, NULL,
-                                  &err_leaf, &err_subleaf, &err_msr);
+    rc = set_domain_cpu_policy(xch, domid, nr_cur, cur, 0, NULL,
+                               &err_leaf, &err_subleaf, &err_msr);
     if ( rc )
     {
         PERROR("Failed to set d%d's policy (err leaf %#x, subleaf %#x, msr %#x)",
@@ -638,8 +638,8 @@ int xc_cpuid_apply_policy(xc_interface *xch, uint32_t domid, bool restore,
         goto out;
     }
 
-    rc = xc_set_domain_cpu_policy(xch, domid, nr_leaves, leaves, 0, NULL,
-                                  &err_leaf, &err_subleaf, &err_msr);
+    rc = set_domain_cpu_policy(xch, domid, nr_leaves, leaves, 0, NULL,
+                               &err_leaf, &err_subleaf, &err_msr);
     if ( rc )
     {
         PERROR("Failed to set d%d's policy (err leaf %#x, subleaf %#x, msr %#x)",
@@ -851,8 +851,8 @@ int xc_cpu_policy_set_domain(xc_interface *xch, uint32_t domid,
     if ( rc )
         goto out;
 
-    rc = xc_set_domain_cpu_policy(xch, domid, nr_leaves, leaves, nr_msrs, msrs,
-                                  &err_leaf, &err_subleaf, &err_msr);
+    rc = set_domain_cpu_policy(xch, domid, nr_leaves, leaves, nr_msrs, msrs,
+                               &err_leaf, &err_subleaf, &err_msr);
     if ( rc )
     {
         ERROR("Failed to set domain %u policy (%d = %s)", domid, -rc,
