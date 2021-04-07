@@ -214,9 +214,7 @@ void hvm_pci_intx_deassert(struct domain *d, unsigned int device,
  * allows us to get the interrupt vector in the protection of irq_lock.
  * For most cases, just set get_vector to NULL.
  */
-int hvm_isa_irq_assert(struct domain *d, unsigned int isa_irq,
-                       int (*get_vector)(const struct domain *d,
-                                         unsigned int gsi));
+void hvm_isa_irq_assert(struct domain *d, unsigned int isa_irq);
 void hvm_isa_irq_deassert(struct domain *d, unsigned int isa_irq);
 
 /* Modify state of GSIs. */

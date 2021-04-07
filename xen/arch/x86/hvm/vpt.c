@@ -368,7 +368,7 @@ static bool inject_interrupt(struct periodic_time *pt)
 
     case PTSRC_isa:
         hvm_isa_irq_deassert(d, irq);
-        hvm_isa_irq_assert(d, irq, NULL);
+        hvm_isa_irq_assert(d, irq);
         break;
 
     case PTSRC_ioapic:
