@@ -21,7 +21,6 @@
 #include <asm/hvm/vpt.h>
 #include <asm/event.h>
 #include <asm/apic.h>
-#include <asm/mc146818rtc.h>
 #include <public/hvm/params.h>
 
 #define mode_is(d, name) \
@@ -337,8 +336,7 @@ int pt_update_irq(struct vcpu *v)
     {
         if ( pt->pending_intr_nr )
         {
-            /* RTC code takes care of disabling the timer itself. */
-            if ( (pt->irq != RTC_IRQ || !pt->priv) && pt_irq_masked(pt) &&
+            if ( pt_irq_masked(pt) &&
                  /* Level interrupts should be asserted even if masked. */
                  !pt->level )
             {

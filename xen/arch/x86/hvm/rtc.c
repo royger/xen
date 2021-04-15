@@ -46,15 +46,6 @@
 #define epoch_year     1900
 #define get_year(x)    (x + epoch_year)
 
-enum rtc_mode {
-   rtc_mode_no_ack,
-   rtc_mode_strict
-};
-
-/* This must be in sync with how hvmloader sets the ACPI WAET flags. */
-#define mode_is(d, m) ((void)(d), rtc_mode_##m == rtc_mode_no_ack)
-#define rtc_mode_is(s, m) mode_is(vrtc_domain(s), m)
-
 static void rtc_copy_date(RTCState *s);
 static void rtc_set_time(RTCState *s);
 static inline int from_bcd(RTCState *s, int a);
@@ -64,9 +55,6 @@ static void rtc_update_irq(RTCState *s)
 {
     ASSERT(spin_is_locked(&s->lock));
 
-    if ( rtc_mode_is(s, strict) && (s->hw.cmos_data[RTC_REG_C] & RTC_IRQF) )
-        return;
-
     /* IRQ is raised if any source is both raised & enabled */
     if ( !(s->hw.cmos_data[RTC_REG_B] &
            s->hw.cmos_data[RTC_REG_C] &
@@ -74,8 +62,7 @@ static void rtc_update_irq(RTCState *s)
         return;
 
     s->hw.cmos_data[RTC_REG_C] |= RTC_IRQF;
-    if ( rtc_mode_is(s, no_ack) )
-        hvm_isa_irq_deassert(vrtc_domain(s), RTC_IRQ);
+    hvm_isa_irq_deassert(vrtc_domain(s), RTC_IRQ);
     hvm_isa_irq_assert(vrtc_domain(s), RTC_IRQ, NULL);
 }
 
@@ -86,19 +73,7 @@ static void rtc_pf_callback(struct vcpu *v, void *opaque)
     RTCState *s = opaque;
 
     spin_lock(&s->lock);
-
-    if ( !rtc_mode_is(s, no_ack)
-         && (s->hw.cmos_data[RTC_REG_C] & RTC_IRQF)
-         && ++(s->pt_dead_ticks) >= 10 )
-    {
-        /* VM is ignoring its RTC; no point in running the timer */
-        TRACE_0D(TRC_HVM_EMUL_RTC_STOP_TIMER);
-        destroy_periodic_time(&s->pt);
-        s->period = 0;
-    }
-
     s->hw.cmos_data[RTC_REG_C] |= RTC_PF|RTC_IRQF;
-
     spin_unlock(&s->lock);
 }
 
