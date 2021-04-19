@@ -47,24 +47,20 @@ static void assert_gsi(struct domain *d, unsigned ioapic_gsi)
     vioapic_irq_positive_edge(d, ioapic_gsi);
 }
 
-int hvm_ioapic_assert(struct domain *d, unsigned int gsi, bool level)
+void hvm_ioapic_assert(struct domain *d, unsigned int gsi, bool level)
 {
     struct hvm_irq *hvm_irq = hvm_domain_irq(d);
-    int vector;
 
     if ( gsi >= hvm_irq->nr_gsis )
     {
         ASSERT_UNREACHABLE();
-        return -1;
+        return;
     }
 
     spin_lock(&d->arch.hvm.irq_lock);
     if ( !level || hvm_irq->gsi_assert_count[gsi]++ == 0 )
         assert_gsi(d, gsi);
-    vector = vioapic_get_vector(d, gsi);
     spin_unlock(&d->arch.hvm.irq_lock);
-
-    return vector;
 }
 
 void hvm_ioapic_deassert(struct domain *d, unsigned int gsi)
