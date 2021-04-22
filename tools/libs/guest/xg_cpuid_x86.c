@@ -690,3 +690,8 @@ int xc_cpu_policy_apply_featureset(xc_interface *xch, xc_cpu_policy_t *policy,
 
     return 0;
 }
+
+void xc_cpu_policy_sanitize(xc_interface *xch, xc_cpu_policy_t *policy)
+{
+    x86_cpuid_policy_shrink_max_leaves(&policy->cpuid);
+}
