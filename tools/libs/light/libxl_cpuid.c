@@ -689,6 +689,13 @@ int libxl__cpuid_legacy(libxl_ctx *ctx, uint32_t domid, bool restore,
         goto out;
     }
 
+    /*
+     * Do not attempt any modifications if creating a policy that aims to be
+     * compatible with pre-4.13 Xen versions.
+     */
+    if (!restore)
+        xc_cpu_policy_sanitize(ctx->xch, policy);
+
     r = xc_cpu_policy_set_domain(ctx->xch, domid, policy);
     if (r) {
         LOGED(ERROR, domid, "Failed to set domain CPUID policy");
