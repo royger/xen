@@ -121,6 +121,7 @@ config XEN_SHSTK
 
 config SHADOW_PAGING
 	bool "Shadow Paging"
+	depends on PV || HVM
 	default !PV_SHIM_EXCLUSIVE
 	depends on PV || HVM
 	---help---
