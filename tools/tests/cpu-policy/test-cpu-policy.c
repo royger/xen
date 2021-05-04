@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -565,6 +566,180 @@ static void test_cpuid_out_of_range_clearing(void)
     }
 }
 
+static void test_cpuid_get_leaf_failure(void)
+{
+    static const struct test {
+        struct cpu_policy p;
+        const char *name;
+        uint32_t leaf, subleaf;
+    } tests[] = {
+        /* Test for invalid configurations in the object itself. */
+        {
+            .name = "Basic max leaf >= array size",
+            .p = {
+                .basic.max_leaf = CPUID_GUEST_NR_BASIC,
+            },
+        },
+        {
+            .name = "Feature max leaf >= array size",
+            .p = {
+                .basic.max_leaf = CPUID_GUEST_NR_BASIC - 1,
+                .feat.max_subleaf = CPUID_GUEST_NR_FEAT,
+            },
+            .leaf = 0x7,
+        },
+        {
+            .name = "Extended max leaf >= array size",
+            .p = {
+                .extd.max_leaf = 0x80000000 + CPUID_GUEST_NR_EXTD,
+            },
+            .leaf = 0x80000000,
+        },
+
+        /* Test out-of-bounds checks in the accessor. */
+        {
+            .name = "Basic leaf >= max leaf",
+            .p = {
+                .basic.max_leaf = CPUID_GUEST_NR_BASIC - 1,
+            },
+            .leaf = CPUID_GUEST_NR_BASIC,
+        },
+        {
+            .name = "Cache leaf >= cache array size",
+            .p = {
+                .basic.max_leaf = CPUID_GUEST_NR_BASIC - 1,
+            },
+            .leaf = 0x4,
+            .subleaf = CPUID_GUEST_NR_CACHE,
+        },
+        {
+            .name = "Feature leaf >= max leaf",
+            .p = {
+                .basic.max_leaf = CPUID_GUEST_NR_BASIC - 1,
+                .feat.max_subleaf = CPUID_GUEST_NR_FEAT - 1,
+            },
+            .leaf = 0x7,
+            .subleaf = CPUID_GUEST_NR_FEAT,
+        },
+        {
+            .name = "Extended Topo leaf >= cache array size",
+            .p = {
+                .basic.max_leaf = CPUID_GUEST_NR_BASIC - 1,
+            },
+            .leaf = 0xb,
+            .subleaf = CPUID_GUEST_NR_TOPO,
+        },
+        {
+            .name = "Xstate leaf >= cache array size",
+            .p = {
+                .basic.max_leaf = CPUID_GUEST_NR_BASIC - 1,
+            },
+            .leaf = 0xd,
+            .subleaf = CPUID_GUEST_NR_XSTATE,
+        },
+        {
+            .name = "Extended leaf >= max leaf",
+            .p = {
+                .extd.max_leaf = 0x80000000 + CPUID_GUEST_NR_EXTD - 1,
+            },
+            .leaf = 0x80000000 + CPUID_GUEST_NR_EXTD,
+        },
+
+        /* Test fetching Xsave without present. */
+        {
+            .name = "Fetch Xsave without present",
+            .p = {
+                .basic = {
+                    .max_leaf = CPUID_GUEST_NR_BASIC - 1,
+                    .xsave = false,
+                },
+            },
+            .leaf = 0xd,
+        },
+
+    };
+    const struct cpu_policy pc = {};
+    const struct cpuid_leaf *lc;
+    struct cpu_policy p = {};
+    struct cpuid_leaf *l;
+
+    /* Constness build test. */
+    lc = x86_cpuid_get_leaf(&pc, 0, 0);
+    l = x86_cpuid_get_leaf(&p, 0, 0);
+
+    printf("Testing CPUID get leaf bound checking:\n");
+
+    for ( size_t i = 0; i < ARRAY_SIZE(tests); ++i )
+    {
+        const struct test *t = &tests[i];
+        const struct cpu_policy *p = memdup(&t->p);
+
+        if ( x86_cpuid_get_leaf_const(p, t->leaf, t->subleaf) )
+            fail("  Test %s get leaf fail\n", t->name);
+    }
+}
+
+static void test_cpuid_get_leaf(void)
+{
+    static const struct cpu_policy policy = {
+        .basic = {
+            .max_leaf = CPUID_GUEST_NR_BASIC - 1,
+            .xsave = true,
+        },
+        .feat.max_subleaf = CPUID_GUEST_NR_FEAT - 1,
+        .extd.max_leaf = 0x80000000 + CPUID_GUEST_NR_EXTD - 1,
+    };
+    static const struct test {
+        const char *name;
+        uint32_t leaf, subleaf;
+        size_t offset;
+    } tests[] = {
+        /* Test fetch different leaves. */
+        {
+            .name = "Fetch basic leaf",
+            .offset = offsetof(struct cpu_policy, basic.raw[0]),
+        },
+        {
+            .name = "Fetch cache leaf",
+            .leaf = 0x4,
+            .offset = offsetof(struct cpu_policy, cache.raw[0]),
+        },
+        {
+            .name = "Fetch feature leaf",
+            .leaf = 0x7,
+            .offset = offsetof(struct cpu_policy, feat.raw[0]),
+        },
+        {
+            .name = "Fetch Topo leaf",
+            .leaf = 0xb,
+            .offset = offsetof(struct cpu_policy, topo.raw[0]),
+        },
+        {
+            .name = "Fetch Xstate leaf",
+            .leaf = 0xd,
+            .offset = offsetof(struct cpu_policy, xstate.raw[0]),
+        },
+        {
+            .name = "Fetch extended leaf",
+            .leaf = 0x80000000,
+            .offset = offsetof(struct cpu_policy, extd.raw[0]),
+        },
+    };
+    const struct cpu_policy *p = memdup(&policy);
+
+    printf("Testing CPUID get leaf:\n");
+
+    for ( size_t i = 0; i < ARRAY_SIZE(tests); ++i )
+    {
+        const struct test *t = &tests[i];
+        const struct cpuid_leaf *l = x86_cpuid_get_leaf_const(p, t->leaf,
+                                                              t->subleaf);
+
+        if ( l != (const void *)p + t->offset )
+            fail("  Test %s get leaf fail\n", t->name);
+    }
+}
+
 static void test_is_compatible_success(void)
 {
     static struct test {
@@ -660,6 +835,8 @@ int main(int argc, char **argv)
     test_cpuid_serialise_success();
     test_cpuid_deserialise_failure();
     test_cpuid_out_of_range_clearing();
+    test_cpuid_get_leaf_failure();
+    test_cpuid_get_leaf();
 
     test_msr_serialise_success();
     test_msr_deserialise_failure();
