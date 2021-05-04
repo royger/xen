@@ -444,7 +444,7 @@ int x86_cpuid_copy_from_buffer(struct cpuid_policy *p,
 
     for ( i = 0; i < nr_entries; ++i )
     {
-        struct cpuid_leaf l;
+        struct cpuid_leaf l, *curr_leaf;
 
         if ( copy_from_buffer_offset(&data, leaves, i, 1) )
             return -EFAULT;
@@ -453,44 +453,16 @@ int x86_cpuid_copy_from_buffer(struct cpuid_policy *p,
 
         switch ( data.leaf )
         {
+        case 0x80000000 ... 0x80000000 + ARRAY_SIZE(p->extd.raw) - 1:
+            if ( data.subleaf != XEN_CPUID_NO_SUBLEAF )
+                goto out_of_range;
+            /* fallthrough. */
+
         case 0 ... ARRAY_SIZE(p->basic.raw) - 1:
-            switch ( data.leaf )
-            {
-            case 0x4:
-                if ( data.subleaf >= ARRAY_SIZE(p->cache.raw) )
-                    goto out_of_range;
-
-                array_access_nospec(p->cache.raw, data.subleaf) = l;
-                break;
-
-            case 0x7:
-                if ( data.subleaf >= ARRAY_SIZE(p->feat.raw) )
-                    goto out_of_range;
-
-                array_access_nospec(p->feat.raw, data.subleaf) = l;
-                break;
-
-            case 0xb:
-                if ( data.subleaf >= ARRAY_SIZE(p->topo.raw) )
-                    goto out_of_range;
-
-                array_access_nospec(p->topo.raw, data.subleaf) = l;
-                break;
-
-            case 0xd:
-                if ( data.subleaf >= ARRAY_SIZE(p->xstate.raw) )
-                    goto out_of_range;
-
-                array_access_nospec(p->xstate.raw, data.subleaf) = l;
-                break;
-
-            default:
-                if ( data.subleaf != XEN_CPUID_NO_SUBLEAF )
-                    goto out_of_range;
-
-                array_access_nospec(p->basic.raw, data.leaf) = l;
-                break;
-            }
+            curr_leaf = x86_cpuid_get_leaf(p, data.leaf, data.subleaf);
+            if ( !curr_leaf )
+                goto out_of_range;
+            *curr_leaf = l;
             break;
 
         case 0x40000000:
@@ -505,13 +477,6 @@ int x86_cpuid_copy_from_buffer(struct cpuid_policy *p,
                 goto out_of_range;
 
             p->hv2_limit = l.a;
-            break;
-
-        case 0x80000000 ... 0x80000000 + ARRAY_SIZE(p->extd.raw) - 1:
-            if ( data.subleaf != XEN_CPUID_NO_SUBLEAF )
-                goto out_of_range;
-
-            array_access_nospec(p->extd.raw, data.leaf & 0xffff) = l;
             break;
 
         default:
@@ -530,6 +495,57 @@ int x86_cpuid_copy_from_buffer(struct cpuid_policy *p,
         *err_subleaf = data.subleaf;
 
     return -ERANGE;
+}
+
+const struct cpuid_leaf *_x86_cpuid_get_leaf(const struct cpuid_policy *p,
+                                             uint32_t leaf, uint32_t subleaf)
+{
+    switch ( leaf )
+    {
+    case 0 ... CPUID_GUEST_NR_BASIC - 1:
+        if ( p->basic.max_leaf >= ARRAY_SIZE(p->basic.raw) ||
+             leaf > p->basic.max_leaf )
+            return NULL;
+
+        switch ( leaf )
+        {
+        case 0x4:
+            if ( subleaf >= ARRAY_SIZE(p->cache.raw) )
+                return NULL;
+
+            return &array_access_nospec(p->cache.raw, subleaf);
+
+        case 0x7:
+            if ( p->feat.max_subleaf >= ARRAY_SIZE(p->feat.raw) ||
+                 subleaf > p->feat.max_subleaf )
+                return NULL;
+
+            return &array_access_nospec(p->feat.raw, subleaf);
+
+        case 0xb:
+            if ( subleaf >= ARRAY_SIZE(p->topo.raw) )
+                return NULL;
+
+            return &array_access_nospec(p->topo.raw, subleaf);
+
+        case 0xd:
+            if ( !p->basic.xsave || subleaf >= ARRAY_SIZE(p->xstate.raw) )
+                return NULL;
+
+            return &array_access_nospec(p->xstate.raw, subleaf);
+        }
+
+        return &array_access_nospec(p->basic.raw, leaf);
+
+    case 0x80000000 ... 0x80000000 + CPUID_GUEST_NR_EXTD - 1:
+        if ( (p->extd.max_leaf & 0xffff) >= ARRAY_SIZE(p->extd.raw) ||
+             leaf > p->extd.max_leaf )
+            return NULL;
+
+        return &array_access_nospec(p->extd.raw, leaf & 0xffff);
+    }
+
+    return NULL;
 }
 
 /*
