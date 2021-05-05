@@ -337,7 +337,7 @@ struct cpu_policy
      * is dependent on real hardware support.
      */
     union {
-        uint32_t raw;
+        uint64_t raw;
         struct {
             uint32_t :31;
             bool cpuid_faulting:1;
@@ -558,6 +558,22 @@ const struct cpuid_leaf *x86_cpuid_get_leaf_const(const struct cpu_policy *p,
                                                   uint32_t subleaf);
 #define x86_cpuid_get_leaf(p, l, s) \
     ((__typeof__(&(p)->basic.raw[0]))x86_cpuid_get_leaf_const(p, l, s))
+
+/**
+ * Get a MSR entry from a policy object.
+ *
+ * @param policy      The msr_policy object.
+ * @param idx         The index.
+ * @returns a pointer to the requested leaf or NULL in case of error.
+ *
+ * Do not call this function directly and instead use x86_msr_get_entry that
+ * will deal with both const and non-const policies returning a pointer with
+ * constness matching that of the input.
+ */
+const uint64_t *x86_msr_get_entry_const(const struct cpu_policy *p,
+                                        uint32_t idx);
+#define x86_msr_get_entry(p, i) \
+    ((__typeof__(&(p)->platform_info.raw))x86_msr_get_entry_const(p, i))
 
 #endif /* !XEN_LIB_X86_POLICIES_H */
 
