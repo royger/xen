@@ -22,8 +22,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <limits.h>
-#include "xc_private.h"
-#include "xc_bitops.h"
+#include "xg_private.h"
 #include <xen/hvm/params.h>
 #include <xen-tools/libs.h>
 
