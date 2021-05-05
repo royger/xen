@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define BITS_PER_LONG (sizeof(unsigned long) * 8)
+#define BITS_PER_LONG __WORDSIZE
 
 #define BITMAP_ENTRY(_nr,_bmap) ((_bmap))[(_nr) / 8]
 #define BITMAP_SHIFT(_nr) ((_nr) % 8)
