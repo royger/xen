@@ -2799,6 +2799,13 @@ int xenmem_add_to_physmap_one(
         goto put_all;
     }
 
+    if ( gfn_eq(_gfn(old_gpfn), gpfn) )
+    {
+        /* Nothing to do, mapping is already as requested. */
+        ASSERT(mfn_eq(prev_mfn, mfn));
+        goto put_all;
+    }
+
     /* Remove previously mapped page if it was present. */
     if ( p2mt == p2m_mmio_direct )
         rc = -EPERM;
