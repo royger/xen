@@ -81,6 +81,7 @@
 #define KB(_kb)     (_AC(_kb, ULL) << 10)
 #define MB(_mb)     (_AC(_mb, ULL) << 20)
 #define GB(_gb)     (_AC(_gb, ULL) << 30)
+#define TB(_tb)     (_AC(_tb, ULL) << 40)
 
 #define IS_ALIGNED(val, align) (((val) & ((align) - 1)) == 0)
 
