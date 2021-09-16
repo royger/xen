@@ -598,7 +598,7 @@ static int libxl__build_dom(libxl__gc *gc, uint32_t domid,
         LOGE(ERROR, "xc_dom_boot_image failed");
         goto out;
     }
-    if ( (ret = xc_dom_gnttab_init(dom)) != 0 ) {
+    if ( info->max_grant_version && (ret = xc_dom_gnttab_init(dom)) != 0 ) {
         LOGE(ERROR, "xc_dom_gnttab_init failed");
         goto out;
     }
