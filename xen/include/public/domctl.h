@@ -89,13 +89,19 @@ struct xen_domctl_createdomain {
     /*
      * Various domain limits, which impact the quantity of resources
      * (global mapping space, xenheap, etc) a guest may consume.  For
-     * max_grant_frames and max_maptrack_frames, < 0 means "use the
-     * default maximum value in the hypervisor".
+     * max_grant_frames, max_maptrack_frames and max_gnttab_version < 0
+     * means "use the default maximum value in the hypervisor".
      */
     uint32_t max_vcpus;
     uint32_t max_evtchn_port;
     int32_t max_grant_frames;
     int32_t max_maptrack_frames;
+
+/* Grant version, use low 4 bits. */
+#define XEN_DOMCTL_GRANT_version_mask    0xf
+#define XEN_DOMCTL_GRANT_version_default 0xf
+
+    uint32_t grant_opts;
 
     /* Per-vCPU buffer size in bytes.  0 to disable. */
     uint32_t vmtrace_size;
