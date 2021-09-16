@@ -670,7 +670,8 @@ struct domain *domain_create(domid_t domid,
 
         if ( (err = grant_table_init(d, config->max_grant_frames,
                                      config->max_maptrack_frames,
-                                     config->max_grant_version)) != 0 )
+                                     config->max_grant_version,
+                                     config->grant_opts)) != 0 )
             goto fail;
         init_status |= INIT_gnttab;
 

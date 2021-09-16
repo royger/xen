@@ -74,6 +74,10 @@ struct grant_table {
      * progress.
      */
     unsigned int          maptrack_limit;
+
+    /* Allow transitive grants. Only applies to grant v2. */
+    bool                  allow_transitive:1;
+
     /* Shared grant table (see include/public/grant_table.h). */
     union {
         void **shared_raw;
@@ -1918,7 +1922,8 @@ active_alloc_failed:
 }
 
 int grant_table_init(struct domain *d, int max_grant_frames,
-                     int max_maptrack_frames, int max_grant_version)
+                     int max_maptrack_frames, int max_grant_version,
+                     unsigned int options)
 {
     struct grant_table *gt;
     int ret = -ENOMEM;
@@ -1964,6 +1969,8 @@ int grant_table_init(struct domain *d, int max_grant_frames,
     gt->max_grant_frames = max_grant_frames;
     gt->max_maptrack_frames = max_maptrack_frames;
     gt->max_grant_version = max_grant_version;
+    gt->allow_transitive = !!(options & XEN_DOMCTL_GRANT_transitive) &&
+                           opt_transitive_grants;
 
     /* Install the structure early to simplify the error path. */
     gt->domain = d;
@@ -2886,7 +2893,7 @@ static int gnttab_copy_claim_buf(const struct gnttab_copy *op,
                                     buf->read_only,
                                     &buf->mfn, &buf->page,
                                     &buf->ptr.offset, &buf->len,
-                                    opt_transitive_grants);
+                                    buf->domain->grant_table->allow_transitive);
         if ( rc != GNTST_okay )
             goto out;
         buf->ptr.u.ref = ptr->u.ref;

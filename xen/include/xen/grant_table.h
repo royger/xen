@@ -36,7 +36,8 @@ extern unsigned int opt_max_grant_frames;
 
 /* Create/destroy per-domain grant table context. */
 int grant_table_init(struct domain *d, int max_grant_frames,
-                     int max_maptrack_frames, int max_grant_version);
+                     int max_maptrack_frames, int max_grant_version,
+                     unsigned int options);
 void grant_table_destroy(
     struct domain *d);
 void grant_table_init_vcpu(struct vcpu *v);
@@ -68,7 +69,8 @@ int gnttab_acquire_resource(
 static inline int grant_table_init(struct domain *d,
                                    int max_grant_frames,
                                    int max_maptrack_frames,
-                                   int max_grant_version)
+                                   int max_grant_version,
+                                   unsigned int options)
 {
     return 0;
 }
