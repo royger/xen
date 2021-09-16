@@ -2649,6 +2649,7 @@ void __init create_domUs(void)
             .max_evtchn_port = -1,
             .max_grant_frames = -1,
             .max_maptrack_frames = -1,
+            .grant_opts = XEN_DOMCTL_GRANT_version_default,
         };
 
         if ( !dt_device_is_compatible(node, "xen,domain") )
@@ -2756,6 +2757,7 @@ void __init create_dom0(void)
         .max_evtchn_port = -1,
         .max_grant_frames = gnttab_dom0_frames(),
         .max_maptrack_frames = -1,
+        .grant_opts = XEN_DOMCTL_GRANT_version_default,
     };
 
     /* The vGIC for DOM0 is exactly emulating the hardware GIC */
