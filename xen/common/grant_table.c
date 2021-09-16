@@ -1027,6 +1027,12 @@ map_grant_ref(
     }
 
     lgt = ld->grant_table;
+    if ( !lgt )
+    {
+        gdprintk(XENLOG_INFO, "%pd has no grant table\n", ld);
+        op->status = GNTST_bad_domain;
+        return;
+    }
     handle = get_maptrack_handle(lgt);
     if ( unlikely(handle == INVALID_MAPTRACK_HANDLE) )
     {
@@ -1037,6 +1043,14 @@ map_grant_ref(
     }
 
     rgt = rd->grant_table;
+    if ( !rgt )
+    {
+        put_maptrack_handle(lgt, handle);
+        rcu_unlock_domain(rd);
+        gdprintk(XENLOG_INFO, "%pd has no grant table\n", rd);
+        op->status = GNTST_bad_domain;
+        return;
+    }
     grant_read_lock(rgt);
 
     /* Bounds check on the grant ref */
@@ -1367,6 +1381,13 @@ unmap_common(
     ld = current->domain;
     lgt = ld->grant_table;
 
+    if ( !lgt )
+    {
+        gdprintk(XENLOG_INFO, "%pd has no grant table\n", ld);
+        op->status = GNTST_bad_domain;
+        return;
+    }
+
     if ( unlikely(op->handle >= lgt->maptrack_limit) )
     {
         gdprintk(XENLOG_INFO, "Bad d%d handle %#x\n",
@@ -1406,6 +1427,13 @@ unmap_common(
     TRACE_1D(TRC_MEM_PAGE_GRANT_UNMAP, dom);
 
     rgt = rd->grant_table;
+    if ( !rgt )
+    {
+        rcu_unlock_domain(rd);
+        gdprintk(XENLOG_INFO, "%pd has no grant table\n", rd);
+        op->status = GNTST_bad_domain;
+        return;
+    }
 
     grant_read_lock(rgt);
 
@@ -1556,6 +1584,12 @@ unmap_common_complete(struct gnttab_unmap_common *op)
 
     rcu_lock_domain(rd);
     rgt = rd->grant_table;
+    if ( !rgt )
+    {
+        rcu_unlock_domain(rd);
+        op->status = GNTST_bad_domain;
+        return;
+    }
 
     grant_read_lock(rgt);
 
@@ -1931,10 +1965,7 @@ int grant_table_init(struct domain *d, int max_grant_frames,
     if ( max_grant_version == XEN_DOMCTL_GRANT_version_default )
         max_grant_version = opt_gnttab_max_version;
     if ( !max_grant_version )
-    {
-        dprintk(XENLOG_INFO, "Invalid grant table version 0 requested\n");
-        return -EINVAL;
-    }
+        return 0;
     if ( max_grant_version > opt_gnttab_max_version )
     {
         dprintk(XENLOG_INFO,
@@ -2056,6 +2087,11 @@ gnttab_setup_table(
     }
 
     gt = d->grant_table;
+    if ( !gt )
+    {
+        op.status = GNTST_bad_domain;
+        goto out;
+    }
     grant_write_lock(gt);
 
     if ( unlikely(op.nr_frames > gt->max_grant_frames) )
@@ -2138,6 +2174,11 @@ gnttab_query_size(
     }
 
     gt = d->grant_table;
+    if ( !gt )
+    {
+        op.status = GNTST_bad_domain;
+        goto out;
+    }
 
     grant_read_lock(gt);
 
@@ -2300,6 +2341,13 @@ gnttab_transfer(
             gdprintk(XENLOG_INFO, "can't find d%d\n", gop.domid);
             gop.status = GNTST_bad_domain;
             goto put_gfn_and_copyback;
+        }
+
+        if ( unlikely(!e->grant_table) )
+        {
+            gdprintk(XENLOG_INFO, "%pd has no grant table\n", e);
+            gop.status = GNTST_bad_domain;
+            goto unlock_and_copyback;
         }
 
         if ( xsm_grant_transfer(XSM_HOOK, d, e) )
@@ -2888,6 +2936,12 @@ static int gnttab_copy_claim_buf(const struct gnttab_copy *op,
 
     if ( op->flags & gref_flag )
     {
+        if ( !buf->domain->grant_table )
+        {
+            rc = GNTST_bad_domain;
+            goto out;
+        }
+
         rc = acquire_grant_for_copy(buf->domain, ptr->u.ref,
                                     current->domain->domain_id,
                                     buf->read_only,
@@ -3092,6 +3146,9 @@ gnttab_set_version(XEN_GUEST_HANDLE_PARAM(gnttab_set_version_t) uop)
     int res;
     unsigned int i, nr_ents;
 
+    if ( !gt )
+        return -ENODEV;
+
     if ( copy_from_guest(&op, uop, 1) )
         return -EFAULT;
 
@@ -3270,6 +3327,11 @@ gnttab_get_status_frames(XEN_GUEST_HANDLE_PARAM(gnttab_get_status_frames_t) uop,
     }
 
     gt = d->grant_table;
+    if ( !gt )
+    {
+        op.status = GNTST_bad_domain;
+        goto out2;
+    }
 
     op.status = GNTST_okay;
 
@@ -3332,7 +3394,11 @@ gnttab_get_version(XEN_GUEST_HANDLE_PARAM(gnttab_get_version_t) uop)
         return rc;
     }
 
-    op.version = d->grant_table->gt_version;
+    if ( d->grant_table )
+        op.version = d->grant_table->gt_version;
+    else
+        /* Use 0 to signal no grant table. */
+        op.version = 0;
 
     rcu_unlock_domain(d);
 
@@ -3350,6 +3416,12 @@ swap_grant_ref(grant_ref_t ref_a, grant_ref_t ref_b)
     struct active_grant_entry *act_a = NULL;
     struct active_grant_entry *act_b = NULL;
     s16 rc = GNTST_okay;
+
+    if ( !gt )
+    {
+        rcu_unlock_domain(d);
+        return GNTST_bad_domain;
+    }
 
     grant_write_lock(gt);
 
@@ -3872,6 +3944,9 @@ void grant_table_warn_active_grants(struct domain *d)
 
 #define WARN_GRANT_MAX 10
 
+    if ( !gt )
+        return;
+
     grant_read_lock(gt);
 
     nr_ents = nr_grant_entries(gt);
@@ -3952,6 +4027,9 @@ int mem_sharing_gref_to_gfn(struct grant_table *gt, grant_ref_t ref,
 {
     int rc = 0;
     uint16_t flags = 0;
+
+    if ( !gt )
+        return -ENODEV;
 
     grant_read_lock(gt);
 
@@ -4069,6 +4147,9 @@ unsigned int gnttab_resource_max_frames(const struct domain *d, unsigned int id)
     const struct grant_table *gt = d->grant_table;
     unsigned int nr = 0;
 
+    if ( !gt )
+        return 0;
+
     /* Don't need the grant lock.  This limit is fixed at domain create time. */
     switch ( id )
     {
@@ -4099,6 +4180,9 @@ int gnttab_acquire_resource(
 
     if ( !nr_frames )
         return rc;
+
+    if ( !gt )
+        return -ENODEV;
 
     final_frame = frame + nr_frames - 1;
 
@@ -4156,6 +4240,9 @@ int gnttab_map_frame(struct domain *d, unsigned long idx, gfn_t gfn, mfn_t *mfn)
     struct grant_table *gt = d->grant_table;
     bool status = false;
 
+    if ( !gt )
+        return -ENODEV;
+
     grant_write_lock(gt);
 
     if ( evaluate_nospec(gt->gt_version == 2) && (idx & XENMAPIDX_grant_table_status) )
@@ -4199,6 +4286,9 @@ static void gnttab_usage_print(struct domain *rd)
     grant_ref_t ref;
     struct grant_table *gt = rd->grant_table;
     unsigned int nr_ents;
+
+    if ( !gt )
+        return;
 
     printk("      -------- active --------       -------- shared --------\n");
     printk("[ref] localdom mfn      pin          localdom gmfn     flags\n");
