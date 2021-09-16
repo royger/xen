@@ -98,8 +98,11 @@ struct xen_domctl_createdomain {
 /* Grant version, use low 4 bits. */
 #define XEN_DOMCTL_GRANT_version_mask    0xf
 #define XEN_DOMCTL_GRANT_version_default 0xf
+/* Allow transitive grants. */
+#define _XEN_DOMCTL_GRANT_transitive     4
+#define XEN_DOMCTL_GRANT_transitive      (1U << _XEN_DOMCTL_GRANT_transitive)
 
-#define XEN_DOMCTLGRANT_MAX XEN_DOMCTL_GRANT_version_mask
+#define XEN_DOMCTLGRANT_MAX XEN_DOMCTL_GRANT_transitive
 
     uint32_t grant_opts;
 

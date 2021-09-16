@@ -56,6 +56,7 @@ bool timestamps = 0;
 int max_grant_frames = -1;
 int max_maptrack_frames = -1;
 int max_grant_version = -1;
+bool transitive_grants = true;
 libxl_domid domid_policy = INVALID_DOMID;
 
 xentoollog_level minmsglevel = minmsglevel_default;
@@ -218,6 +219,12 @@ static void parse_global_config(const char *configfile,
                                   INT_MAX, &l, 1);
     if (!e)
         max_grant_version = l;
+    else if (e != ESRCH)
+        exit(1);
+
+    e = xlu_cfg_get_long (config, "transitive_grants", &l, 0);
+    if (!e)
+        transitive_grants = l;
     else if (e != ESRCH)
         exit(1);
 

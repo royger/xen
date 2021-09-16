@@ -510,6 +510,13 @@
 #define LIBXL_HAVE_MAX_GRANT_VERSION 1
 
 /*
+ * LIBXL_HAVE_TRANSITIVE_GRANTS indicates libxl_domain_build_info has a
+ * transitive_grants field for setting whether such functionality should be
+ * available to the domain.
+ */
+#define LIBXL_HAVE_TRANSITIVE_GRANTS 1
+
+/*
  * libxl ABI compatibility
  *
  * The only guarantee which libxl makes regarding ABI compatibility

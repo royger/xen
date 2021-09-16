@@ -76,6 +76,7 @@ type domctl_create_config = {
   max_grant_frames: int;
   max_maptrack_frames: int;
   max_grant_version: int;
+  transitive_grants: bool;
   arch: arch_domainconfig;
 }
 

@@ -586,6 +586,12 @@ Specify the maximum grant table version the domain is allowed to use. Current
 supported versions are 1 and 2. The default value is settable via
 L<xl.conf(5)>.
 
+=item B<transitive_grants=BOOLEAN>
+
+Specify whether transitive grants should be available to the domain. Note such
+functionality only applies to grant table version 2. The default value is
+settable via L<xl.conf(5)>.
+
 =item B<nomigrate=BOOLEAN>
 
 Disable migration of this domain.  This enables certain other features

@@ -1440,6 +1440,10 @@ void parse_config_data(const char *config_source,
     else
         exit(1);
 
+    xlu_cfg_get_defbool(config, "transitive_grants", &b_info->transitive_grants,
+                        0);
+    libxl_defbool_setdefault(&b_info->transitive_grants, transitive_grants);
+
     libxl_defbool_set(&b_info->claim_mode, claim_mode);
 
     if (xlu_cfg_get_string (config, "on_poweroff", &buf, 0))

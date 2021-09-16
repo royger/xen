@@ -750,7 +750,8 @@ static struct domain *__init create_dom0(const module_t *image,
         .max_evtchn_port = -1,
         .max_grant_frames = -1,
         .max_maptrack_frames = -1,
-        .grant_opts = XEN_DOMCTL_GRANT_version_default,
+        .grant_opts = XEN_DOMCTL_GRANT_version_default |
+                      XEN_DOMCTL_GRANT_transitive,
         .max_vcpus = dom0_max_vcpus(),
         .arch = {
             .misc_flags = opt_dom0_msr_relaxed ? XEN_X86_MSR_RELAXED : 0,
