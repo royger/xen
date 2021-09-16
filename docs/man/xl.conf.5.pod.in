@@ -108,6 +108,13 @@ Sets the default value for the C<max_grant_version> domain config value.
 Default: value of Xen command line B<gnttab> parameter (or its default value if
 unspecified).
 
+=item B<transitive_grants=BOOLEAN>
+
+Sets the default value for the C<transitive_grants> domain config value.
+
+Default: value of Xen command line B<gnttab> parameter (or its default value if
+unspecified).
+
 =item B<vif.default.script="PATH">
 
 Configures the default hotplug script used by virtual network devices.

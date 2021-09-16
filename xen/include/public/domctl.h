@@ -96,6 +96,14 @@ struct xen_domctl_createdomain {
     int32_t max_maptrack_frames;
     int32_t max_grant_version;
 
+/* Allow transitive grants. */
+#define _XEN_DOMCTL_GRANT_transitive  0
+#define XEN_DOMCTL_GRANT_transitive   (1U << _XEN_DOMCTL_GRANT_transitive)
+
+#define XEN_DOMCTL_GRANT_MAX XEN_DOMCTL_GRANT_transitive
+
+    uint32_t grant_opts;
+
     /* Per-vCPU buffer size in bytes.  0 to disable. */
     uint32_t vmtrace_size;
 

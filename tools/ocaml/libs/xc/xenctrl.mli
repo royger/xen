@@ -66,6 +66,9 @@ type domain_create_flag =
 type domain_create_iommu_opts =
   | IOMMU_NO_SHAREPT
 
+type domain_create_grant_opts =
+  | GRANT_TRANSITIVE
+
 type domctl_create_config = {
   ssidref: int32;
   handle: string;
@@ -76,6 +79,7 @@ type domctl_create_config = {
   max_grant_frames: int;
   max_maptrack_frames: int;
   max_grant_version: int;
+  grant_opts: domain_create_grant_opts list;
   arch: arch_domainconfig;
 }
 
