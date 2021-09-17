@@ -80,6 +80,7 @@ struct xs_state_connection {
             uint16_t domid;  /* Domain-Id. */
             uint16_t tdomid; /* Id of target domain or DOMID_INVALID. */
             uint32_t evtchn; /* Event channel port. */
+            uint64_t gfn;    /* Store GFN. */
         } ring;
         int32_t socket_fd;   /* File descriptor for socket connections. */
     } spec;

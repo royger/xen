@@ -33,10 +33,12 @@
 
 #include <xenevtchn.h>
 #include <xenctrl.h>
+#include <xenforeignmemory.h>
 #include <xen/grant_table.h>
 
 static xc_interface *xc_handle;
 xengnttab_handle *xgt_handle;
+static xenforeignmemory_handle *xfm_handle;
 static evtchn_port_t virq_port;
 
 xenevtchn_handle *xce_handle = NULL;
@@ -66,11 +68,17 @@ struct domain
 	/* Generation count at domain introduction time. */
 	uint64_t generation;
 
+	/* Store GFN (if using a ring connection). */
+	xen_pfn_t gfn;
+
 	/* Have we noticed that this domain is shutdown? */
 	bool shutdown;
 
 	/* Has domain been officially introduced? */
 	bool introduced;
+
+	/* Is the ring memory foreign mapped? */
+	bool foreign_mapped;
 
 	/* number of entry from this domain in the store */
 	int nbentry;
@@ -196,16 +204,29 @@ static const struct interface_funcs domain_funcs = {
 	.can_read = domain_can_read,
 };
 
-static void *map_interface(domid_t domid)
+static void *map_interface(domid_t domid, xen_pfn_t gfn, bool *foreign_mapped)
 {
-	return xengnttab_map_grant_ref(xgt_handle, domid,
-				       GNTTAB_RESERVED_XENSTORE,
-				       PROT_READ|PROT_WRITE);
+	void *map = xengnttab_map_grant_ref(xgt_handle, domid,
+					    GNTTAB_RESERVED_XENSTORE,
+					    PROT_READ|PROT_WRITE);
+
+	if (!map)
+	{
+		map = xenforeignmemory_map(xfm_handle, domid,
+					   PROT_READ|PROT_WRITE, 1,
+					   &gfn, NULL);
+		*foreign_mapped = !!map;
+	}
+
+	return map;
 }
 
-static void unmap_interface(void *interface)
+static void unmap_interface(void *interface, bool foreign_mapped)
 {
-	xengnttab_unmap(xgt_handle, interface, 1);
+	if (foreign_mapped)
+		xenforeignmemory_unmap(xfm_handle, interface, 1);
+	else
+		xengnttab_unmap(xgt_handle, interface, 1);
 }
 
 static int destroy_domain(void *_domain)
@@ -228,7 +249,8 @@ static int destroy_domain(void *_domain)
 		if (domain->domid == 0)
 			unmap_xenbus(domain->interface);
 		else
-			unmap_interface(domain->interface);
+			unmap_interface(domain->interface,
+					domain->foreign_mapped);
 	}
 
 	fire_watches(NULL, domain, "@releaseDomain", NULL, false, NULL);
@@ -363,12 +385,15 @@ static struct domain *find_or_alloc_domain(const void *ctx, unsigned int domid)
 	return domain ? : alloc_domain(ctx, domid);
 }
 
-static int new_domain(struct domain *domain, int port, bool restore)
+static int new_domain(struct domain *domain, int port, xen_pfn_t gfn,
+		      bool foreign_mapped, bool restore)
 {
 	int rc;
 
 	domain->port = 0;
 	domain->shutdown = false;
+	domain->gfn = gfn;
+	domain->foreign_mapped = foreign_mapped;
 	domain->path = talloc_domain_path(domain, domain->domid);
 	if (!domain->path) {
 		errno = ENOMEM;
@@ -436,7 +461,8 @@ static void domain_conn_reset(struct domain *domain)
 
 static struct domain *introduce_domain(const void *ctx,
 				       unsigned int domid,
-				       evtchn_port_t port, bool restore)
+				       evtchn_port_t port, xen_pfn_t gfn,
+				       bool restore)
 {
 	struct domain *domain;
 	int rc;
@@ -448,17 +474,21 @@ static struct domain *introduce_domain(const void *ctx,
 		return NULL;
 
 	if (!domain->introduced) {
+		bool foreign_mapped = false;
+
 		interface = is_master_domain ? xenbus_map()
-					     : map_interface(domid);
+					     : map_interface(domid, gfn,
+							     &foreign_mapped);
 		if (!interface && !restore)
 			return NULL;
-		if (new_domain(domain, port, restore)) {
+		if (new_domain(domain, port, gfn, foreign_mapped, restore)) {
 			rc = errno;
 			if (interface) {
 				if (is_master_domain)
 					unmap_xenbus(interface);
 				else
-					unmap_interface(interface);
+					unmap_interface(interface,
+							foreign_mapped);
 			}
 			errno = rc;
 			return NULL;
@@ -489,19 +519,20 @@ int do_introduce(struct connection *conn, struct buffered_data *in)
 	char *vec[3];
 	unsigned int domid;
 	evtchn_port_t port;
+	xen_pfn_t gfn;
 
 	if (get_strings(in, vec, ARRAY_SIZE(vec)) < ARRAY_SIZE(vec))
 		return EINVAL;
 
 	domid = atoi(vec[0]);
-	/* Ignore the gfn, we don't need it. */
+	gfn = atol(vec[1]);
 	port = atoi(vec[2]);
 
 	/* Sanity check args. */
 	if (port <= 0)
 		return EINVAL;
 
-	domain = introduce_domain(in, domid, port, false);
+	domain = introduce_domain(in, domid, port, gfn, false);
 	if (!domain)
 		return errno;
 
@@ -718,7 +749,7 @@ void dom0_init(void)
 	if (port == -1)
 		barf_perror("Failed to initialize dom0 port");
 
-	dom0 = introduce_domain(NULL, xenbus_master_domid(), port, false);
+	dom0 = introduce_domain(NULL, xenbus_master_domid(), port, 0, false);
 	if (!dom0)
 		barf_perror("Failed to initialize dom0");
 
@@ -757,6 +788,10 @@ void domain_init(int evtfd)
 	 * domain so the theoretical maximum is DOMID_FIRST_RESERVED.
 	 */
 	xengnttab_set_max_grants(xgt_handle, DOMID_FIRST_RESERVED);
+
+	xfm_handle = xenforeignmemory_open(NULL, 0);
+	if (!xfm_handle)
+		barf_perror("Failed to create handle for foreign memory");
 
 	if (evtfd < 0)
 		xce_handle = xenevtchn_open(NULL, XENEVTCHN_NO_CLOEXEC);
@@ -1189,6 +1224,7 @@ const char *dump_state_connections(FILE *fp)
 			sc.spec.ring.tdomid = c->target ? c->target->id
 						: DOMID_INVALID;
 			sc.spec.ring.evtchn = c->domain->port;
+			sc.spec.ring.gfn = c->domain->gfn;
 		} else {
 			sc.conn_type = XS_STATE_CONN_TYPE_SOCKET;
 			sc.spec.socket_fd = c->fd;
@@ -1290,7 +1326,8 @@ void read_state_connection(const void *ctx, const void *state)
 #endif
 	} else {
 		domain = introduce_domain(ctx, sc->spec.ring.domid,
-					  sc->spec.ring.evtchn, true);
+					  sc->spec.ring.evtchn,
+					  sc->spec.ring.gfn, true);
 		if (!domain)
 			barf("domain allocation error");
 
