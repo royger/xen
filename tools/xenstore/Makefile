@@ -67,10 +67,10 @@ $(XENSTORED_OBJS): CFLAGS += $(SYSTEMD_CFLAGS)
 xenstored: LDFLAGS += $(SYSTEMD_LIBS)
 endif
 
-$(XENSTORED_OBJS): CFLAGS += $(CFLAGS_libxengnttab)
+$(XENSTORED_OBJS): CFLAGS += $(CFLAGS_libxengnttab) $(CFLAGS_libxenforeignmemory)
 
 xenstored: $(XENSTORED_OBJS)
-	$(CC) $^ $(LDFLAGS) $(LDLIBS_libxenevtchn) $(LDLIBS_libxengnttab) $(LDLIBS_libxenctrl) $(LDLIBS_xenstored) $(SOCKET_LIBS) -o $@ $(APPEND_LDFLAGS)
+	$(CC) $^ $(LDFLAGS) $(LDLIBS_libxenevtchn) $(LDLIBS_libxengnttab) $(LDLIBS_libxenforeignmemory) $(LDLIBS_libxenctrl) $(LDLIBS_xenstored) $(SOCKET_LIBS) -o $@ $(APPEND_LDFLAGS)
 
 xenstored.a: $(XENSTORED_OBJS)
 	$(AR) cr $@ $^
