@@ -35,8 +35,8 @@
 #include <xenctrl.h>
 #include <xen/grant_table.h>
 
-static xc_interface **xc_handle;
-xengnttab_handle **xgt_handle;
+static xc_interface *xc_handle;
+xengnttab_handle *xgt_handle;
 static evtchn_port_t virq_port;
 
 xenevtchn_handle *xce_handle = NULL;
@@ -198,14 +198,14 @@ static const struct interface_funcs domain_funcs = {
 
 static void *map_interface(domid_t domid)
 {
-	return xengnttab_map_grant_ref(*xgt_handle, domid,
+	return xengnttab_map_grant_ref(xgt_handle, domid,
 				       GNTTAB_RESERVED_XENSTORE,
 				       PROT_READ|PROT_WRITE);
 }
 
 static void unmap_interface(void *interface)
 {
-	xengnttab_unmap(*xgt_handle, interface, 1);
+	xengnttab_unmap(xgt_handle, interface, 1);
 }
 
 static int destroy_domain(void *_domain)
@@ -240,7 +240,7 @@ static int destroy_domain(void *_domain)
 
 static bool get_domain_info(unsigned int domid, xc_dominfo_t *dominfo)
 {
-	return xc_domain_getinfo(*xc_handle, domid, 1, dominfo) == 1 &&
+	return xc_domain_getinfo(xc_handle, domid, 1, dominfo) == 1 &&
 	       dominfo->domid == domid;
 }
 
@@ -648,18 +648,6 @@ int do_reset_watches(struct connection *conn, struct buffered_data *in)
 	return 0;
 }
 
-static int close_xc_handle(void *_handle)
-{
-	xc_interface_close(*(xc_interface**)_handle);
-	return 0;
-}
-
-static int close_xgt_handle(void *_handle)
-{
-	xengnttab_close(*(xengnttab_handle **)_handle);
-	return 0;
-}
-
 /* Returns the implicit path of a connection (only domains have this) */
 const char *get_implicit_path(const struct connection *conn)
 {
@@ -737,35 +725,38 @@ void dom0_init(void)
 	xenevtchn_notify(xce_handle, dom0->port);
 }
 
+void interface_cleanup(void)
+{
+	if (xc_handle) {
+		xc_interface_close(xc_handle);
+		xc_handle = NULL;
+	}
+	if (xgt_handle) {
+		xengnttab_close(xgt_handle);
+		xgt_handle = NULL;
+	}
+}
+
 void domain_init(int evtfd)
 {
-	int rc;
+	int rc = atexit(interface_cleanup);
 
-	xc_handle = talloc(talloc_autofree_context(), xc_interface*);
+	if (rc)
+		barf_perror("Unable to register cleanup handler");
+
+	xc_handle = xc_interface_open(0,0,0);
 	if (!xc_handle)
-		barf_perror("Failed to allocate domain handle");
-
-	*xc_handle = xc_interface_open(0,0,0);
-	if (!*xc_handle)
 		barf_perror("Failed to open connection to hypervisor");
 
-	talloc_set_destructor(xc_handle, close_xc_handle);
-
-	xgt_handle = talloc(talloc_autofree_context(), xengnttab_handle*);
+	xgt_handle = xengnttab_open(NULL, 0);
 	if (!xgt_handle)
-		barf_perror("Failed to allocate domain gnttab handle");
-
-	*xgt_handle = xengnttab_open(NULL, 0);
-	if (*xgt_handle == NULL)
 		barf_perror("Failed to open connection to gnttab");
 
 	/*
 	 * Allow max number of domains for mappings. We allow one grant per
 	 * domain so the theoretical maximum is DOMID_FIRST_RESERVED.
 	 */
-	xengnttab_set_max_grants(*xgt_handle, DOMID_FIRST_RESERVED);
-
-	talloc_set_destructor(xgt_handle, close_xgt_handle);
+	xengnttab_set_max_grants(xgt_handle, DOMID_FIRST_RESERVED);
 
 	if (evtfd < 0)
 		xce_handle = xenevtchn_open(NULL, XENEVTCHN_NO_CLOEXEC);
