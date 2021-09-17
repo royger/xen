@@ -266,7 +266,7 @@ void init_pipe(int reopen_log_pipe[2]);
 #ifndef NO_SOCKETS
 extern const struct interface_funcs socket_funcs;
 #endif
-extern xengnttab_handle **xgt_handle;
+extern xengnttab_handle *xgt_handle;
 
 int remember_string(struct hashtable *hash, const char *str);
 
