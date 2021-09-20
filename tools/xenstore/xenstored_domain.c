@@ -450,8 +450,6 @@ static struct domain *introduce_domain(const void *ctx,
 	if (!domain->introduced) {
 		interface = is_master_domain ? xenbus_map()
 					     : map_interface(domid);
-		if (!interface && !restore)
-			return NULL;
 		if (new_domain(domain, port, restore)) {
 			rc = errno;
 			if (interface) {
