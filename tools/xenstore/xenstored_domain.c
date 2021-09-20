@@ -119,6 +119,11 @@ static int writechn(struct connection *conn,
 	struct xenstore_domain_interface *intf = conn->domain->interface;
 	XENSTORE_RING_IDX cons, prod;
 
+	if (!intf) {
+		errno = ENODEV;
+		return -1;
+	}
+
 	/* Must read indexes once, and before anything else, and verified. */
 	cons = intf->rsp_cons;
 	prod = intf->rsp_prod;
@@ -149,6 +154,11 @@ static int readchn(struct connection *conn, void *data, unsigned int len)
 	struct xenstore_domain_interface *intf = conn->domain->interface;
 	XENSTORE_RING_IDX cons, prod;
 
+	if (!intf) {
+		errno = ENODEV;
+		return -1;
+	}
+
 	/* Must read indexes once, and before anything else, and verified. */
 	cons = intf->req_cons;
 	prod = intf->req_prod;
@@ -176,6 +186,9 @@ static bool domain_can_write(struct connection *conn)
 {
 	struct xenstore_domain_interface *intf = conn->domain->interface;
 
+	if (!intf)
+		return false;
+
 	return ((intf->rsp_prod - intf->rsp_cons) != XENSTORE_RING_SIZE);
 }
 
@@ -183,7 +196,8 @@ static bool domain_can_read(struct connection *conn)
 {
 	struct xenstore_domain_interface *intf = conn->domain->interface;
 
-	if (domain_is_unprivileged(conn) && conn->domain->wrl_credit < 0)
+	if ((domain_is_unprivileged(conn) && conn->domain->wrl_credit < 0) ||
+	    !intf)
 		return false;
 
 	return (intf->req_cons != intf->req_prod);
@@ -268,14 +282,7 @@ void check_domains(void)
 				domain->shutdown = true;
 				notify = 1;
 			}
-			/*
-			 * On Restore, we may have been unable to remap the
-			 * interface and the port. As we don't know whether
-			 * this was because of a dying domain, we need to
-			 * check if the interface and port are still valid.
-			 */
-			if (!dominfo.dying && domain->port &&
-			    domain->interface)
+			if (!dominfo.dying)
 				continue;
 		}
 		if (domain->conn) {
@@ -450,8 +457,6 @@ static struct domain *introduce_domain(const void *ctx,
 	if (!domain->introduced) {
 		interface = is_master_domain ? xenbus_map()
 					     : map_interface(domid);
-		if (!interface && !restore)
-			return NULL;
 		if (new_domain(domain, port, restore)) {
 			rc = errno;
 			if (interface) {
@@ -505,7 +510,8 @@ int do_introduce(struct connection *conn, struct buffered_data *in)
 	if (!domain)
 		return errno;
 
-	domain_conn_reset(domain);
+	if (domain->interface)
+		domain_conn_reset(domain);
 
 	send_ack(conn, XS_INTRODUCE);
 
