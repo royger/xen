@@ -444,6 +444,8 @@ static void test_guests(void)
         struct xen_domctl_createdomain c = {
             .max_vcpus = 1,
             .max_grant_frames = 1,
+            /* TODO: switch to 0 once support for no grant table is added. */
+            .grant_opts = XEN_DOMCTL_GRANT_version(1),
         };
 
         printf("Testing PV guest\n");
@@ -456,6 +458,8 @@ static void test_guests(void)
             .flags = XEN_DOMCTL_CDF_hvm,
             .max_vcpus = 1,
             .max_grant_frames = 1,
+            /* TODO: switch to 0 once support for no grant table is added. */
+            .grant_opts = XEN_DOMCTL_GRANT_version(1),
             .arch = {
                 .emulation_flags = XEN_X86_EMU_LAPIC,
             },
