@@ -383,7 +383,8 @@ int hvm_set_pci_link_route(struct domain *d, u8 link, u8 isa_irq)
 int hvm_inject_msi(struct domain *d, uint64_t addr, uint32_t data)
 {
     uint32_t tmp = (uint32_t) addr;
-    uint8_t  dest = (tmp & MSI_ADDR_DEST_ID_MASK) >> MSI_ADDR_DEST_ID_SHIFT;
+    unsigned int dest = (MASK_EXTR(tmp, MSI_ADDR_EXT_DEST_ID_MASK) << 8) |
+                        MASK_EXTR(tmp, MSI_ADDR_DEST_ID_MASK);
     uint8_t  dest_mode = !!(tmp & MSI_ADDR_DESTMODE_MASK);
     uint8_t  delivery_mode = (data & MSI_DATA_DELIVERY_MODE_MASK)
         >> MSI_DATA_DELIVERY_MODE_SHIFT;

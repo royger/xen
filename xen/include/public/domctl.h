@@ -588,6 +588,7 @@ struct xen_domctl_bind_pt_irq {
 #define XEN_DOMCTL_VMSI_X86_DELIV_MASK   0x007000
 #define XEN_DOMCTL_VMSI_X86_TRIG_MASK    0x008000
 #define XEN_DOMCTL_VMSI_X86_UNMASKED     0x010000
+#define XEN_DOMCTL_VMSI_X86_EXT_DEST_ID_MASK 0xfe0000
 
             uint64_aligned_t gtable;
         } msi;

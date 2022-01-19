@@ -66,7 +66,7 @@ static void vmsi_inj_irq(
 
 int vmsi_deliver(
     struct domain *d, int vector,
-    uint8_t dest, uint8_t dest_mode,
+    unsigned int dest, unsigned int dest_mode,
     uint8_t delivery_mode, uint8_t trig_mode)
 {
     struct vlapic *target;
@@ -107,7 +107,9 @@ void vmsi_deliver_pirq(struct domain *d, const struct hvm_pirq_dpci *pirq_dpci)
 {
     uint32_t flags = pirq_dpci->gmsi.gflags;
     int vector = pirq_dpci->gmsi.gvec;
-    uint8_t dest = (uint8_t)flags;
+    unsigned int dest = MASK_EXTR(flags, XEN_DOMCTL_VMSI_X86_DEST_ID_MASK) |
+                        (MASK_EXTR(flags,
+                                   XEN_DOMCTL_VMSI_X86_EXT_DEST_ID_MASK) << 8);
     bool dest_mode = flags & XEN_DOMCTL_VMSI_X86_DM_MASK;
     uint8_t delivery_mode = MASK_EXTR(flags, XEN_DOMCTL_VMSI_X86_DELIV_MASK);
     bool trig_mode = flags & XEN_DOMCTL_VMSI_X86_TRIG_MASK;
@@ -123,7 +125,8 @@ void vmsi_deliver_pirq(struct domain *d, const struct hvm_pirq_dpci *pirq_dpci)
 }
 
 /* Return value, -1 : multi-dests, non-negative value: dest_vcpu_id */
-int hvm_girq_dest_2_vcpu_id(struct domain *d, uint8_t dest, uint8_t dest_mode)
+int hvm_girq_dest_2_vcpu_id(struct domain *d, unsigned int dest,
+                            unsigned int dest_mode)
 {
     int dest_vcpu_id = -1, w = 0;
     struct vcpu *v;
@@ -645,6 +648,8 @@ static unsigned int msi_gflags(uint16_t data, uint64_t addr, bool masked)
      */
     return MASK_INSR(MASK_EXTR(addr, MSI_ADDR_DEST_ID_MASK),
                      XEN_DOMCTL_VMSI_X86_DEST_ID_MASK) |
+           MASK_INSR(MASK_EXTR(addr, MSI_ADDR_EXT_DEST_ID_MASK),
+                     XEN_DOMCTL_VMSI_X86_EXT_DEST_ID_MASK) |
            MASK_INSR(MASK_EXTR(addr, MSI_ADDR_REDIRECTION_MASK),
                      XEN_DOMCTL_VMSI_X86_RH_MASK) |
            MASK_INSR(MASK_EXTR(addr, MSI_ADDR_DESTMODE_MASK),
@@ -835,6 +840,7 @@ void vpci_msi_arch_print(const struct vpci_msi *msi)
            msi->data & MSI_DATA_LEVEL_ASSERT ? "" : "de",
            msi->address & MSI_ADDR_DESTMODE_LOGIC ? "log" : "phys",
            msi->address & MSI_ADDR_REDIRECTION_LOWPRI ? "lowest" : "fixed",
+           (MASK_EXTR(msi->address, MSI_ADDR_EXT_DEST_ID_MASK) << 8) |
            MASK_EXTR(msi->address, MSI_ADDR_DEST_ID_MASK),
            msi->arch.pirq);
 }
@@ -904,6 +910,7 @@ int vpci_msix_arch_print(const struct vpci_msix *msix)
                entry->data & MSI_DATA_LEVEL_ASSERT ? "" : "de",
                entry->addr & MSI_ADDR_DESTMODE_LOGIC ? "log" : "phys",
                entry->addr & MSI_ADDR_REDIRECTION_LOWPRI ? "lowest" : "fixed",
+               (MASK_EXTR(entry->addr, MSI_ADDR_EXT_DEST_ID_MASK) << 8) |
                MASK_EXTR(entry->addr, MSI_ADDR_DEST_ID_MASK),
                entry->masked, entry->arch.pirq);
         if ( i && !(i % 64) )

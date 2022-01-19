@@ -269,7 +269,7 @@ int pt_irq_create_bind(
     {
     case PT_IRQ_TYPE_MSI:
     {
-        uint8_t dest, delivery_mode;
+        unsigned int dest, delivery_mode;
         bool dest_mode;
         int dest_vcpu_id;
         const struct vcpu *vcpu;
@@ -345,7 +345,9 @@ int pt_irq_create_bind(
         }
         /* Calculate dest_vcpu_id for MSI-type pirq migration. */
         dest = MASK_EXTR(pirq_dpci->gmsi.gflags,
-                         XEN_DOMCTL_VMSI_X86_DEST_ID_MASK);
+                         XEN_DOMCTL_VMSI_X86_DEST_ID_MASK) |
+               (MASK_EXTR(pirq_dpci->gmsi.gflags,
+                         XEN_DOMCTL_VMSI_X86_EXT_DEST_ID_MASK) << 8);
         dest_mode = pirq_dpci->gmsi.gflags & XEN_DOMCTL_VMSI_X86_DM_MASK;
         delivery_mode = MASK_EXTR(pirq_dpci->gmsi.gflags,
                                   XEN_DOMCTL_VMSI_X86_DELIV_MASK);
@@ -786,7 +788,9 @@ static int _hvm_dpci_msi_eoi(struct domain *d,
          (pirq_dpci->gmsi.gvec == vector) )
     {
         unsigned int dest = MASK_EXTR(pirq_dpci->gmsi.gflags,
-                                      XEN_DOMCTL_VMSI_X86_DEST_ID_MASK);
+                                      XEN_DOMCTL_VMSI_X86_DEST_ID_MASK) |
+                            (MASK_EXTR(pirq_dpci->gmsi.gflags,
+                                XEN_DOMCTL_VMSI_X86_EXT_DEST_ID_MASK) << 8);
         bool dest_mode = pirq_dpci->gmsi.gflags & XEN_DOMCTL_VMSI_X86_DM_MASK;
 
         if ( vlapic_match_dest(vcpu_vlapic(current), NULL, 0, dest,

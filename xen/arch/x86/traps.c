@@ -1150,6 +1150,9 @@ void cpuid_hypervisor_leaves(const struct vcpu *v, uint32_t leaf,
         res->a |= XEN_HVM_CPUID_DOMID_PRESENT;
         res->c = d->domain_id;
 
+        if ( has_vpci(d) )
+            res->a |= XEN_HVM_CPUID_EXT_DEST_ID;
+
         break;
 
     case 5: /* PV-specific parameters */
