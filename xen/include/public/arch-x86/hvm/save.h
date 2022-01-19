@@ -376,7 +376,9 @@ union vioapic_redir_entry
         uint8_t trig_mode:1;
         uint8_t mask:1;
         uint8_t reserve:7;
-        uint8_t reserved[4];
+        uint8_t reserved[3];
+        uint8_t :1;
+        uint8_t ext_dest_id:7;
         uint8_t dest_id;
     } fields;
 };

@@ -412,7 +412,8 @@ static void ioapic_inj_irq(
 
 static void vioapic_deliver(struct hvm_vioapic *vioapic, unsigned int pin)
 {
-    uint16_t dest = vioapic->redirtbl[pin].fields.dest_id;
+    uint16_t dest = vioapic->redirtbl[pin].fields.dest_id |
+                    (vioapic->redirtbl[pin].fields.ext_dest_id << 8);
     uint8_t dest_mode = vioapic->redirtbl[pin].fields.dest_mode;
     uint8_t delivery_mode = vioapic->redirtbl[pin].fields.delivery_mode;
     uint8_t vector = vioapic->redirtbl[pin].fields.vector;
