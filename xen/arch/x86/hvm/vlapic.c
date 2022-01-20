@@ -24,6 +24,7 @@
 #include <xen/domain_page.h>
 #include <xen/event.h>
 #include <xen/nospec.h>
+#include <xen/param.h>
 #include <xen/trace.h>
 #include <xen/lib.h>
 #include <xen/sched.h>
@@ -52,6 +53,9 @@
 #define LINT_MASK   \
     (LVT_MASK | APIC_MODE_MASK | APIC_INPUT_POLARITY |\
     APIC_LVT_REMOTE_IRR | APIC_LVT_LEVEL_TRIGGER)
+
+unsigned int opt_x2apic_id_offset;
+integer_param("x2apic_id_offset", opt_x2apic_id_offset);
 
 static const unsigned int vlapic_lvt_mask[VLAPIC_LVT_NUM] =
 {
@@ -1073,7 +1077,7 @@ static void set_x2apic_id(struct vlapic *vlapic)
     u32 id = vlapic_vcpu(vlapic)->vcpu_id;
     u32 ldr = ((id & ~0xf) << 12) | (1 << (id & 0xf));
 
-    vlapic_set_reg(vlapic, APIC_ID, id * 2);
+    vlapic_set_reg(vlapic, APIC_ID, id * 2 + (id ? opt_x2apic_id_offset : 0));
     vlapic_set_reg(vlapic, APIC_LDR, ldr);
 }
 
@@ -1443,7 +1447,13 @@ void vlapic_reset(struct vlapic *vlapic)
     if ( v->vcpu_id == 0 )
         vlapic->hw.apic_base_msr |= APIC_BASE_BSP;
 
-    vlapic_set_reg(vlapic, APIC_ID, (v->vcpu_id * 2) << 24);
+    /* start in x2APIC mode. */
+    vlapic->hw.apic_base_msr |= APIC_BASE_EXTD;
+    set_x2apic_id(vlapic);
+#if 0
+    vlapic_set_reg(vlapic, APIC_ID, id << 24);
+#endif
+
     vlapic_do_init(vlapic);
 }
 

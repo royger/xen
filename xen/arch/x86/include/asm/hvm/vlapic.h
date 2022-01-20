@@ -91,6 +91,8 @@ struct vlapic {
     } init_sipi;
 };
 
+extern unsigned int opt_x2apic_id_offset;
+
 /* vlapic's frequence is 100 MHz */
 #define APIC_BUS_CYCLE_NS               10
 

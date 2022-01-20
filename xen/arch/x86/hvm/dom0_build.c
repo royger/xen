@@ -30,6 +30,7 @@
 #include <asm/bzimage.h>
 #include <asm/dom0_build.h>
 #include <asm/hvm/support.h>
+#include <asm/hvm/vlapic.h>
 #include <asm/io_apic.h>
 #include <asm/p2m.h>
 #include <asm/paging.h>
@@ -850,7 +851,7 @@ static int __init pvh_setup_acpi_madt(struct domain *d, paddr_t *addr)
         x2apic->header.type = ACPI_MADT_TYPE_LOCAL_X2APIC;
         x2apic->header.length = sizeof(*x2apic);
         x2apic->uid = i;
-        x2apic->local_apic_id = i * 2;
+        x2apic->local_apic_id = i * 2 + (i ? opt_x2apic_id_offset : 0);
         x2apic->lapic_flags = ACPI_MADT_ENABLED;
         x2apic++;
     }

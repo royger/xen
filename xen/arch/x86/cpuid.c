@@ -8,6 +8,7 @@
 #include <asm/hvm/nestedhvm.h>
 #include <asm/hvm/svm/svm.h>
 #include <asm/hvm/viridian.h>
+#include <asm/hvm/vlapic.h>
 #include <asm/hvm/vmx/vmcs.h>
 #include <asm/paging.h>
 #include <asm/processor.h>
@@ -917,7 +918,14 @@ void guest_cpuid(const struct vcpu *v, uint32_t leaf,
         /* TODO: Rework topology logic. */
         res->b &= 0x00ffffffu;
         if ( is_hvm_domain(d) )
-            res->b |= (v->vcpu_id * 2) << 24;
+        {
+            unsigned int id = v->vcpu_id * 2;
+
+            if ( id )
+                id += opt_x2apic_id_offset;
+
+            res->b |= id << 24;
+        }
 
         /* TODO: Rework vPMU control in terms of toolstack choices. */
         if ( vpmu_available(v) &&
@@ -1099,6 +1107,8 @@ void guest_cpuid(const struct vcpu *v, uint32_t leaf,
 
             /* Fix the x2APIC identifier. */
             res->d = v->vcpu_id * 2;
+            if ( res->d )
+                res->d += opt_x2apic_id_offset;
         }
         break;
 
