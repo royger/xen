@@ -479,6 +479,26 @@ unsigned int page_get_ram_type(mfn_t mfn)
     return type ?: RAM_TYPE_UNKNOWN;
 }
 
+bool is_iomem_range(uint64_t start, uint64_t size)
+{
+    unsigned int i;
+
+    for ( i = 0; i < e820.nr_map; i++ )
+    {
+        struct e820entry *entry = &e820.map[i];
+
+        if ( entry->type != E820_RAM && entry->type != E820_ACPI &&
+             entry->type != E820_NVS )
+            continue;
+
+        if ( start < entry->addr + entry->size &&
+             entry->addr < start + size )
+            return false;
+    }
+
+    return true;
+}
+
 unsigned long domain_get_maximum_gpfn(struct domain *d)
 {
     if ( is_hvm_domain(d) )
