@@ -783,6 +783,23 @@ bool is_iomem_page(mfn_t mfn)
     return (page_get_owner(page) == dom_io);
 }
 
+bool is_memory_hole(unsigned long start, unsigned long end)
+{
+    unsigned int i;
+
+    for ( i = 0; i < e820.nr_map; i++ )
+    {
+        const struct e820entry *entry = &e820.map[i];
+
+        /* Do not allow overlaps with any memory range. */
+        if ( start < PFN_DOWN(entry->addr + entry->size) &&
+             PFN_DOWN(entry->addr) <= end )
+            return false;
+    }
+
+    return true;
+}
+
 static int update_xen_mappings(unsigned long mfn, unsigned int cacheattr)
 {
     int err = 0;
