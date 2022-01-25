@@ -1625,6 +1625,17 @@ bool is_iomem_page(mfn_t mfn)
     return !mfn_valid(mfn);
 }
 
+bool is_iomem_range(paddr_t start, uint64_t size)
+{
+    unsigned int i;
+
+    for ( i = 0; i < PFN_UP(size); i++ )
+        if ( !is_iomem_page(_mfn(PFN_DOWN(start) + i)) )
+            return false;
+
+    return true;
+}
+
 void clear_and_clean_page(struct page_info *page)
 {
     void *p = __map_domain_page(page);
