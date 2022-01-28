@@ -48,6 +48,7 @@ boolean_param("allow_unsafe", opt_allow_unsafe);
 
 /* Signal whether the ACPI C1E quirk is required. */
 bool __read_mostly amd_acpi_c1e_quirk;
+bool __ro_after_init amd_legacy_ssbd;
 
 static inline int rdmsr_amd_safe(unsigned int msr, unsigned int *lo,
 				 unsigned int *hi)
@@ -685,22 +686,9 @@ void amd_init_lfence(struct cpuinfo_x86 *c)
  * Refer to the AMD Speculative Store Bypass whitepaper:
  * https://developer.amd.com/wp-content/resources/124441_AMD64_SpeculativeStoreBypassDisable_Whitepaper_final.pdf
  */
-void amd_init_ssbd(const struct cpuinfo_x86 *c)
+static bool set_legacy_ssbd(const struct cpuinfo_x86 *c, bool enable)
 {
 	int bit = -1;
-
-	if (cpu_has_ssb_no)
-		return;
-
-	if (cpu_has_amd_ssbd) {
-		/* Handled by common MSR_SPEC_CTRL logic */
-		return;
-	}
-
-	if (cpu_has_virt_ssbd) {
-		wrmsrl(MSR_VIRT_SPEC_CTRL, opt_ssbd ? SPEC_CTRL_SSBD : 0);
-		return;
-	}
 
 	switch (c->x86) {
 	case 0x15: bit = 54; break;
@@ -715,20 +703,114 @@ void amd_init_ssbd(const struct cpuinfo_x86 *c)
 		if (rdmsr_safe(MSR_AMD64_LS_CFG, val) ||
 		    ({
 			    val &= ~mask;
-			    if (opt_ssbd)
+			    if (enable)
 				    val |= mask;
 			    false;
 		    }) ||
 		    wrmsr_safe(MSR_AMD64_LS_CFG, val) ||
 		    ({
 			    rdmsrl(MSR_AMD64_LS_CFG, val);
-			    (val & mask) != (opt_ssbd * mask);
+			    (val & mask) != (enable * mask);
 		    }))
 			bit = -1;
 	}
 
-	if (bit < 0)
+	return bit >= 0;
+}
+
+void amd_init_ssbd(const struct cpuinfo_x86 *c)
+{
+	if (cpu_has_ssb_no)
+		return;
+
+	if (cpu_has_amd_ssbd) {
+		/* Handled by common MSR_SPEC_CTRL logic */
+		return;
+	}
+
+	if (cpu_has_virt_ssbd) {
+		wrmsrl(MSR_VIRT_SPEC_CTRL, opt_ssbd ? SPEC_CTRL_SSBD : 0);
+		return;
+	}
+
+	if (!set_legacy_ssbd(c, opt_ssbd))
+	{
 		printk_once(XENLOG_ERR "No SSBD controls available\n");
+		if (amd_legacy_ssbd)
+			panic("CPU feature mismatch: no legacy SSBD\n");
+	}
+	else if ( c == &boot_cpu_data )
+		amd_legacy_ssbd = true;
+}
+
+static struct ssbd_core {
+    spinlock_t lock;
+    unsigned int count;
+} *ssbd_core;
+static unsigned int __ro_after_init ssbd_max_cores;
+
+bool __init amd_setup_legacy_ssbd(void)
+{
+	unsigned int i;
+
+	if (boot_cpu_data.x86 != 0x17 || boot_cpu_data.x86_num_siblings <= 1)
+		return true;
+
+	/*
+	 * One could be forgiven for thinking that c->x86_max_cores is the
+	 * correct value to use here.
+	 *
+	 * However, that value is derived from the current configuration, and
+	 * c->cpu_core_id is sparse on all but the top end CPUs.  Derive
+	 * max_cpus from ApicIdCoreIdSize which will cover any sparseness.
+	 */
+	if (boot_cpu_data.extended_cpuid_level >= 0x80000008) {
+		ssbd_max_cores = 1u << MASK_EXTR(cpuid_ecx(0x80000008), 0xf000);
+		ssbd_max_cores /= boot_cpu_data.x86_num_siblings;
+	}
+	if (!ssbd_max_cores)
+		return false;
+
+	/* Max is two sockets for Fam17h hardware. */
+	ssbd_core = xzalloc_array(struct ssbd_core, ssbd_max_cores * 2);
+	if (!ssbd_core)
+		return false;
+
+	for (i = 0; i < ssbd_max_cores * 2; i++) {
+		spin_lock_init(&ssbd_core[i].lock);
+		/* Record initial state, also applies to any hotplug CPU. */
+		if (opt_ssbd)
+			ssbd_core[i].count = boot_cpu_data.x86_num_siblings;
+	}
+
+	return true;
+}
+
+void amd_set_legacy_ssbd(bool enable)
+{
+	const struct cpuinfo_x86 *c = &current_cpu_data;
+	struct ssbd_core *core;
+	unsigned long flags;
+
+	if (c->x86 != 0x17 || c->x86_num_siblings <= 1) {
+		BUG_ON(!set_legacy_ssbd(c, enable));
+		return;
+	}
+
+	BUG_ON(c->phys_proc_id >= 2);
+	BUG_ON(c->cpu_core_id >= ssbd_max_cores);
+	core = &ssbd_core[c->phys_proc_id * ssbd_max_cores + c->cpu_core_id];
+	/*
+	 * Use irqsave variant to make check_lock() happy. When called from
+	 * vm{exit,entry}_virt_spec_ctrl GIF=0, but the state of IF could be 1,
+	 * thus fooling the spinlock check.
+	 */
+	spin_lock_irqsave(&core->lock, flags);
+	core->count += enable ? 1 : -1;
+	ASSERT(core->count <= c->x86_num_siblings);
+	if (enable ? core->count == 1 : !core->count)
+		BUG_ON(!set_legacy_ssbd(c, enable));
+	spin_unlock_irqrestore(&core->lock, flags);
 }
 
 void __init detect_zen2_null_seg_behaviour(void)
