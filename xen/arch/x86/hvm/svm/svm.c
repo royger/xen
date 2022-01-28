@@ -3133,7 +3133,12 @@ void vmexit_virt_spec_ctrl(void)
         if ( val != lo )
             wrmsr(MSR_VIRT_SPEC_CTRL, val, 0);
         current->arch.msrs->virt_spec_ctrl.raw = lo;
+
+        return;
     }
+
+    if ( val != current->arch.msrs->virt_spec_ctrl.raw )
+        amd_set_legacy_ssbd(val & SPEC_CTRL_SSBD);
 }
 
 /* Called with GIF=0. */
@@ -3142,7 +3147,12 @@ void vmentry_virt_spec_ctrl(void)
     unsigned int val = current->arch.msrs->virt_spec_ctrl.raw;
 
     if ( val != (opt_ssbd ? SPEC_CTRL_SSBD : 0) )
-        wrmsr(MSR_VIRT_SPEC_CTRL, val, 0);
+    {
+        if ( cpu_has_virt_ssbd )
+            wrmsr(MSR_VIRT_SPEC_CTRL, val, 0);
+        else
+            amd_set_legacy_ssbd(val & SPEC_CTRL_SSBD);
+    }
 }
 
 /*
