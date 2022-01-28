@@ -534,6 +534,10 @@ static void __init calculate_hvm_max_policy(void)
          raw_cpuid_policy.basic.sep )
         __set_bit(X86_FEATURE_SEP, hvm_featureset);
 
+    if ( !boot_cpu_has(X86_FEATURE_VIRT_SC_MSR_HVM) )
+        /* Clear VIRT_SSBD if VIRT_SPEC_CTRL is not exposed to guests. */
+        __clear_bit(X86_FEATURE_VIRT_SSBD, hvm_featureset);
+
     /*
      * If Xen isn't virtualising MSR_SPEC_CTRL for HVM guests (functional
      * availability, or admin choice), hide the feature.
@@ -589,6 +593,13 @@ static void __init calculate_hvm_def_policy(void)
 
     guest_common_feature_adjustments(hvm_featureset);
     guest_common_default_feature_adjustments(hvm_featureset);
+
+    /*
+     * AMD_SSBD if preferred over VIRT_SSBD, so don't expose the later by
+     * default if the former is available.
+     */
+    if ( boot_cpu_has(X86_FEATURE_AMD_SSBD) )
+        __clear_bit(X86_FEATURE_VIRT_SSBD, hvm_featureset);
 
     sanitise_featureset(hvm_featureset);
     cpuid_featureset_to_policy(hvm_featureset, p);
