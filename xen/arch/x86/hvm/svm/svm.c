@@ -3126,6 +3126,8 @@ void vmexit_virt_spec_ctrl(void)
 
     if ( cpu_has_virt_ssbd )
         wrmsr(MSR_VIRT_SPEC_CTRL, val, 0);
+    else
+         amd_set_legacy_ssbd(opt_ssbd);
 }
 
 /* Called with GIF=0. */
@@ -3138,6 +3140,9 @@ void vmentry_virt_spec_ctrl(void)
 
     if ( cpu_has_virt_ssbd )
         wrmsr(MSR_VIRT_SPEC_CTRL, current->arch.msrs->virt_spec_ctrl.raw, 0);
+    else
+        amd_set_legacy_ssbd(current->arch.msrs->virt_spec_ctrl.raw &
+                            SPEC_CTRL_SSBD);
 }
 
 /*

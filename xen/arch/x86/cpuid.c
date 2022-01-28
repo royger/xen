@@ -544,6 +544,16 @@ static void __init calculate_hvm_max_policy(void)
     if ( !boot_cpu_has(X86_FEATURE_VIRT_SC_MSR_HVM) )
         /* Clear VIRT_SSBD if VIRT_SPEC_CTRL is not exposed to guests. */
         __clear_bit(X86_FEATURE_VIRT_SSBD, hvm_featureset);
+    else
+        /*
+         * Expose VIRT_SSBD if VIRT_SPEC_CTRL is supported, as that implies the
+         * underlying hardware is capable of setting SSBD using
+         * non-architectural way or VIRT_SSBD is available.
+         *
+         * Note that if the hardware supports VIRT_SSBD natively this setting
+         * will just override an already set bit.
+         */
+        __set_bit(X86_FEATURE_VIRT_SSBD, hvm_featureset);
 
     /*
      * If Xen isn't virtualising MSR_SPEC_CTRL for HVM guests (functional
