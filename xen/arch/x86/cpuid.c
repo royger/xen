@@ -551,6 +551,10 @@ static void __init calculate_hvm_max_policy(void)
          */
         __set_bit(X86_FEATURE_VIRT_SSBD, hvm_featureset);
 
+    /* Hardware supports setting SSBD without AMD_SSBD. Report VIRT_SSBD. */
+    if ( boot_cpu_has(X86_FEATURE_VIRT_SC_MSR_HVM) )
+        __set_bit(X86_FEATURE_VIRT_SSBD, hvm_featureset);
+
     /*
      * With VT-x, some features are only supported by Xen if dedicated
      * hardware support is also available.
@@ -589,6 +593,13 @@ static void __init calculate_hvm_def_policy(void)
 
     guest_common_feature_adjustments(hvm_featureset);
     guest_common_default_feature_adjustments(hvm_featureset);
+
+    /*
+     * On hardware lacking AMD_SSBD expose VIRT_SSBD by default if supported.
+     * Note VIRT_SC_MSR_HVM won't be set if AMD_SSBD is supported.
+     */
+    if ( boot_cpu_has(X86_FEATURE_VIRT_SC_MSR_HVM) )
+        __set_bit(X86_FEATURE_VIRT_SSBD, hvm_featureset);
 
     sanitise_featureset(hvm_featureset);
     cpuid_featureset_to_policy(hvm_featureset, p);
