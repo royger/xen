@@ -52,6 +52,7 @@
 #include <asm/hvm/svm/svmdebug.h>
 #include <asm/hvm/svm/nestedsvm.h>
 #include <asm/hvm/nestedhvm.h>
+#include <asm/spec_ctrl.h>
 #include <asm/x86_emulate.h>
 #include <public/sched.h>
 #include <asm/hvm/vpt.h>
@@ -609,6 +610,14 @@ static void cf_check svm_cpuid_policy_changed(struct vcpu *v)
     /* Give access to MSR_SPEC_CTRL if the guest has been told about it. */
     svm_intercept_msr(v, MSR_SPEC_CTRL,
                       cp->extd.ibrs ? MSR_INTERCEPT_NONE : MSR_INTERCEPT_RW);
+
+    /*
+     * Give access to MSR_VIRT_SPEC_CTRL if the guest has been told about it
+     * and the hardware implements it.
+     */
+    svm_intercept_msr(v, MSR_VIRT_SPEC_CTRL,
+                      cp->extd.virt_ssbd && cpu_has_virt_ssbd ?
+                      MSR_INTERCEPT_NONE : MSR_INTERCEPT_RW);
 
     /* Give access to MSR_PRED_CMD if the guest has been told about it. */
     svm_intercept_msr(v, MSR_PRED_CMD,
@@ -3103,6 +3112,36 @@ void svm_vmexit_handler(struct cpu_user_regs *regs)
     intr.fields.tpr =
         (vlapic_get_reg(vlapic, APIC_TASKPRI) & 0xFF) >> 4;
     vmcb_set_vintr(vmcb, intr);
+}
+
+/* Called with GIF=0. */
+void vmexit_virt_spec_ctrl(void)
+{
+    unsigned int val = opt_ssbd ? SPEC_CTRL_SSBD : 0;
+
+    if ( cpu_has_virt_ssbd )
+    {
+        unsigned int lo, hi;
+
+        /*
+         * Need to read from the hardware because VIRT_SPEC_CTRL is not context
+         * switched by the hardware, and we allow the guest untrapped access to
+         * the register.
+         */
+        rdmsr(MSR_VIRT_SPEC_CTRL, lo, hi);
+        if ( val != lo )
+            wrmsr(MSR_VIRT_SPEC_CTRL, val, 0);
+        current->arch.msrs->virt_spec_ctrl.raw = lo;
+    }
+}
+
+/* Called with GIF=0. */
+void vmentry_virt_spec_ctrl(void)
+{
+    unsigned int val = current->arch.msrs->virt_spec_ctrl.raw;
+
+    if ( val != (opt_ssbd ? SPEC_CTRL_SSBD : 0) )
+        wrmsr(MSR_VIRT_SPEC_CTRL, val, 0);
 }
 
 /*
