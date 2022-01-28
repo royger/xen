@@ -542,6 +542,14 @@ static void __init calculate_hvm_max_policy(void)
         __set_bit(X86_FEATURE_SEP, hvm_featureset);
 
     /*
+     * VIRT_SC_MSR_HVM ensures the selection of SSBD is context
+     * switched between the hypervisor and guest selected values for
+     * HVM when the platform doesn't expose AMD_SSBD support.
+     */
+    if ( boot_cpu_has(X86_FEATURE_VIRT_SC_MSR_HVM) )
+        __set_bit(X86_FEATURE_VIRT_SSBD, hvm_featureset);
+
+    /*
      * If Xen isn't virtualising MSR_SPEC_CTRL for HVM guests (functional
      * availability, or admin choice), hide the feature.
      */
@@ -596,6 +604,13 @@ static void __init calculate_hvm_def_policy(void)
 
     guest_common_feature_adjustments(hvm_featureset);
     guest_common_default_feature_adjustments(hvm_featureset);
+
+    /*
+     * Only expose VIRT_SSBD if AMD_SSBD is not available, and thus
+     * VIRT_SC_MSR_HVM is set.
+     */
+    if ( boot_cpu_has(X86_FEATURE_VIRT_SC_MSR_HVM) )
+        __set_bit(X86_FEATURE_VIRT_SSBD, hvm_featureset);
 
     sanitise_featureset(hvm_featureset);
     cpuid_featureset_to_policy(hvm_featureset, p);
