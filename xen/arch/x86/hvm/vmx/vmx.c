@@ -419,7 +419,7 @@ static void domain_creation_finished(struct domain *d)
     gfn_t gfn = gaddr_to_gfn(APIC_DEFAULT_PHYS_BASE);
     bool ipat;
 
-    if ( !has_vlapic(d) || mfn_eq(apic_access_mfn, INVALID_MFN) )
+    if ( mfn_eq(apic_access_mfn, INVALID_MFN) )
         return;
 
     ASSERT(epte_get_entry_emt(d, gfn, apic_access_mfn, 0, &ipat,
@@ -3317,7 +3317,7 @@ static void vmx_install_vlapic_mapping(struct vcpu *v)
 {
     paddr_t virt_page_ma, apic_page_ma;
 
-    if ( !has_vlapic(v->domain) || mfn_eq(apic_access_mfn, INVALID_MFN) )
+    if ( mfn_eq(apic_access_mfn, INVALID_MFN) )
         return;
 
     ASSERT(cpu_has_vmx_virtualize_apic_accesses);
