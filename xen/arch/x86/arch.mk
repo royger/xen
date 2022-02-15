@@ -42,10 +42,10 @@ CFLAGS += -mno-red-zone -fpic
 # SSE setup for variadic function calls.
 CFLAGS += -mno-sse $(call cc-option,$(CC),-mskip-rax-setup)
 
-# Compile with thunk-extern, indirect-branch-register if avaiable.
-CFLAGS-$(CONFIG_INDIRECT_THUNK) += -mindirect-branch=thunk-extern
-CFLAGS-$(CONFIG_INDIRECT_THUNK) += -mindirect-branch-register
-CFLAGS-$(CONFIG_INDIRECT_THUNK) += -fno-jump-tables
+# Compile with gcc thunk-extern, indirect-branch-register if available.
+CFLAGS-$(CONFIG_GCC_INDIRECT_THUNK) += -mindirect-branch=thunk-extern
+CFLAGS-$(CONFIG_GCC_INDIRECT_THUNK) += -mindirect-branch-register
+CFLAGS-$(CONFIG_GCC_INDIRECT_THUNK) += -fno-jump-tables
 
 # If supported by the compiler, reduce stack alignment to 8 bytes. But allow
 # this to be overridden elsewhere.
