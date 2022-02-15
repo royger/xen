@@ -47,6 +47,9 @@ CFLAGS-$(CONFIG_GCC_INDIRECT_THUNK) += -mindirect-branch=thunk-extern
 CFLAGS-$(CONFIG_GCC_INDIRECT_THUNK) += -mindirect-branch-register
 CFLAGS-$(CONFIG_GCC_INDIRECT_THUNK) += -fno-jump-tables
 
+# Enable clang retpoline support if available.
+CFLAGS-$(CONFIG_CLANG_INDIRECT_THUNK) += -mretpoline-external-thunk
+
 # If supported by the compiler, reduce stack alignment to 8 bytes. But allow
 # this to be overridden elsewhere.
 $(call cc-option-add,CFLAGS_stack_boundary,CC,-mpreferred-stack-boundary=3)
