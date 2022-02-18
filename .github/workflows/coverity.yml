@@ -4,6 +4,7 @@ name: Coverity Scan
 on:
   schedule:
     - cron: '18 9 * * 3,7' # Bi-weekly at 9:18 UTC
+  push:
 
 jobs:
   coverity:
@@ -27,9 +28,10 @@ jobs:
     - name: Pre build stuff
       run: |
         make mini-os-dir
-    - uses: vapier/coverity-scan-action@v1
-      with:
-        command: make xen tools && make -C extras/mini-os/
-        project: XenProject
-        email: ${{ secrets.COVERITY_SCAN_EMAIL }}
-        token: ${{ secrets.COVERITY_SCAN_TOKEN }}
+        make xen tools && make -C extras/mini-os/
+        #    - uses: vapier/coverity-scan-action@v1
+        #      with:
+        #        command: make xen tools && make -C extras/mini-os/
+        #        project: XenProject
+        #        email: ${{ secrets.COVERITY_SCAN_EMAIL }}
+        #        token: XXXXXX
