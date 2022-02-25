@@ -3,7 +3,6 @@ name: CodeQL
 on:
   workflow_dispatch:
   push:
-    branches: [staging]
   schedule:
     - cron: '18 10 * * WED,SUN' # Bi-weekly at 10:18 UTC
 
@@ -27,8 +26,8 @@ jobs:
           python3-dev golang python-dev libsystemd-dev
 
     - uses: actions/checkout@v2
-      with:
-        ref: staging
+      #with:
+      #  ref: staging
 
     - name: Configure Xen
       run: |
