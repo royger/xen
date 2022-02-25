@@ -198,8 +198,13 @@ static int cf_check msix_read(
     if ( !access_allowed(msix->pdev, addr, len) )
         return X86EMUL_OKAY;
 
+    spin_lock(&msix->pdev->vpci->lock);
     if ( VMSIX_ADDR_IN_RANGE(addr, msix->pdev->vpci, VPCI_MSIX_PBA) )
     {
+        struct vpci *vpci = msix->pdev->vpci;
+        paddr_t base = vmsix_table_addr(vpci, VPCI_MSIX_PBA);
+        unsigned int idx = addr - base;
+
         /*
          * Access to PBA.
          *
@@ -207,25 +212,42 @@ static int cf_check msix_read(
          * guest address space. If this changes the address will need to be
          * translated.
          */
+
+        if ( !msix->pba )
+        {
+            msix->pba = ioremap(base, vmsix_table_size(vpci, VPCI_MSIX_PBA));
+            if ( !msix->pba )
+            {
+                /*
+                 * If unable to map the PBA return all 1s (all pending): it's
+                 * likely better to trigger spurious events than drop them.
+                 */
+                spin_unlock(&vpci->lock);
+                gprintk(XENLOG_WARNING, "%pp: unable to map MSI-X PBA\n",
+                        msix->pdev);
+                return X86EMUL_OKAY;
+           }
+        }
+
         switch ( len )
         {
         case 4:
-            *data = readl(addr);
+            *data = readl(msix->pba + idx);
             break;
 
         case 8:
-            *data = readq(addr);
+            *data = readq(msix->pba + idx);
             break;
 
         default:
             ASSERT_UNREACHABLE();
             break;
         }
+        spin_unlock(&vpci->lock);
 
         return X86EMUL_OKAY;
     }
 
-    spin_lock(&msix->pdev->vpci->lock);
     entry = get_entry(msix, addr);
     offset = addr & (PCI_MSIX_ENTRY_SIZE - 1);
 
