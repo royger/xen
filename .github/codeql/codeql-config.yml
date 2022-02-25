@@ -1,0 +1,3 @@
+paths-ignore:
+  - xen/tools/kconfig
+  - tools/firmware/xen-dir/xen-root/xen/tools/kconfig
