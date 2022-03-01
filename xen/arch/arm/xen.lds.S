@@ -30,9 +30,16 @@ SECTIONS
   _start = .;
   .text : {
         _stext = .;            /* Text section */
+       *(.text.header)
+
+       *(.text.cold .text.cold.*)
+       *(.text.unlikely .text.*_unlikely .text.unlikely.*)
+
        *(.text)
-       *(.text.cold)
-       *(.text.unlikely)
+#ifdef CONFIG_CC_SPLIT_SECTIONS
+       *(.text.*)
+#endif
+
        *(.fixup)
        *(.gnu.warning)
        _etext = .;             /* End of text section */
@@ -78,27 +85,6 @@ SECTIONS
 #endif
   _erodata = .;                /* End of read-only data */
 
-  .data : {                    /* Data */
-       . = ALIGN(PAGE_SIZE);
-       *(.data.page_aligned)
-       *(.data)
-       . = ALIGN(8);
-       __start_schedulers_array = .;
-       *(.data.schedulers)
-       __end_schedulers_array = .;
-
-#ifdef CONFIG_HYPFS
-       . = ALIGN(8);
-       __paramhypfs_start = .;
-       *(.data.paramhypfs)
-       __paramhypfs_end = .;
-#endif
-
-       *(.data.rel)
-       *(.data.rel.*)
-       CONSTRUCTORS
-  } :text
-
   . = ALIGN(SMP_CACHE_BYTES);
   .data.read_mostly : {
        /* Exception table */
@@ -112,6 +98,25 @@ SECTIONS
        __stop___pre_ex_table = .;
 
        *(.data.read_mostly)
+  } :text
+
+  .data : {                    /* Data */
+       . = ALIGN(PAGE_SIZE);
+       *(.data.page_aligned)
+       . = ALIGN(8);
+       __start_schedulers_array = .;
+       *(.data.schedulers)
+       __end_schedulers_array = .;
+
+#ifdef CONFIG_HYPFS
+       . = ALIGN(8);
+       __paramhypfs_start = .;
+       *(.data.paramhypfs)
+       __paramhypfs_end = .;
+#endif
+
+       *(.data .data.*)
+       CONSTRUCTORS
   } :text
 
   . = ALIGN(8);
@@ -207,7 +212,7 @@ SECTIONS
        *(.bss.percpu.read_mostly)
        . = ALIGN(SMP_CACHE_BYTES);
        __per_cpu_data_end = .;
-       *(.bss)
+       *(.bss .bss.*)
        . = ALIGN(POINTER_ALIGN);
        __bss_end = .;
   } :text
