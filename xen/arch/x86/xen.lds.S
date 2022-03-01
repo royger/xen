@@ -88,6 +88,9 @@ SECTIONS
        *(.text.unlikely .text.*_unlikely .text.unlikely.*)
 
        *(.text)
+#ifdef CONFIG_CC_SPLIT_SECTIONS
+       *(.text.*)
+#endif
        *(.text.__x86_indirect_thunk_*)
        *(.text.page_aligned)
 
@@ -292,9 +295,7 @@ SECTIONS
 
   DECL_SECTION(.data) {
        *(.data.page_aligned)
-       *(.data)
-       *(.data.rel)
-       *(.data.rel.*)
+       *(.data .data.*)
   } PHDR(text)
 
   DECL_SECTION(.bss) {
@@ -309,7 +310,7 @@ SECTIONS
        *(.bss.percpu.read_mostly)
        . = ALIGN(SMP_CACHE_BYTES);
        __per_cpu_data_end = .;
-       *(.bss)
+       *(.bss .bss.*)
        . = ALIGN(POINTER_ALIGN);
        __bss_end = .;
   } PHDR(text)
