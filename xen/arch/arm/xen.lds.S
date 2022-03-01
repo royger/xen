@@ -30,9 +30,16 @@ SECTIONS
   _start = .;
   .text : {
         _stext = .;            /* Text section */
+       *(.text.header)
+
+       *(.text.cold .text.cold.*)
+       *(.text.unlikely .text.*_unlikely .text.unlikely.*)
+
        *(.text)
-       *(.text.cold)
-       *(.text.unlikely)
+#ifdef CONFIG_CC_SPLIT_SECTIONS
+       *(.text.*)
+#endif
+
        *(.fixup)
        *(.gnu.warning)
        _etext = .;             /* End of text section */
@@ -96,6 +103,9 @@ SECTIONS
 
        *(.data.rel)
        *(.data.rel.*)
+#ifdef CONFIG_LIVEPATCH
+       *(.data.*)
+#endif
        CONSTRUCTORS
   } :text
 
@@ -208,6 +218,9 @@ SECTIONS
        . = ALIGN(SMP_CACHE_BYTES);
        __per_cpu_data_end = .;
        *(.bss)
+#ifdef CONFIG_LIVEPATCH
+       *(.bss.*)
+#endif
        . = ALIGN(POINTER_ALIGN);
        __bss_end = .;
   } :text

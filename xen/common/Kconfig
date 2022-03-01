@@ -350,10 +350,14 @@ source "common/sched/Kconfig"
 config CRYPTO
 	bool
 
+config CC_SPLIT_SECTIONS
+	bool
+
 config LIVEPATCH
 	bool "Live patching support"
 	default X86
 	depends on "$(XEN_HAS_BUILD_ID)" = "y"
+	select CC_SPLIT_SECTIONS
 	---help---
 	  Allows a running Xen hypervisor to be dynamically patched using
 	  binary patches without rebooting. This is primarily used to binarily
