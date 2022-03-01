@@ -81,9 +81,7 @@ SECTIONS
   _start = .;
   DECL_SECTION(.text) {
         _stext = .;            /* Text and read-only data */
-       *(.text)
-       *(.text.__x86_indirect_thunk_*)
-       *(.text.page_aligned)
+       *(.text.header)
 
        . = ALIGN(PAGE_SIZE);
        _stextentry = .;
@@ -94,8 +92,16 @@ SECTIONS
        *(.text.kexec)          /* Page aligned in the object file. */
        kexec_reloc_end = .;
 
-       *(.text.cold)
-       *(.text.unlikely)
+       *(.text.cold .text.cold.*)
+       *(.text.unlikely .text.*_unlikely .text.unlikely.*)
+
+       *(.text)
+#ifdef CONFIG_CC_SPLIT_SECTIONS
+       *(.text.*)
+#endif
+       *(.text.__x86_indirect_thunk_*)
+       *(.text.page_aligned)
+
        *(.fixup)
        *(.gnu.warning)
        _etext = .;             /* End of text section */
@@ -330,9 +336,7 @@ SECTIONS
 
   DECL_SECTION(.data) {
        *(.data.page_aligned)
-       *(.data)
-       *(.data.rel)
-       *(.data.rel.*)
+       *(.data .data.*)
        CONSTRUCTORS
   } PHDR(text)
 
@@ -348,7 +352,7 @@ SECTIONS
        *(.bss.percpu.read_mostly)
        . = ALIGN(SMP_CACHE_BYTES);
        __per_cpu_data_end = .;
-       *(.bss)
+       *(.bss .bss.*)
        . = ALIGN(POINTER_ALIGN);
        __bss_end = .;
   } PHDR(text)
