@@ -12,6 +12,12 @@
 #undef __XEN_VIRT_START
 #define __XEN_VIRT_START __image_base__
 #define DECL_SECTION(x) x :
+/*
+ * Use the NOLOAD directive, despite currently ignored by ld for PE output, in
+ * order to record that we'd prefer these sections to not be loaded into memory.
+ */
+#define DECL_DEBUG(x, a) #x ALIGN(a) (NOLOAD) : { *(x) }
+#define DECL_DEBUG2(x, y, a) #x ALIGN(a) (NOLOAD) : { *(x) *(y) }
 
 ENTRY(efi_start)
 
@@ -19,6 +25,8 @@ ENTRY(efi_start)
 
 #define FORMAT "elf64-x86-64"
 #define DECL_SECTION(x) #x : AT(ADDR(#x) - __XEN_VIRT_START)
+#define DECL_DEBUG(x, a) #x 0 (NOLOAD) : { *(x) }
+#define DECL_DEBUG2(x, y, a) #x 0 (NOLOAD) : { *(x) *(y) }
 
 ENTRY(start_pa)
 
@@ -179,6 +187,13 @@ SECTIONS
 #endif
 #endif
 
+#ifndef EFI
+  /* Retain these just for the purpose of possible analysis tools. */
+  DECL_SECTION(.note) {
+       *(.note.*)
+  } PHDR(note) PHDR(text)
+#endif
+
   _erodata = .;
 
   . = ALIGN(SECTION_ALIGN);
@@ -266,6 +281,32 @@ SECTIONS
        __ctors_end = .;
   } PHDR(text)
 
+#ifndef EFI
+  /*
+   * With --orphan-sections=warn (or =error) we need to handle certain linker
+   * generated sections. These are all expected to be empty; respective
+   * ASSERT()s can be found towards the end of this file.
+   */
+  DECL_SECTION(.got) {
+       *(.got)
+  } PHDR(text)
+  DECL_SECTION(.got.plt) {
+       *(.got.plt)
+  } PHDR(text)
+  DECL_SECTION(.igot.plt) {
+       *(.igot.plt)
+  } PHDR(text)
+  DECL_SECTION(.iplt) {
+       *(.iplt)
+  } PHDR(text)
+  DECL_SECTION(.plt) {
+       *(.plt)
+  } PHDR(text)
+  DECL_SECTION(.rela) {
+       *(.rela.*)
+  } PHDR(text)
+#endif
+
   . = ALIGN(SECTION_ALIGN);
   __init_end = .;
   __2M_init_end = .;
@@ -321,71 +362,6 @@ SECTIONS
     *(.reloc)
     __base_relocs_end = .;
   }
-  /*
-   * Explicitly list debug section for the PE output so that they don't end
-   * up at VA 0 which is below image base and thus invalid. Also use the
-   * NOLOAD directive, despite currently ignored by ld for PE output, in
-   * order to record that we'd prefer these sections to not be loaded into
-   * memory.
-   *
-   * Note that we're past _end here, so if these sections get loaded they'll
-   * be discarded at runtime anyway.
-   */
-  .debug_abbrev ALIGN(1) (NOLOAD) : {
-     *(.debug_abbrev)
-  }
-  .debug_info ALIGN(1) (NOLOAD) : {
-    *(.debug_info)
-    *(.gnu.linkonce.wi.*)
-  }
-  .debug_types ALIGN(1) (NOLOAD) : {
-    *(.debug_types)
-  }
-  .debug_str ALIGN(1) (NOLOAD) : {
-    *(.debug_str)
-  }
-  .debug_line ALIGN(1) (NOLOAD) : {
-    *(.debug_line)
-    *(.debug_line.*)
-  }
-  .debug_line_str ALIGN(1) (NOLOAD) : {
-    *(.debug_line_str)
-  }
-  .debug_names ALIGN(4) (NOLOAD) : {
-    *(.debug_names)
-  }
-  .debug_frame ALIGN(4) (NOLOAD) : {
-    *(.debug_frame)
-  }
-  .debug_loc ALIGN(1) (NOLOAD) : {
-    *(.debug_loc)
-  }
-  .debug_loclists ALIGN(4) (NOLOAD) : {
-    *(.debug_loclists)
-  }
-  .debug_ranges ALIGN(8) (NOLOAD) : {
-    *(.debug_ranges)
-  }
-  .debug_rnglists ALIGN(4) (NOLOAD) : {
-    *(.debug_rnglists)
-  }
-  .debug_addr ALIGN(8) (NOLOAD) : {
-    *(.debug_addr)
-  }
-  .debug_aranges ALIGN(1) (NOLOAD) : {
-    *(.debug_aranges)
-  }
-  .debug_pubnames ALIGN(1) (NOLOAD) : {
-    *(.debug_pubnames)
-  }
-  .debug_pubtypes ALIGN(1) (NOLOAD) : {
-    *(.debug_pubtypes)
-  }
-  /* Trick the linker into setting the image size to no less than 16Mb. */
-  __image_end__ = .;
-  .pad ALIGN(__section_alignment__) : {
-    . = __image_end__ < __image_base__ + MB(16) ? ALIGN(MB(16)) : .;
-  }
 #elif defined(XEN_BUILD_EFI)
   /*
    * Due to the way EFI support is currently implemented, these two symbols
@@ -398,6 +374,42 @@ SECTIONS
   PROVIDE(__base_relocs_end = .);
 #else
   efi = .;
+#endif
+
+  /*
+   * Explicitly list debug sections, first of all to avoid these sections being
+   * viewed as "orphan" by the linker.
+   *
+   * For the PE output this is further necessary so that they don't end up at
+   * VA 0, which is below image base and thus invalid. Note that we're past
+   * _end here, so if these sections get loaded they'll be discarded at runtime
+   * anyway.
+   */
+  DECL_DEBUG(.debug_abbrev, 1)
+  DECL_DEBUG2(.debug_info, .gnu.linkonce.wi.*, 1)
+  DECL_DEBUG(.debug_types, 1)
+  DECL_DEBUG(.debug_str, 1)
+  DECL_DEBUG2(.debug_line, .debug_line.*, 1)
+  DECL_DEBUG(.debug_line_str, 1)
+  DECL_DEBUG(.debug_names, 4)
+  DECL_DEBUG(.debug_frame, 4)
+  DECL_DEBUG(.debug_loc, 1)
+  DECL_DEBUG(.debug_loclists, 4)
+  DECL_DEBUG(.debug_macinfo, 1)
+  DECL_DEBUG(.debug_macro, 1)
+  DECL_DEBUG(.debug_ranges, 8)
+  DECL_DEBUG(.debug_rnglists, 4)
+  DECL_DEBUG(.debug_addr, 8)
+  DECL_DEBUG(.debug_aranges, 1)
+  DECL_DEBUG(.debug_pubnames, 1)
+  DECL_DEBUG(.debug_pubtypes, 1)
+
+#ifdef EFI
+  /* Trick the linker into setting the image size to no less than 16Mb. */
+  __image_end__ = .;
+  .pad ALIGN(__section_alignment__) : {
+    . = __image_end__ < __image_base__ + MB(16) ? ALIGN(MB(16)) : .;
+  }
 #endif
 
 #ifdef CONFIG_HYPERV_GUEST
@@ -418,8 +430,7 @@ SECTIONS
 #ifdef EFI
        *(.comment)
        *(.comment.*)
-       *(.note.Xen)
-       *(.note.gnu.*)
+       *(.note.*)
 #endif
   }
 
@@ -464,6 +475,15 @@ ASSERT(IS_ALIGNED(trampoline_start, 4), "trampoline_start misaligned")
 ASSERT(IS_ALIGNED(trampoline_end,   4), "trampoline_end misaligned")
 ASSERT(IS_ALIGNED(__bss_start,      8), "__bss_start misaligned")
 ASSERT(IS_ALIGNED(__bss_end,        8), "__bss_end misaligned")
+
+#ifndef EFI
+ASSERT(!SIZEOF(.got),      ".got non-empty")
+ASSERT(!SIZEOF(.got.plt),  ".got.plt non-empty")
+ASSERT(!SIZEOF(.igot.plt), ".igot.plt non-empty")
+ASSERT(!SIZEOF(.iplt),     ".iplt non-empty")
+ASSERT(!SIZEOF(.plt),      ".plt non-empty")
+ASSERT(!SIZEOF(.rela),     "leftover relocations")
+#endif
 
 ASSERT((trampoline_end - trampoline_start) < TRAMPOLINE_SPACE - MBI_SPACE_MIN,
     "not enough room for trampoline and mbi data")
