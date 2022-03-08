@@ -73,9 +73,7 @@ SECTIONS
   _start = .;
   DECL_SECTION(.text) {
         _stext = .;            /* Text and read-only data */
-       *(.text)
-       *(.text.__x86_indirect_thunk_*)
-       *(.text.page_aligned)
+       *(.text.header)
 
        . = ALIGN(PAGE_SIZE);
        _stextentry = .;
@@ -86,8 +84,13 @@ SECTIONS
        *(.text.kexec)          /* Page aligned in the object file. */
        kexec_reloc_end = .;
 
-       *(.text.cold)
-       *(.text.unlikely)
+       *(.text.cold .text.cold.*)
+       *(.text.unlikely .text.*_unlikely .text.unlikely.*)
+
+       *(.text)
+       *(.text.__x86_indirect_thunk_*)
+       *(.text.page_aligned)
+
        *(.fixup)
        *(.gnu.warning)
        _etext = .;             /* End of text section */

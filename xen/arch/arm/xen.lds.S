@@ -30,9 +30,13 @@ SECTIONS
   _start = .;
   .text : {
         _stext = .;            /* Text section */
+       *(.text.header)
+
+       *(.text.cold .text.cold.*)
+       *(.text.unlikely .text.*_unlikely .text.unlikely.*)
+
        *(.text)
-       *(.text.cold)
-       *(.text.unlikely)
+
        *(.fixup)
        *(.gnu.warning)
        _etext = .;             /* End of text section */
