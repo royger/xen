@@ -118,4 +118,4 @@ endif
 # Set up the assembler include path properly for older toolchains.
 CFLAGS += -Wa,-I$(srctree)/include
 
-ALL_OBJS-y := arch/x86/boot/built_in.o arch/x86/efi/built_in.o $(ALL_OBJS-y)
+ALL_OBJS-y := arch/x86/efi/built_in.o $(ALL_OBJS-y)
