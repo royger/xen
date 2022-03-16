@@ -270,6 +270,13 @@ int arch_livepatch_perform_rela(struct livepatch_elf *elf,
                    elf->name, symndx);
             return -EINVAL;
         }
+        else if ( elf->sym[symndx].ignored )
+        {
+            dprintk(XENLOG_DEBUG, LIVEPATCH
+                    "%s: Relocation against ignored symbol %s dropped\n",
+                    elf->name, elf->sym[symndx].name);
+            return 0;
+        }
 
         val = elf->sym[symndx].sym->st_value +  r->r_addend; /* S+A */
 
