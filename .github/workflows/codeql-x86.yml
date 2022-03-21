@@ -3,7 +3,7 @@ name: CodeQL x86
 on:
   workflow_dispatch:
   push:
-    branches: [staging]
+    #branches: [staging]
   schedule:
     - cron: '18 10 * * WED,SUN' # Bi-weekly at 10:18 UTC
 
