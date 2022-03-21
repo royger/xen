@@ -3,7 +3,7 @@ name: CodeQL x86
 on:
   workflow_dispatch:
   push:
-    branches: [staging]
+    #branches: [staging]
 
 jobs:
   analyse:
