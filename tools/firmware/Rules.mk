@@ -15,6 +15,10 @@ CFLAGS += -Werror
 
 EMBEDDED_EXTRA_CFLAGS += -fcf-protection=none
 
+# Do not add the .note.gnu.property section to any of the firmware objects: it
+# breaks the rombios binary and is not useful for firmware anyway.
+EMBEDDED_EXTRA_CFLAGS += -Wa$$(comma)-mx86-used-note=no
+
 $(call cc-options-add,CFLAGS,CC,$(EMBEDDED_EXTRA_CFLAGS))
 
 # Extra CFLAGS suitable for an embedded type of environment.
