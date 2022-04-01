@@ -13,6 +13,8 @@ endif
 
 CFLAGS += -Werror
 
+EMBEDDED_EXTRA_CFLAGS += -fcf-protection=none
+
 $(call cc-options-add,CFLAGS,CC,$(EMBEDDED_EXTRA_CFLAGS))
 
 # Extra CFLAGS suitable for an embedded type of environment.
