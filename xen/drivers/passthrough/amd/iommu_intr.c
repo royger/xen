@@ -39,6 +39,7 @@ union irte32 {
 };
 
 union irte128 {
+    __uint128_t raw128;
     uint64_t raw[2];
     struct {
         bool remap_en:1;
@@ -222,6 +223,21 @@ static void update_intremap_entry(const struct amd_iommu *iommu,
             },
         };
 
+        if ( cpu_has_cx16 )
+        {
+            union irte128 old_irte = *entry.ptr128;
+            __uint128_t ret = cmpxchg16b(entry.ptr128, &old_irte, &irte);
+
+            /*
+             * In the above, we use cmpxchg16 to atomically update the 128-bit
+             * IRTE, and the hardware cannot update the IRTE behind us, so
+             * the return value of cmpxchg16 should be the same as old_ire.
+             * This ASSERT validate it.
+             */
+            ASSERT(ret == old_irte.raw128);
+            return;
+        }
+
         ASSERT(!entry.ptr128->full.remap_en);
         entry.ptr128->raw[1] = irte.raw[1];
         /*
@@ -299,7 +315,8 @@ static int update_intremap_entry_from_ioapic(
     entry = get_intremap_entry(iommu, req_id, offset);
 
     /* The RemapEn fields match for all formats. */
-    while ( iommu->enabled && entry.ptr32->flds.remap_en )
+    while ( iommu->enabled && entry.ptr32->flds.remap_en &&
+            !cpu_has_cx16 && iommu->ctrl.ga_en )
     {
         entry.ptr32->flds.remap_en = false;
         spin_unlock(lock);
@@ -366,8 +383,11 @@ void cf_check amd_iommu_ioapic_update_ire(
         fresh = true;
     }
 
-    /* mask the interrupt while we change the intremap table */
-    if ( !saved_mask )
+    /*
+     * Mask the interrupt while we change the intremap table if it can't be
+     * done atomically.
+     */
+    if ( !saved_mask && !cpu_has_cx16 && iommu->ctrl.ga_en )
     {
         old_rte.mask = 1;
         __ioapic_write_entry(apic, pin, true, old_rte);
@@ -383,6 +403,11 @@ void cf_check amd_iommu_ioapic_update_ire(
         /* Keep the entry masked. */
         printk(XENLOG_ERR "Remapping IO-APIC %#x pin %u failed (%d)\n",
                IO_APIC_ID(apic), pin, rc);
+        if ( !saved_mask && (cpu_has_cx16 || !iommu->ctrl.ga_en) )
+        {
+            old_rte.mask = 1;
+            __ioapic_write_entry(apic, pin, true, old_rte);
+        }
         return;
     }
 
