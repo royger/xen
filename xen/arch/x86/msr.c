@@ -216,6 +216,14 @@ int guest_rdmsr(struct vcpu *v, uint32_t msr, uint64_t *val)
     case MSR_AMD_PPIN:
         goto gp_fault;
 
+    case MSR_P5_MC_ADDR:
+        if ( !(cp->x86_vendor & (X86_VENDOR_INTEL | X86_VENDOR_CENTAUR |
+                                 X86_VENDOR_SHANGHAI)) )
+            goto gp_fault;
+
+        *val = 0;
+        break;
+
     case MSR_IA32_FEATURE_CONTROL:
         /*
          * Architecturally, availability of this MSR is enumerated by the
