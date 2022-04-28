@@ -59,7 +59,7 @@
  *
  *  gcc: https://gcc.gnu.org/onlinedocs/gcc/Statement-Attributes.html#Statement-Attributes
  */
-#if (!defined(__clang__) && (__GNUC__ >= 7))
+#if defined(__has_attribute) && __has_attribute(__fallthrough__)
 # define fallthrough        __attribute__((__fallthrough__))
 #else
 # define fallthrough        do {} while (0)  /* fallthrough */
