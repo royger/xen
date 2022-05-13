@@ -6,7 +6,7 @@ PERFCOUNTER_ARRAY(exceptions,           "exceptions", 32)
 
 #ifdef CONFIG_HVM
 
-#define VMX_PERF_EXIT_REASON_SIZE 75
+#define VMX_PERF_EXIT_REASON_SIZE 76
 #define VMEXIT_NPF_PERFC 143
 #define SVM_PERF_EXIT_REASON_SIZE (VMEXIT_NPF_PERFC + 1)
 PERFCOUNTER_ARRAY(vmexits,              "vmexits",
@@ -124,5 +124,6 @@ PERFCOUNTER(realmode_emulations, "realmode instructions emulated")
 PERFCOUNTER(realmode_exits,      "vmexits from realmode")
 
 PERFCOUNTER(pauseloop_exits, "vmexits from Pause-Loop Detection")
+PERFCOUNTER(vmnotify_crash, "domains crashed by Notify VM Exit")
 
 /*#endif*/ /* __XEN_PERFC_DEFN_H__ */

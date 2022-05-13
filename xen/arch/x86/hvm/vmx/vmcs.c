@@ -67,6 +67,9 @@ integer_param("ple_gap", ple_gap);
 static unsigned int __read_mostly ple_window = 4096;
 integer_param("ple_window", ple_window);
 
+static int __read_mostly vm_notify_window;
+integer_param("vm-notify-window", vm_notify_window);
+
 static bool __read_mostly opt_ept_pml = true;
 static s8 __read_mostly opt_ept_ad = -1;
 int8_t __read_mostly opt_ept_exec_sp = -1;
@@ -210,6 +213,7 @@ static void __init vmx_display_features(void)
     P(cpu_has_vmx_pml, "Page Modification Logging");
     P(cpu_has_vmx_tsc_scaling, "TSC Scaling");
     P(cpu_has_vmx_bus_lock_detection, "Bus Lock Detection");
+    P(cpu_has_vmx_notify_vm_exiting, "Notify VM Exit");
 #undef P
 
     if ( !printed )
@@ -320,7 +324,8 @@ static int vmx_init_vmcs_config(bool bsp)
                SECONDARY_EXEC_ENABLE_VIRT_EXCEPTIONS |
                SECONDARY_EXEC_XSAVES |
                SECONDARY_EXEC_TSC_SCALING |
-               SECONDARY_EXEC_BUS_LOCK_DETECTION);
+               SECONDARY_EXEC_BUS_LOCK_DETECTION |
+               SECONDARY_EXEC_NOTIFY_VM_EXITING);
         if ( _vmx_misc_cap & VMX_MISC_VMWRITE_ALL )
             opt |= SECONDARY_EXEC_ENABLE_VMCS_SHADOWING;
         if ( opt_vpid_enabled )
@@ -1332,6 +1337,19 @@ static int construct_vmcs(struct vcpu *v)
     if ( opt_l1d_flush && paging_mode_hap(d) )
         rc = vmx_add_msr(v, MSR_FLUSH_CMD, FLUSH_CMD_L1D,
                          VMX_MSR_GUEST_LOADONLY);
+
+    if ( cpu_has_vmx_notify_vm_exiting && vm_notify_window >= 0 )
+    {
+        __vmwrite(NOTIFY_WINDOW, vm_notify_window);
+        /*
+         * Disable #AC and #DB interception: by using VM Notify Xen is
+         * guaranteed to get a VM exit even if the guest manages to lock the
+         * CPU.
+         */
+        v->arch.hvm.vmx.exception_bitmap &= ~((1U << TRAP_debug) |
+                                              (1U << TRAP_alignment_check));
+        vmx_update_exception_bitmap(v);
+    }
 
  out:
     vmx_vmcs_exit(v);

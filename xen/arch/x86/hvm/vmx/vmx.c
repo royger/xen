@@ -4556,6 +4556,29 @@ void vmx_vmexit_handler(struct cpu_user_regs *regs)
          */
         break;
 
+    case EXIT_REASON_NOTIFY:
+        __vmread(EXIT_QUALIFICATION, &exit_qualification);
+
+        if ( exit_qualification & NOTIFY_VM_CONTEXT_INVALID )
+        {
+            perfc_incr(vmnotify_crash);
+            domain_crash(v->domain);
+            break;
+        }
+
+        if ( cpu_has_vmx_vnmi &&
+             (exit_qualification & INTR_INFO_NMI_UNBLOCKED_BY_IRET) )
+        {
+            unsigned long guest_info;
+
+            /* exit was incident to an execution of IRET that unblocked NMIs. */
+            __vmread(GUEST_INTERRUPTIBILITY_INFO, &guest_info);
+            __vmwrite(GUEST_INTERRUPTIBILITY_INFO,
+                      guest_info | VMX_INTR_SHADOW_NMI);
+        }
+
+        break;
+
     case EXIT_REASON_VMX_PREEMPTION_TIMER_EXPIRED:
     case EXIT_REASON_INVPCID:
     /* fall through */
