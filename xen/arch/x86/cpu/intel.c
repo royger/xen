@@ -518,6 +518,73 @@ static void intel_log_freq(const struct cpuinfo_x86 *c)
     printk("%u MHz\n", (factor * max_ratio + 50) / 100);
 }
 
+void update_mcdt_no(struct cpuinfo_x86 *c)
+{
+#define FAM6_MODEL(m, s, c) { 6, m, s, c }
+    /*
+     * List of models that do not exhibit MCDT behavior, but might not
+     * advertise MCDT_NO on CPUID.
+     */
+    static const struct {
+        uint8_t family;
+        uint8_t model;
+        uint8_t stepping;
+        bool check_stepping;
+    } mcdt_no[] = {
+        /* Haswell Server EP, EP4S. */
+        FAM6_MODEL(0x3f, 2, true),
+        /* Elkhart Lake. */
+        FAM6_MODEL(0x3f, 4, true),
+        /* Cherryview. */
+        FAM6_MODEL(0x4c, 0, false),
+        /* Broadwell Server E, EP, EP4S, EX. */
+        FAM6_MODEL(0x4f, 0, false),
+        /* Broadwell DE V2, V3. */
+        FAM6_MODEL(0x56, 3, true),
+        /* Broadwell DE Y0. */
+        FAM6_MODEL(0x56, 4, true),
+        /* Broadwell DE A1, Hewitt Lake. */
+        FAM6_MODEL(0x56, 5, true),
+        /* Anniedale. */
+        FAM6_MODEL(0x5a, 0, false),
+        /* Apollo Lake. */
+        FAM6_MODEL(0x5c, 9, true),
+        FAM6_MODEL(0x5c, 0xa, true),
+        /* Denverton. */
+        FAM6_MODEL(0x5f, 1, true),
+        /* XMM7272. */
+        FAM6_MODEL(0x65, 0, false),
+        /* Cougar Mountain. */
+        FAM6_MODEL(0x6e, 0, false),
+        /* Butter. */
+        FAM6_MODEL(0x75, 0, false),
+        /* Gemini Lake. */
+        FAM6_MODEL(0x7a, 1, true),
+        FAM6_MODEL(0x7a, 8, true),
+        /* Snowridge. */
+        FAM6_MODEL(0x86, 4, true),
+        FAM6_MODEL(0x86, 5, true),
+        FAM6_MODEL(0x86, 7, true),
+        /* Lakefield B-step. */
+        FAM6_MODEL(0x8a, 1, true),
+        /* Elkhart Lake. */
+        FAM6_MODEL(0x96, 1, true),
+        /* Jasper Lake. */
+        FAM6_MODEL(0x9c, 0, true),
+        { }
+    };
+#undef FAM6_MODEL
+    const typeof(mcdt_no[0]) *m;
+
+    for (m = mcdt_no; m->family | m->model | m->stepping; m++)
+        if ( c->x86 == m->family && c->x86_model == m->model &&
+             (!m->check_stepping || c->x86_mask == m->stepping) )
+        {
+            __set_bit(X86_FEATURE_MCDT_NO, c->x86_capability);
+            break;
+        }
+}
+
 static void cf_check init_intel(struct cpuinfo_x86 *c)
 {
 	/* Detect the extended topology information if available */
@@ -556,6 +623,9 @@ static void cf_check init_intel(struct cpuinfo_x86 *c)
 	if ((opt_cpu_info && !(c->apicid & (c->x86_num_siblings - 1))) ||
 	    c == &boot_cpu_data )
 		intel_log_freq(c);
+
+	if (!cpu_has(c, X86_FEATURE_MCDT_NO))
+		update_mcdt_no(c);
 }
 
 const struct cpu_dev intel_cpu_dev = {

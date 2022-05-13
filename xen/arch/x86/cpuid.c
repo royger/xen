@@ -360,6 +360,16 @@ static void __init calculate_host_policy(void)
 
     p->basic.max_leaf =
         min_t(uint32_t, p->basic.max_leaf,   ARRAY_SIZE(p->basic.raw) - 1);
+
+    /*
+     * For Intel hardware MCDT_NO might be set by Xen for models that don't
+     * exhibit MCDT behavior but also don't have the MCDT_NO bit set in
+     * CPUID.  Extend feat.max_subleaf beyond what hardware supports to include
+     * the feature leaf containing this information.
+     */
+    if ( boot_cpu_has(X86_FEATURE_MCDT_NO) )
+        p->feat.max_subleaf = max(p->feat.max_subleaf, 2u);
+
     p->feat.max_subleaf =
         min_t(uint32_t, p->feat.max_subleaf, ARRAY_SIZE(p->feat.raw) - 1);
 
