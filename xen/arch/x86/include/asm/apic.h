@@ -27,6 +27,8 @@ enum apic_mode {
 extern bool iommu_x2apic_enabled;
 extern u8 apic_verbosity;
 extern bool directed_eoi_enabled;
+extern uint16_t x2apic_max_cluster_id;
+extern int8_t x2apic_phys;
 
 void check_x2apic_preenabled(void);
 void x2apic_bsp_setup(void);

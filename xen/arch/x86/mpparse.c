@@ -131,6 +131,8 @@ static int __init mpf_checksum(unsigned char *mp, int len)
 	return sum & 0xFF;
 }
 
+uint16_t __initdata x2apic_max_cluster_id;
+
 /* Return xen's logical cpu_id of the new added cpu or <0 if error */
 static int MP_processor_info_x(struct mpc_config_processor *m,
 			       u32 apicid, bool hotplug)
@@ -198,6 +200,9 @@ static int MP_processor_info_x(struct mpc_config_processor *m,
 		 */
 		def_to_bigsmp = true;
 	}
+
+	x2apic_max_cluster_id = max(x2apic_max_cluster_id,
+				    (uint16_t)(apicid >> 4));
 
 	return cpu;
 }
