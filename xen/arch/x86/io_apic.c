@@ -2653,16 +2653,6 @@ void __init ioapic_init(void)
                max_gsi_irqs, nr_irqs_gsi);
         nr_irqs_gsi = max_gsi_irqs;
     }
-
-    if ( nr_irqs == 0 )
-        nr_irqs = cpu_has_apic ?
-                  max(0U + num_present_cpus() * NR_DYNAMIC_VECTORS,
-                      8 * nr_irqs_gsi) :
-                  nr_irqs_gsi;
-    else if ( nr_irqs < 16 )
-        nr_irqs = 16;
-    printk(XENLOG_INFO "IRQ limits: %u GSI, %u MSI/MSI-X\n",
-           nr_irqs_gsi, nr_irqs - nr_irqs_gsi);
 }
 
 unsigned int arch_hwdom_irqs(domid_t domid)

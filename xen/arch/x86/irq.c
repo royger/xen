@@ -420,6 +420,16 @@ int __init init_irq_data(void)
     struct irq_desc *desc;
     int irq, vector;
 
+    if ( nr_irqs == 0 )
+        nr_irqs = cpu_has_apic ? max(0U + num_present_cpus() *
+                                     NR_DYNAMIC_VECTORS, 8 * nr_irqs_gsi)
+                               : nr_irqs_gsi;
+    else if ( nr_irqs < 16 )
+        nr_irqs = 16;
+
+    printk(XENLOG_INFO "IRQ limits: %u GSI, %u MSI/MSI-X\n",
+           nr_irqs_gsi, nr_irqs - nr_irqs_gsi);
+
     for ( vector = 0; vector < X86_NR_VECTORS; ++vector )
         this_cpu(vector_irq)[vector] = INT_MIN;
 
