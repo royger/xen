@@ -426,8 +426,7 @@ int __init init_irq_data(void)
             (x2apic_enabled && !x2apic_phys) ? x2apic_max_cluster_id + 1
                                              : num_present_cpus();
 
-        nr_irqs = cpu_has_apic ? max(vec_spaces * NR_DYNAMIC_VECTORS,
-                                     8 * nr_irqs_gsi)
+        nr_irqs = cpu_has_apic ? vec_spaces * NR_DYNAMIC_VECTORS
                                : nr_irqs_gsi;
     }
     else if ( nr_irqs < 16 )
