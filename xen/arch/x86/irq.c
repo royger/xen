@@ -434,7 +434,7 @@ int __init init_irq_data(void)
         nr_irqs = 16;
 
     printk(XENLOG_INFO "IRQ limits: %u GSI, %u MSI/MSI-X\n",
-           nr_irqs_gsi, nr_irqs - nr_irqs_gsi);
+           nr_irqs_gsi, nr_irqs);
 
     for ( vector = 0; vector < X86_NR_VECTORS; ++vector )
         this_cpu(vector_irq)[vector] = INT_MIN;
