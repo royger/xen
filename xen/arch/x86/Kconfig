@@ -226,6 +226,35 @@ config XEN_ALIGN_2M
 
 endchoice
 
+choice
+	prompt "x2APIC default destination mode"
+	default X2APIC_LOGICAL
+	---help---
+	  Specify default destination mode for x2APIC.
+
+	  If unsure, choose "Logical".
+
+config X2APIC_LOGICAL
+	bool "Logical mode"
+	---help---
+	  Use Logical Destination mode.
+
+	  When using this mode APICs are addressed using the Logical
+	  Destination mode, which allows for optimized IPI sending,
+	  but also reduces the amount of vectors available for external
+	  interrupts when compared to physical mode.
+
+config X2APIC_PHYS
+	bool "Physical mode"
+	---help---
+	  Use Physical Destination mode.
+
+	  When using this mode APICs are addressed using the Physical
+	  Destination mode, which allows using all dynamic vectors on
+	  each CPU independently.
+
+endchoice
+
 config GUEST
 	bool
 
