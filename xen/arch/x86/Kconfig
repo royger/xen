@@ -228,11 +228,11 @@ endchoice
 
 choice
 	prompt "x2APIC default destination mode"
-	default X2APIC_LOGICAL
+	default X2APIC_PHYS
 	---help---
 	  Specify default destination mode for x2APIC.
 
-	  If unsure, choose "Logical".
+	  If unsure, choose "Physical".
 
 config X2APIC_LOGICAL
 	bool "Logical mode"
