@@ -98,3 +98,26 @@ int pci_conf_write_intercept(unsigned int seg, unsigned int bdf,
 
     return rc;
 }
+
+bool pci_check_bar(const struct pci_dev *pdev, mfn_t start, mfn_t end)
+{
+    unsigned long mfn;
+
+    /*
+     * Check if BAR is not overlapping with any memory region defined
+     * in the memory map.
+     */
+    if ( is_memory_hole(start, end) )
+        return true;
+
+    /* Also allow BARs placed on reserved regions but print a warning. */
+    for ( mfn = mfn_x(start); mfn <= mfn_x(end); mfn++ )
+        if ( !page_is_ram_type(mfn, RAM_TYPE_RESERVED) )
+            return false;
+
+    printk(XENLOG_WARNING
+           "%pp: BAR [%#" PRI_mfn ", %#" PRI_mfn "] overlaps reserved region\n",
+           &pdev->sbdf, mfn_x(start), mfn_x(end));
+
+    return true;
+}
