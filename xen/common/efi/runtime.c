@@ -78,6 +78,30 @@ bool efi_enabled(unsigned int feature)
     return test_bit(feature, &efi_flags);
 }
 
+/*
+ * This function checks if the entire range [start,end) is contained inside of
+ * a single EfiMemoryMappedIO descriptor with the runtime attribute set.
+ */
+bool efi_all_runtime_mmio(uint64_t start, uint64_t end)
+{
+    unsigned int i;
+
+    for ( i = 0; i < efi_memmap_size; i += efi_mdesc_size )
+    {
+        EFI_MEMORY_DESCRIPTOR *desc = efi_memmap + i;
+        uint64_t len = desc->NumberOfPages << EFI_PAGE_SHIFT;
+
+        if ( desc->Type != EfiMemoryMappedIO ||
+             !(desc->Attribute & EFI_MEMORY_RUNTIME) )
+            continue;
+
+        if ( start >= desc->PhysicalStart && end <= desc->PhysicalStart + len )
+            return true;
+    }
+
+    return false;
+}
+
 #ifndef CONFIG_ARM /* TODO - disabled until implemented on ARM */
 
 struct efi_rs_state efi_rs_enter(void)

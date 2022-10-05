@@ -45,6 +45,8 @@ int efi_runtime_call(struct xenpf_efi_runtime_call *);
 int efi_compat_get_info(uint32_t idx, union compat_pf_efi_info *);
 int efi_compat_runtime_call(struct compat_pf_efi_runtime_call *);
 
+bool efi_all_runtime_mmio(uint64_t start, uint64_t end);
+
 #endif /* !__ASSEMBLY__ */
 
 #endif /* __XEN_EFI_H__ */

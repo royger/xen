@@ -4,6 +4,7 @@
  * Architecture-dependent PCI access functions.
  */
 
+#include <xen/efi.h>
 #include <xen/spinlock.h>
 #include <xen/pci.h>
 #include <asm/io.h>
@@ -97,4 +98,29 @@ int pci_conf_write_intercept(unsigned int seg, unsigned int bdf,
     pcidevs_unlock();
 
     return rc;
+}
+
+bool pci_check_bar(const struct pci_dev *pdev, mfn_t start, mfn_t end)
+{
+    /*
+     * Check if BAR is not overlapping with any memory region defined
+     * in the memory map.
+     */
+    if ( is_memory_hole(start, end) )
+        return true;
+
+    /*
+     * Also allow BARs placed on EfiMemoryMappedIO regions in order to deal
+     * with EFI firmware using those regions to place the BARs of devices that
+     * can be used during runtime.  But print a warning when doing so.
+     */
+    if ( !efi_all_runtime_mmio(mfn_to_maddr(start),
+                               mfn_to_maddr(mfn_add(end, 1))) )
+        return false;
+
+    printk(XENLOG_WARNING
+           "%pp: BAR [%#" PRI_mfn ", %#" PRI_mfn "] overlaps reserved region\n",
+           &pdev->sbdf, mfn_x(start), mfn_x(end));
+
+    return true;
 }
