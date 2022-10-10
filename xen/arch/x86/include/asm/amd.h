@@ -153,6 +153,6 @@ void amd_check_disable_c1e(unsigned int port, u8 value);
 
 extern bool amd_legacy_ssbd;
 bool amd_setup_legacy_ssbd(void);
-void amd_set_legacy_ssbd(bool enable);
+void amd_set_ssbd(bool enable);
 
 #endif /* __AMD_H__ */
