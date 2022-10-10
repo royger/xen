@@ -697,7 +697,14 @@ int guest_wrmsr(struct vcpu *v, uint32_t msr, uint64_t val)
                 msrs->spec_ctrl.raw &= ~SPEC_CTRL_SSBD;
         }
         else
+        {
             msrs->virt_spec_ctrl.raw = val & SPEC_CTRL_SSBD;
+            /*
+             * Propagate the value to hardware, as it won't be context switched
+             * on vmentry.
+             */
+            goto set_reg;
+        }
         break;
 
     case MSR_AMD64_DE_CFG:
