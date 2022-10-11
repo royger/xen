@@ -814,7 +814,9 @@ void amd_set_ssbd(bool enable)
 		wrmsr(MSR_VIRT_SPEC_CTRL, enable ? SPEC_CTRL_SSBD : 0, 0);
 	else if (amd_legacy_ssbd)
 		core_set_legacy_ssbd(enable);
-	else
+	else if ( cpu_has_ssb_no ) {
+		/* Nothing to do. */
+	} else
 		ASSERT_UNREACHABLE();
 }
 
