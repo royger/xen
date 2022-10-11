@@ -558,11 +558,16 @@ static void __init calculate_hvm_max_policy(void)
         __clear_bit(X86_FEATURE_IBRSB, hvm_featureset);
         __clear_bit(X86_FEATURE_IBRS, hvm_featureset);
     }
-    else if ( boot_cpu_has(X86_FEATURE_AMD_SSBD) )
+    else if ( boot_cpu_has(X86_FEATURE_AMD_SSBD) ||
+              boot_cpu_has(X86_FEATURE_SSB_NO) )
         /*
          * If SPEC_CTRL.SSBD is available VIRT_SPEC_CTRL.SSBD can be exposed
          * and implemented using the former. Expose in the max policy only as
          * the preference is for guests to use SPEC_CTRL.SSBD if available.
+         *
+         * Allow VIRT_SSBD in the max policy if SSB_NO is exposed for migration
+         * compatibility reasons.  If SSB_NO is present setting
+         * VIRT_SPEC_CTRL.SSBD is a no-op.
          */
         __set_bit(X86_FEATURE_VIRT_SSBD, hvm_featureset);
 
