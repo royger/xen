@@ -730,11 +730,12 @@ void amd_init_ssbd(const struct cpuinfo_x86 *c)
 	}
 
 	if (cpu_has_virt_ssbd) {
-		wrmsrl(MSR_VIRT_SPEC_CTRL, opt_ssbd ? SPEC_CTRL_SSBD : 0);
+		/* Handled by context switch logic. */
 		return;
 	}
 
-	if (!set_legacy_ssbd(c, opt_ssbd)) {
+	/* Test whether legacy SSBD is available. */
+	if (!set_legacy_ssbd(c, 0)) {
 		printk_once(XENLOG_ERR "No SSBD controls available\n");
 		if (amd_legacy_ssbd)
 			panic("CPU feature mismatch: no legacy SSBD\n");
@@ -777,12 +778,8 @@ bool __init amd_setup_legacy_ssbd(void)
 	if (!ssbd_ls_cfg)
 		return false;
 
-	for (i = 0; i < ssbd_max_cores * AMD_FAM17H_MAX_SOCKETS; i++) {
-		/* Set initial state, applies to any (hotplug) CPU. */
-		ssbd_ls_cfg[i].count = opt_ssbd ? boot_cpu_data.x86_num_siblings
-		                                : 0;
+	for (i = 0; i < ssbd_max_cores * AMD_FAM17H_MAX_SOCKETS; i++)
 		spin_lock_init(&ssbd_ls_cfg[i].lock);
-	}
 
 	return true;
 }
