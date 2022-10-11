@@ -56,7 +56,6 @@ static enum ind_thunk {
 
 static int8_t __initdata opt_ibrs = -1;
 int8_t __initdata opt_stibp = -1;
-bool __ro_after_init opt_ssbd;
 int8_t __initdata opt_psfd = -1;
 
 int8_t __ro_after_init opt_ibpb_ctxt_switch = -1;
@@ -126,7 +125,6 @@ static int __init cf_check parse_spec_ctrl(const char *s)
             opt_thunk = THUNK_JMP;
             opt_ibrs = 0;
             opt_ibpb_ctxt_switch = false;
-            opt_ssbd = false;
             opt_l1d_flush = 0;
             opt_branch_harden = false;
             opt_srb_lock = 0;
@@ -263,8 +261,6 @@ static int __init cf_check parse_spec_ctrl(const char *s)
             opt_ibrs = val;
         else if ( (val = parse_boolean("stibp", s, ss)) >= 0 )
             opt_stibp = val;
-        else if ( (val = parse_boolean("ssbd", s, ss)) >= 0 )
-            opt_ssbd = val;
         else if ( (val = parse_boolean("psfd", s, ss)) >= 0 )
             opt_psfd = val;
 
@@ -471,7 +467,7 @@ static void __init print_details(enum ind_thunk thunk, uint64_t caps)
                "\n");
 
     /* Settings for Xen's protection, irrespective of guests. */
-    printk("  Xen settings: BTI-Thunk %s, SPEC_CTRL: %s%s%s%s%s, Other:%s%s%s%s%s\n",
+    printk("  Xen settings: BTI-Thunk %s, SPEC_CTRL: %s%s%s%s, Other:%s%s%s%s%s\n",
            thunk == THUNK_NONE      ? "N/A" :
            thunk == THUNK_RETPOLINE ? "RETPOLINE" :
            thunk == THUNK_LFENCE    ? "LFENCE" :
@@ -482,9 +478,6 @@ static void __init print_details(enum ind_thunk thunk, uint64_t caps)
            (!boot_cpu_has(X86_FEATURE_STIBP) &&
             !boot_cpu_has(X86_FEATURE_AMD_STIBP))    ? "" :
            (default_xen_spec_ctrl & SPEC_CTRL_STIBP) ? " STIBP+" : " STIBP-",
-           (!boot_cpu_has(X86_FEATURE_SSBD) &&
-            !boot_cpu_has(X86_FEATURE_AMD_SSBD))     ? "" :
-           (default_xen_spec_ctrl & SPEC_CTRL_SSBD)  ? " SSBD+" : " SSBD-",
            (!boot_cpu_has(X86_FEATURE_PSFD) &&
             !boot_cpu_has(X86_FEATURE_INTEL_PSFD))   ? "" :
            (default_xen_spec_ctrl & SPEC_CTRL_PSFD)  ? " PSFD+" : " PSFD-",
@@ -1273,16 +1266,6 @@ void __init init_speculation_mitigations(void)
     if ( opt_stibp && (boot_cpu_has(X86_FEATURE_STIBP) ||
                        boot_cpu_has(X86_FEATURE_AMD_STIBP)) )
         default_xen_spec_ctrl |= SPEC_CTRL_STIBP;
-
-    if ( opt_ssbd && (boot_cpu_has(X86_FEATURE_SSBD) ||
-                      boot_cpu_has(X86_FEATURE_AMD_SSBD)) )
-    {
-        /* SSBD implies PSFD */
-        if ( opt_psfd == -1 )
-            opt_psfd = 1;
-
-        default_xen_spec_ctrl |= SPEC_CTRL_SSBD;
-    }
 
     /*
      * Don't use PSFD by default.  AMD designed the predictor to
