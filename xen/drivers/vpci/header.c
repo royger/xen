@@ -390,7 +390,7 @@ static void cf_check bar_write(
     else
         val &= PCI_BASE_ADDRESS_MEM_MASK;
 
-    if ( pci_conf_read16(pdev->sbdf, PCI_COMMAND) & PCI_COMMAND_MEMORY )
+    if ( bar->enabled )
     {
         /* If the value written is the current one avoid printing a warning. */
         if ( val != (uint32_t)(bar->addr >> (hi ? 32 : 0)) )
@@ -427,7 +427,7 @@ static void cf_check rom_write(
     uint16_t cmd = pci_conf_read16(pdev->sbdf, PCI_COMMAND);
     bool new_enabled = val & PCI_ROM_ADDRESS_ENABLE;
 
-    if ( (cmd & PCI_COMMAND_MEMORY) && header->rom_enabled && new_enabled )
+    if ( rom->enabled && new_enabled )
     {
         gprintk(XENLOG_WARNING,
                 "%pp: ignored ROM BAR write with memory decoding enabled\n",
