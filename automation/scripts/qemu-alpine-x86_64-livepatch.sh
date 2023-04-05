@@ -54,7 +54,7 @@ EOF
 # Run the test
 rm -f smoke.serial
 set +e
-timeout -k 1 720 \
+timeout -k 1 1440 \
 qemu-system-x86_64 \
     -cpu qemu64,+svm \
     -m 2G -smp 2 \

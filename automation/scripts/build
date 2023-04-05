@@ -109,7 +109,7 @@ if [[ "$LIVEPATCH" == "y" ]]; then
 
     BUILDID=$(readelf -Wn xen/xen-syms | sed -n -e 's/^.*Build ID: //p')
 
-    git clone https://xenbits.xen.org/git-http/livepatch-build-tools.git
+    git clone https://gitlab.com/royger/livepatch-build-tools.git
     cd livepatch-build-tools
     make
     ./livepatch-build -s ../ -p ../xen/test/livepatch/test.patch -o out \
