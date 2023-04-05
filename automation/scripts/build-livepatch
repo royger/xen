@@ -1,0 +1,27 @@
+#!/bin/bash -ex
+
+# Do a regular build first
+./automation/scripts/build
+
+# Build a test livepatch using livepatch-build-tools.
+
+if [[ "$XEN_TARGET_ARCH" != "x86_64" ]]; then
+    exit 1
+fi
+
+BASE=xen/arch/x86/test/smoc-lp.c
+ALT=xen/arch/x86/test/smoc-lp-alt.c
+
+[[ -f $BASE && -f $ALT ]]
+
+# git diff --no-index returns 0 if no differences, otherwise 1.
+git diff --no-index --output=test.patch $BASE $ALT && exit 1
+
+BUILDID=$(readelf -Wn xen/xen-syms | sed -n -e 's/^.*Build ID: //p')
+
+git clone https://xenbits.xen.org/git-http/livepatch-build-tools.git
+cd livepatch-build-tools
+make
+./livepatch-build -s ../ -p ../test.patch -o out -c ../xen/.config \
+    --depends $BUILDID --xen-depends $BUILDID
+cp out/test.livepatch ../binaries/test.livepatch

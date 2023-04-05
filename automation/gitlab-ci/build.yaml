@@ -358,6 +358,15 @@ alpine-3.18-gcc-debug:
   variables:
     CONTAINER: alpine:3.18
 
+alpine-3.18-gcc-livepatch:
+  extends: .gcc-x86-64-build
+  script:
+    - ./automation/scripts/build-livepatch 2>&1 | tee build.log
+  variables:
+    CONTAINER: alpine:3.18
+    EXTRA_XEN_CONFIG: |
+      CONFIG_LIVEPATCH=y
+
 debian-stretch-gcc-debug:
   extends: .gcc-x86-64-build-debug
   variables:
