@@ -1140,6 +1140,12 @@ struct xen_sysctl_livepatch_action {
     uint32_t pad;                           /* IN: Always zero. */
 };
 
+/* Dummy hypercall used for testing the generation of live patches. */
+#define XEN_SYSCTL_LIVEPATCH_TEST 4
+struct xen_sysctl_livepatch_test {
+    uint32_t result;                        /* OUT: dummy result for testing. */
+};
+
 struct xen_sysctl_livepatch_op {
     uint32_t cmd;                           /* IN: XEN_SYSCTL_LIVEPATCH_*. */
     uint32_t pad;                           /* IN: Always zero. */
@@ -1148,6 +1154,7 @@ struct xen_sysctl_livepatch_op {
         struct xen_sysctl_livepatch_list list;
         struct xen_sysctl_livepatch_get get;
         struct xen_sysctl_livepatch_action action;
+        struct xen_sysctl_livepatch_test test;
     } u;
 };
 

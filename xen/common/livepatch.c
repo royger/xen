@@ -2106,6 +2106,10 @@ int livepatch_op(struct xen_sysctl_livepatch_op *livepatch)
         rc = livepatch_action(&livepatch->u.action);
         break;
 
+    case XEN_SYSCTL_LIVEPATCH_TEST:
+        rc = livepatch_test(&livepatch->u.test);
+        break;
+
     default:
         rc = -EOPNOTSUPP;
         break;
