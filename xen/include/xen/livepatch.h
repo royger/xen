@@ -11,6 +11,8 @@ struct livepatch_elf_sec;
 struct livepatch_elf_sym;
 struct xen_sysctl_livepatch_op;
 
+#include <xen/types.h>
+
 #include <xen/elfstructs.h>
 #include <xen/errno.h> /* For -ENOSYS or -EOVERFLOW */
 #ifdef CONFIG_LIVEPATCH
@@ -151,6 +153,8 @@ static inline void common_livepatch_revert(struct livepatch_func *func)
     arch_livepatch_revert(func);
     func->applied = LIVEPATCH_FUNC_NOT_APPLIED;
 }
+
+int livepatch_test(struct xen_sysctl_livepatch_test *test);
 #else
 
 /*

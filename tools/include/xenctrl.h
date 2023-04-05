@@ -2645,6 +2645,9 @@ int xc_livepatch_revert(xc_interface *xch, char *name, uint32_t timeout, uint32_
 int xc_livepatch_unload(xc_interface *xch, char *name, uint32_t timeout, uint32_t flags);
 int xc_livepatch_replace(xc_interface *xch, char *name, uint32_t timeout, uint32_t flags);
 
+/* Dummy hypercall to test livepatch functionality. */
+int xc_livepatch_test(xc_interface *xch, uint32_t *result);
+
 /*
  * Ensure cache coherency after memory modifications. A call to this function
  * is only required on ARM as the x86 architecture provides cache coherency
