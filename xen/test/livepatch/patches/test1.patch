@@ -1,0 +1,13 @@
+diff --git a/xen/common/livepatch-test.c b/xen/common/livepatch-test.c
+index 05b638b2ac..876173ab6f 100644
+--- a/xen/common/livepatch-test.c
++++ b/xen/common/livepatch-test.c
+@@ -5,7 +5,7 @@
+ 
+ int livepatch_test(struct xen_sysctl_livepatch_test *test)
+ {
+-    test->result = 1;
++    test->result = 2;
+     return 0;
+ }
+ 

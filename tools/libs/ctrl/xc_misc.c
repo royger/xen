@@ -1021,6 +1021,20 @@ int xc_livepatch_replace(xc_interface *xch, char *name, uint32_t timeout, uint32
     return _xc_livepatch_action(xch, name, LIVEPATCH_ACTION_REPLACE, timeout, flags);
 }
 
+int xc_livepatch_test(xc_interface *xch, uint32_t *result)
+{
+    struct xen_sysctl sysctl = {
+        .cmd = XEN_SYSCTL_livepatch_op,
+        .u.livepatch.cmd = XEN_SYSCTL_LIVEPATCH_TEST,
+    };
+    int rc = do_sysctl(xch, &sysctl);
+
+    if ( !rc )
+        *result = sysctl.u.livepatch.u.test.result;
+
+    return rc;
+}
+
 /*
  * Local variables:
  * mode: C
