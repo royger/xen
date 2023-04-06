@@ -47,3 +47,7 @@ RUN apk --no-cache add \
   libcap-ng-dev \
   ninja \
   pixman-dev \
+  # livepatch-tools deps
+  elfutils-dev \
+  coreutils \
+  gawk \
