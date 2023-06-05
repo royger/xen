@@ -1,8 +1,10 @@
+#include <xen/cpu.h>
 #include <xen/init.h>
 #include <xen/bitops.h>
 #include <xen/mm.h>
 #include <xen/param.h>
 #include <xen/smp.h>
+#include <xen/softirq.h>
 #include <xen/pci.h>
 #include <xen/sched.h>
 #include <xen/warning.h>
@@ -50,6 +52,8 @@ boolean_param("allow_unsafe", opt_allow_unsafe);
 bool __read_mostly amd_acpi_c1e_quirk;
 bool __ro_after_init amd_legacy_ssbd;
 bool __initdata amd_virt_spec_ctrl;
+
+static bool __read_mostly zen2_c6_disabled;
 
 static inline int rdmsr_amd_safe(unsigned int msr, unsigned int *lo,
 				 unsigned int *hi)
@@ -905,6 +909,41 @@ void __init detect_zen2_null_seg_behaviour(void)
 
 }
 
+static void cf_check zen2_disable_c6(void *arg)
+{
+	uint64_t val;
+
+	if (!zen2_c6_disabled) {
+		printk(XENLOG_WARNING
+    "Disabling C6 after 1000 days apparent uptime due to AMD errata 1474\n");
+		zen2_c6_disabled = true;
+		/*
+		 * Prevent CPU hotplug so that started CPUs will either see
+		 * c6_disabled set, or will be handled by smp_call_function().
+		 */
+		while ( !get_cpu_maps() )
+		{
+			cpu_relax();
+			process_pending_softirqs();
+		}
+		smp_call_function(zen2_disable_c6, NULL, 0);
+		put_cpu_maps();
+	}
+
+	/* Update the MSR to disable C6, done on all threads. */
+	if (rdmsr_safe(MSR_AMD_CSTATE_CFG, val)) {
+error:
+		printk_once(XENLOG_ERR
+		"Unable to disable C6 on AMD system affected by errata 1474\n"
+		"Reboot recommended, otherwise system might hang\n");
+		return;
+	}
+	val &= ~(CSTATE_CFG_CCR0_CC6EN | CSTATE_CFG_CCR1_CC6EN |
+	         CSTATE_CFG_CCR2_CC6EN);
+	if (wrmsr_safe(MSR_AMD_CSTATE_CFG, val))
+		goto error;
+}
+
 static void cf_check init_amd(struct cpuinfo_x86 *c)
 {
 	u32 l, h;
@@ -1171,6 +1210,9 @@ static void cf_check init_amd(struct cpuinfo_x86 *c)
 	if ((smp_processor_id() == 1) && !cpu_has(c, X86_FEATURE_ITSC))
 		disable_c1_ramping();
 
+	if (zen2_c6_disabled)
+		zen2_disable_c6(NULL);
+
 	check_syscfg_dram_mod_en();
 
 	amd_log_freq(c);
@@ -1180,3 +1222,44 @@ const struct cpu_dev amd_cpu_dev = {
 	.c_early_init	= early_init_amd,
 	.c_init		= init_amd,
 };
+
+static int __init cf_check zen2_c6_errata_check(void)
+{
+	/*
+	 * Errata #1474: A Core May Hang After About 1044 Days
+	 * Set up a timer to disable C6 after 1000 days uptime.
+	 */
+	s_time_t delta;
+
+	/*
+	 * Zen1 vs Zen2 isn't a simple model number comparison, so use STIBP as
+	 * a heuristic to separate the two uarches in Fam17h.
+	 */
+	if (cpu_has_hypervisor || boot_cpu_data.x86 != 0x17 ||
+	    !boot_cpu_has(X86_FEATURE_AMD_STIBP))
+		return 0;
+
+	/*
+	 * Deduct current TSC value, this would be relevant if kexec'ed for
+	 * example.  Might not be accurate, but worst case we end up disabling
+	 * C6 before strictly required, which would still be safe.
+	 *
+	 * NB: all affected models (Zen2) have invariant TSC and TSC adjust
+	 * MSR, so early_time_init() will have already cleared any TSC offset.
+	 */
+	delta = DAYS(1000) - tsc_ticks2ns(rdtsc());
+	if (delta > 0) {
+		static struct timer errata_c6;
+
+		init_timer(&errata_c6, zen2_disable_c6, NULL, 0);
+		set_timer(&errata_c6, NOW() + delta);
+	} else
+		zen2_disable_c6(NULL);
+
+	return 0;
+}
+/*
+ * Must be executed after early_time_init() for tsc_ticks2ns() to have been
+ * calibrated.  That prevents us doing the check in init_amd().
+ */
+presmp_initcall(zen2_c6_errata_check);
