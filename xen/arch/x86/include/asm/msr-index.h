@@ -211,6 +211,11 @@
 
 #define MSR_VIRT_SPEC_CTRL                  0xc001011f /* Layout matches MSR_SPEC_CTRL */
 
+#define MSR_AMD_CSTATE_CFG                  0xc0010296
+#define  CSTATE_CFG_CCR0_CC6EN              (_AC(1, ULL) <<  6)
+#define  CSTATE_CFG_CCR1_CC6EN              (_AC(1, ULL) << 14)
+#define  CSTATE_CFG_CCR2_CC6EN              (_AC(1, ULL) << 22)
+
 /*
  * Legacy MSR constants in need of cleanup.  No new MSRs below this comment.
  */
