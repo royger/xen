@@ -29,7 +29,9 @@ typedef void (*alternative_cb_t)(const struct alt_instr *alt,
 				 int nr_inst);
 
 void apply_alternatives_all(void);
+#ifdef CONFIG_LIVEPATCH
 int apply_alternatives(const struct alt_instr *start, const struct alt_instr *end);
+#endif
 
 #define ALTINSTR_ENTRY(feature, cb)					      \
 	" .word 661b - .\n"				/* label           */ \
