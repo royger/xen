@@ -426,7 +426,6 @@ func (cpl *CpuidPolicyList) fromC(ccpl *C.libxl_cpuid_policy_list) error { *cpl 
 
 func (cpl CpuidPolicyList) toC(ccpl *C.libxl_cpuid_policy_list) error {
 	if cpl == "" {
-		*ccpl = nil
 		return nil
 	}
 
