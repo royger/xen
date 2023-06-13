@@ -194,7 +194,7 @@ static void libxl_cpuid_policy_list_rand_init(libxl_cpuid_policy_list *pp)
     };
     const int nr_options = sizeof(options)/sizeof(options[0]);
     char buf[64];
-    libxl_cpuid_policy_list p = NULL;
+    libxl_cpuid_policy_list p = { };
 
     for (i = 0; i < nr_policies; i++) {
         int opt = test_rand(nr_options);
