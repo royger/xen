@@ -431,10 +431,9 @@ int xc_cpuid_apply_policy(xc_interface *xch, uint32_t domid, bool restore,
     int rc;
     bool hvm;
     xc_domaininfo_t di;
-    unsigned int i, nr_leaves, nr_msrs;
-    xen_cpuid_leaf_t *leaves = NULL;
-    struct cpu_policy *p = NULL;
-    uint32_t err_leaf = -1, err_subleaf = -1, err_msr = -1;
+    unsigned int i;
+    xc_cpu_policy_t *policy = NULL;
+    struct cpu_policy *p;
     uint32_t host_featureset[FEATURESET_NR_ENTRIES] = {};
     uint32_t len = ARRAY_SIZE(host_featureset);
 
@@ -446,17 +445,8 @@ int xc_cpuid_apply_policy(xc_interface *xch, uint32_t domid, bool restore,
     }
     hvm = di.flags & XEN_DOMINF_hvm_guest;
 
-    rc = xc_cpu_policy_get_size(xch, &nr_leaves, &nr_msrs);
-    if ( rc )
-    {
-        PERROR("Failed to obtain policy info size");
-        rc = -errno;
-        goto out;
-    }
-
     rc = -ENOMEM;
-    if ( (leaves = calloc(nr_leaves, sizeof(*leaves))) == NULL ||
-         (p = calloc(1, sizeof(*p))) == NULL )
+    if ( (policy = xc_cpu_policy_init()) == NULL )
         goto out;
 
     /* Get the host policy. */
@@ -470,26 +460,14 @@ int xc_cpuid_apply_policy(xc_interface *xch, uint32_t domid, bool restore,
         goto out;
     }
 
-    /* Get the domain's default policy. */
-    nr_msrs = 0;
-    rc = get_system_cpu_policy(xch, hvm ? XEN_SYSCTL_cpu_policy_hvm_default
-                                        : XEN_SYSCTL_cpu_policy_pv_default,
-                               &nr_leaves, leaves, &nr_msrs, NULL);
+    /* Get the domain's policy. */
+    rc = xc_cpu_policy_get_domain(xch, domid, policy);
     if ( rc )
     {
-        PERROR("Failed to obtain %s default policy", hvm ? "hvm" : "pv");
         rc = -errno;
         goto out;
     }
-
-    rc = x86_cpuid_copy_from_buffer(p, leaves, nr_leaves,
-                                    &err_leaf, &err_subleaf);
-    if ( rc )
-    {
-        ERROR("Failed to deserialise CPUID (err leaf %#x, subleaf %#x) (%d = %s)",
-              err_leaf, err_subleaf, -rc, strerror(-rc));
-        goto out;
-    }
+    p = &policy->policy;
 
     if ( restore )
     {
@@ -643,19 +621,9 @@ int xc_cpuid_apply_policy(xc_interface *xch, uint32_t domid, bool restore,
         }
     }
 
-    rc = x86_cpuid_copy_to_buffer(p, leaves, &nr_leaves);
+    rc = xc_cpu_policy_set_domain(xch, domid, policy);
     if ( rc )
     {
-        ERROR("Failed to serialise CPUID (%d = %s)", -rc, strerror(-rc));
-        goto out;
-    }
-
-    rc = xc_set_domain_cpu_policy(xch, domid, nr_leaves, leaves, 0, NULL,
-                                  &err_leaf, &err_subleaf, &err_msr);
-    if ( rc )
-    {
-        PERROR("Failed to set d%d's policy (err leaf %#x, subleaf %#x, msr %#x)",
-               domid, err_leaf, err_subleaf, err_msr);
         rc = -errno;
         goto out;
     }
@@ -666,8 +634,7 @@ int xc_cpuid_apply_policy(xc_interface *xch, uint32_t domid, bool restore,
     rc = 0;
 
 out:
-    free(p);
-    free(leaves);
+    xc_cpu_policy_destroy(policy);
 
     return rc;
 }
