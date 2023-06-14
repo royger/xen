@@ -331,10 +331,74 @@ int xc_cpu_policy_apply_cpuid(xc_interface *xch, xc_cpu_policy_t *policy,
     return 0;
 }
 
+int xc_cpu_policy_apply_msr(xc_interface *xch, xc_cpu_policy_t *policy,
+                            const struct xc_msr *msr,
+                            const xc_cpu_policy_t *host)
+{
+    for ( ; msr->index != XC_MSR_INPUT_UNUSED; ++msr )
+    {
+        xen_msr_entry_t cur_msr, host_msr;
+        int rc;
+
+        rc = xc_cpu_policy_get_msr(xch, policy, msr->index, &cur_msr);
+        if ( rc )
+        {
+            ERROR("Failed to get current MSR %#x", msr->index);
+            return rc;
+        }
+        rc = xc_cpu_policy_get_msr(xch, host, msr->index, &host_msr);
+        if ( rc )
+        {
+            ERROR("Failed to get host policy MSR %#x", msr->index);
+            return rc;
+        }
+
+        for ( unsigned int i = 0; i < ARRAY_SIZE(msr->policy) - 1; i++ )
+        {
+            bool val;
+
+            switch ( msr->policy[i] )
+            {
+            case '1':
+                val = true;
+                break;
+
+            case '0':
+                val = false;
+                break;
+
+            case 'x':
+                /* Leave alone: the current policy is the default one. */
+                continue;
+
+            case 'k':
+                val = test_bit(63 - i, &host_msr.val);
+                break;
+
+            default:
+                ERROR("Bad character '%c' in policy string '%s'",
+                      msr->policy[i], msr->policy);
+                return -EINVAL;
+            }
+
+            clear_bit(63 - i, &cur_msr.val);
+            if ( val )
+                set_bit(63 - i, &cur_msr.val);
+        }
+
+        rc = xc_cpu_policy_update_msrs(xch, policy, &cur_msr, 1);
+        if ( rc )
+            return rc;
+    }
+
+    return 0;
+}
+
 int xc_cpuid_apply_policy(xc_interface *xch, uint32_t domid, bool restore,
                           const uint32_t *featureset, unsigned int nr_features,
                           bool pae, bool itsc, bool nested_virt,
-                          const struct xc_xend_cpuid *cpuid)
+                          const struct xc_xend_cpuid *cpuid,
+                          const struct xc_msr *msr)
 {
     int rc;
     bool hvm;
@@ -528,6 +592,16 @@ int xc_cpuid_apply_policy(xc_interface *xch, uint32_t domid, bool restore,
     if ( cpuid )
     {
         rc = xc_cpu_policy_apply_cpuid(xch, policy, cpuid, host);
+        if ( rc )
+        {
+            rc = -errno;
+            goto out;
+        }
+    }
+
+    if ( msr )
+    {
+        rc = xc_cpu_policy_apply_msr(xch, policy, msr, host);
         if ( rc )
         {
             rc = -errno;
