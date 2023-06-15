@@ -1461,6 +1461,7 @@ void libxl_bitmap_dispose(libxl_bitmap *map);
  */
 typedef struct libxl_cpu_policy {
     struct xc_xend_cpuid *cpuid;
+    struct xc_msr *msr;
 } libxl_cpuid_policy;
 typedef libxl_cpuid_policy libxl_cpuid_policy_list;
 void libxl_cpuid_dispose(libxl_cpuid_policy_list *cpuid_list);
