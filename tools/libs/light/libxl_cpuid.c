@@ -40,6 +40,9 @@ void libxl_cpuid_dispose(libxl_cpuid_policy_list *pl)
         free(policy->cpuid);
     }
 
+    if (policy->msr)
+        free(policy->msr);
+
     free(policy);
     *pl = NULL;
     return;
@@ -516,7 +519,8 @@ int libxl__cpuid_legacy(libxl_ctx *ctx, uint32_t domid, bool restore,
 
     r = xc_cpuid_apply_policy(ctx->xch, domid, restore, NULL, 0,
                               pae, itsc, nested_virt,
-                              info->cpuid ? info->cpuid->cpuid : NULL, NULL);
+                              info->cpuid ? info->cpuid->cpuid : NULL,
+                              info->cpuid ? info->cpuid->msr : NULL);
     if (r)
         LOGEVD(ERROR, -r, domid, "Failed to apply CPUID policy");
 
