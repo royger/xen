@@ -21,20 +21,26 @@ int libxl__cpuid_policy_is_empty(libxl_cpuid_policy_list *pl)
 
 void libxl_cpuid_dispose(libxl_cpuid_policy_list *policy)
 {
-    int i, j;
     struct xc_xend_cpuid *cpuid_list = policy->cpuid;
 
-    if (cpuid_list == NULL)
-        return;
-    for (i = 0; cpuid_list[i].input[0] != XEN_CPUID_INPUT_UNUSED; i++) {
-        for (j = 0; j < 4; j++)
-            if (cpuid_list[i].policy[j] != NULL) {
-                free(cpuid_list[i].policy[j]);
-                cpuid_list[i].policy[j] = NULL;
-            }
+    if (cpuid_list) {
+        unsigned int i, j;
+
+        for (i = 0; cpuid_list[i].input[0] != XEN_CPUID_INPUT_UNUSED; i++) {
+            for (j = 0; j < 4; j++)
+                if (cpuid_list[i].policy[j] != NULL) {
+                    free(cpuid_list[i].policy[j]);
+                    cpuid_list[i].policy[j] = NULL;
+                }
+        }
+        free(policy->cpuid);
+        policy->cpuid = NULL;
     }
-    free(policy->cpuid);
-    policy->cpuid = NULL;
+
+    if (policy->msr) {
+        free(policy->msr);
+        policy->msr = NULL;
+    }
     return;
 }
 
@@ -503,7 +509,8 @@ int libxl__cpuid_legacy(libxl_ctx *ctx, uint32_t domid, bool restore,
             info->tsc_mode == LIBXL_TSC_MODE_ALWAYS_EMULATE);
 
     r = xc_cpuid_apply_policy(ctx->xch, domid, restore, NULL, 0,
-                              pae, itsc, nested_virt, info->cpuid.cpuid, NULL);
+                              pae, itsc, nested_virt, info->cpuid.cpuid,
+                              info->cpuid.msr);
     if (r)
         LOGEVD(ERROR, -r, domid, "Failed to apply CPUID policy");
 
