@@ -432,10 +432,8 @@ int xc_cpuid_apply_policy(xc_interface *xch, uint32_t domid, bool restore,
     bool hvm;
     xc_domaininfo_t di;
     unsigned int i;
-    xc_cpu_policy_t *policy = NULL;
+    xc_cpu_policy_t *policy = NULL, *host = NULL;
     struct cpu_policy *p;
-    uint32_t host_featureset[FEATURESET_NR_ENTRIES] = {};
-    uint32_t len = ARRAY_SIZE(host_featureset);
 
     if ( (rc = xc_domain_getinfo_single(xch, domid, &di)) < 0 )
     {
@@ -446,16 +444,14 @@ int xc_cpuid_apply_policy(xc_interface *xch, uint32_t domid, bool restore,
     hvm = di.flags & XEN_DOMINF_hvm_guest;
 
     rc = -ENOMEM;
-    if ( (policy = xc_cpu_policy_init()) == NULL )
+    if ( (policy = xc_cpu_policy_init()) == NULL ||
+         (host = xc_cpu_policy_init()) == NULL )
         goto out;
 
     /* Get the host policy. */
-    rc = xc_get_cpu_featureset(xch, XEN_SYSCTL_cpu_featureset_host,
-                               &len, host_featureset);
-    /* Tolerate "buffer too small", as we've got the bits we need. */
-    if ( rc && errno != ENOBUFS )
+    rc = xc_cpu_policy_get_system(xch, XEN_SYSCTL_cpu_policy_host, host);
+    if ( rc )
     {
-        PERROR("Failed to obtain host featureset");
         rc = -errno;
         goto out;
     }
@@ -485,13 +481,13 @@ int xc_cpuid_apply_policy(xc_interface *xch, uint32_t domid, bool restore,
          * - Re-enable features which have become (possibly) off by default.
          */
 
-        p->basic.rdrand = test_bit(X86_FEATURE_RDRAND, host_featureset);
-        p->feat.hle = test_bit(X86_FEATURE_HLE, host_featureset);
-        p->feat.rtm = test_bit(X86_FEATURE_RTM, host_featureset);
+        p->basic.rdrand = host->policy.basic.rdrand;
+        p->feat.hle = host->policy.feat.hle;
+        p->feat.rtm = host->policy.feat.rtm;
 
         if ( hvm )
         {
-            p->feat.mpx = test_bit(X86_FEATURE_MPX, host_featureset);
+            p->feat.mpx = host->policy.feat.mpx;
         }
 
         p->basic.max_leaf = min(p->basic.max_leaf, 0xdu);
@@ -560,8 +556,8 @@ int xc_cpuid_apply_policy(xc_interface *xch, uint32_t domid, bool restore,
          * On hardware without CPUID Faulting, PV guests see real topology.
          * As a consequence, they also need to see the host htt/cmp fields.
          */
-        p->basic.htt       = test_bit(X86_FEATURE_HTT, host_featureset);
-        p->extd.cmp_legacy = test_bit(X86_FEATURE_CMP_LEGACY, host_featureset);
+        p->basic.htt       = host->policy.basic.htt;
+        p->extd.cmp_legacy = host->policy.extd.cmp_legacy;
     }
     else
     {
@@ -635,6 +631,7 @@ int xc_cpuid_apply_policy(xc_interface *xch, uint32_t domid, bool restore,
 
 out:
     xc_cpu_policy_destroy(policy);
+    xc_cpu_policy_destroy(host);
 
     return rc;
 }
