@@ -210,4 +210,6 @@ unsigned highest_gsi(void);
 int ioapic_guest_read( unsigned long physbase, unsigned int reg, u32 *pval);
 int ioapic_guest_write(unsigned long physbase, unsigned int reg, u32 pval);
 
+void sanitize_IO_APIC(void);
+
 #endif
