@@ -1221,6 +1221,10 @@ void __init smp_prepare_cpus(void)
         goto init_uniprocessor;
     }
 
+    if ( !skip_ioapic_setup && nr_ioapics )
+        /* Sanitize the IO-APIC pins before enabling the local APIC. */
+        sanitize_IO_APIC();
+
     verify_local_APIC();
 
     connect_bsp_APIC();

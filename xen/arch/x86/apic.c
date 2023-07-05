@@ -1476,6 +1476,10 @@ int __init APIC_init_uniprocessor (void)
         return -1;
     }
 
+    if ( smp_found_config && !skip_ioapic_setup && nr_ioapics )
+        /* Sanitize the IO-APIC pins before enabling the local APIC. */
+        sanitize_IO_APIC();
+
     verify_local_APIC();
 
     connect_bsp_APIC();
