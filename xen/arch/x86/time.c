@@ -9,6 +9,7 @@
  * Copyright (c) 1991, 1992, 1995  Linus Torvalds
  */
 
+#include <xen/cpu.h>
 #include <xen/errno.h>
 #include <xen/event.h>
 #include <xen/sched.h>
@@ -589,13 +590,7 @@ static s64 __init cf_check init_tsc(struct platform_timesource *pts)
 {
     u64 ret = pts->frequency;
 
-    if ( nr_cpu_ids != num_present_cpus() )
-    {
-        printk(XENLOG_WARNING "TSC: CPU Hotplug intended\n");
-        ret = 0;
-    }
-
-    if ( nr_sockets > 1 && !(tsc_flags & TSC_RELIABLE_SOCKET) )
+    if ( num_online_nodes() > 1 && !(tsc_flags & TSC_RELIABLE_SOCKET) )
     {
         printk(XENLOG_WARNING "TSC: Not invariant across sockets\n");
         ret = 0;
@@ -927,7 +922,7 @@ static void resume_platform_timer(void)
     plt_stamp = read_counter();
 }
 
-static void __init reset_platform_timer(void)
+static void reset_platform_timer(void)
 {
     kill_timer(&plt_overflow_timer);
 
@@ -940,13 +935,8 @@ static void __init reset_platform_timer(void)
     spin_unlock_irq(&platform_timer_lock);
 }
 
-static s64 __init try_platform_timer(struct platform_timesource *pts)
+static void set_platform_timer(struct platform_timesource *pts)
 {
-    s64 rc = pts->init(pts);
-
-    if ( rc <= 0 )
-        return rc;
-
     /* We have a platform timesource already so reset it */
     if ( plt_src.counter_bits != 0 )
         reset_platform_timer();
@@ -958,6 +948,14 @@ static s64 __init try_platform_timer(struct platform_timesource *pts)
     plt_overflow_period = scale_delta(
         1ull << (pts->counter_bits - 1), &plt_scale);
     plt_src = *pts;
+}
+
+static s64 try_platform_timer(struct platform_timesource *pts)
+{
+    s64 rc = pts->init(pts);
+
+    if ( rc > 0 )
+        set_platform_timer(pts);
 
     return rc;
 }
@@ -2249,7 +2247,7 @@ static void __init cf_check reset_percpu_time(void *unused)
     t->stamp.master_stime = t->stamp.local_stime;
 }
 
-static void __init try_platform_timer_tail(void)
+static void try_platform_timer_tail(void)
 {
     struct time_scale sys_to_plt;
 
@@ -2266,8 +2264,44 @@ static void __init try_platform_timer_tail(void)
     stime_platform_stamp = NOW();
 }
 
-/* Late init function, after all cpus have booted */
-static int __init cf_check verify_tsc_reliability(void)
+struct platform_timesource previous_plt;
+
+static int cf_check cpu_up_callback(
+    struct notifier_block *nfb, unsigned long action, void *hcpu)
+{
+    if ( action != CPU_UP_PREPARE || strcmp(plt_src.id, "tsc") )
+        return NOTIFY_DONE;
+
+    kill_timer(&calibration_timer);
+
+    /* Previous timer is already initialized, just set it. */
+    set_platform_timer(&previous_plt);
+
+    /* The TSC is reliable, use the std rendezvous. */
+    time_calibration_rendezvous_fn = time_calibration_std_rendezvous;
+
+    /* Finish platform timer switch. */
+    try_platform_timer_tail();
+
+    printk("Switched to Platform timer %s %s\n",
+           freq_string(plt_src.frequency), plt_src.name);
+
+    time_calibration(NULL);
+
+    return NOTIFY_DONE;
+}
+
+static struct notifier_block cpu_nfb = {
+    .notifier_call = cpu_up_callback
+};
+
+static void cf_check change_timer(void *unused)
+{
+    printk("CPU UP prepare\n");
+    cpu_up_callback(NULL, CPU_UP_PREPARE, NULL);
+}
+
+static bool switch_to_tsc(void)
 {
     if ( boot_cpu_has(X86_FEATURE_TSC_RELIABLE) )
     {
@@ -2282,9 +2316,11 @@ static int __init cf_check verify_tsc_reliability(void)
         {
             printk("TSC warp detected, disabling TSC_RELIABLE\n");
             setup_clear_cpu_cap(X86_FEATURE_TSC_RELIABLE);
+            return false;
         }
-        else if ( !strcmp(opt_clocksource, "tsc") &&
-                  (try_platform_timer(&plt_tsc) > 0) )
+
+        previous_plt = plt_src;
+        if ( try_platform_timer(&plt_tsc) > 0 )
         {
             /*
              * Platform timer has changed and CPU time will only be updated
@@ -2311,9 +2347,31 @@ static int __init cf_check verify_tsc_reliability(void)
 
             time_calibration(NULL);
 
-            return 0;
+{
+    static struct timer change_plt;
+
+    /*
+     * Register the CPU notifier to switch away from TSC when a CPU is
+     * hotplugged.
+     */
+    register_cpu_notifier(&cpu_nfb);
+
+    init_timer(&change_plt, change_timer, NULL, 0);
+    set_timer(&change_plt, NOW() + SECONDS(60));
+}
+
+            return true;
         }
     }
+
+    return false;
+}
+
+/* Late init function, after all cpus have booted */
+static int __init cf_check verify_tsc_reliability(void)
+{
+    if ( switch_to_tsc() )
+        return 0;
 
     /*
      * Re-run the TSC writability check if it didn't run to completion, as
