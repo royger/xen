@@ -2251,7 +2251,15 @@ static void __init cf_check reset_percpu_time(void *unused)
 
 static void __init try_platform_timer_tail(void)
 {
+    struct time_scale sys_to_plt;
+
     init_timer(&plt_overflow_timer, plt_overflow, NULL, 0);
+
+    /* Account for any wraparound that might have already happened. */
+    sys_to_plt = scale_reciprocal(plt_scale);
+    plt_stamp = read_counter();
+    plt_stamp64 = (scale_delta(NOW(), &sys_to_plt) & ~plt_mask) + plt_stamp;
+
     plt_overflow(NULL);
 
     platform_timer_stamp = plt_stamp64;
