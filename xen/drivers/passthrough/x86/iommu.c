@@ -301,129 +301,133 @@ void iommu_identity_map_teardown(struct domain *d)
     }
 }
 
-static int __hwdom_init xen_in_range(unsigned long mfn)
+static int __hwdom_init remove_xen_ranges(struct rangeset *map)
 {
     paddr_t start, end;
-    int i;
+    int rc;
 
-    enum { region_s3, region_ro, region_rw, region_bss, nr_regions };
-    static struct {
-        paddr_t s, e;
-    } xen_regions[nr_regions] __hwdom_initdata;
+    /* S3 resume code (and other real mode trampoline code) */
+    rc = rangeset_remove_range(map, PFN_DOWN(bootsym_phys(trampoline_start)),
+                               PFN_DOWN(bootsym_phys(trampoline_end)));
+    if ( rc )
+        return rc;
 
-    /* initialize first time */
-    if ( !xen_regions[0].s )
+    /*
+     * This needs to remain in sync with the uses of the same symbols in
+     * - __start_xen()
+     * - is_xen_fixed_mfn()
+     * - tboot_shutdown()
+     */
+    /* hypervisor .text + .rodata */
+    rc = rangeset_remove_range(map, PFN_DOWN(__pa(&_stext)),
+                               PFN_DOWN(__pa(&__2M_rodata_end)));
+    if ( rc )
+        return rc;
+
+    if ( efi_boot_mem_unused(&start, &end) )
     {
-        /* S3 resume code (and other real mode trampoline code) */
-        xen_regions[region_s3].s = bootsym_phys(trampoline_start);
-        xen_regions[region_s3].e = bootsym_phys(trampoline_end);
-
-        /*
-         * This needs to remain in sync with the uses of the same symbols in
-         * - __start_xen()
-         * - is_xen_fixed_mfn()
-         * - tboot_shutdown()
-         */
-
-        /* hypervisor .text + .rodata */
-        xen_regions[region_ro].s = __pa(&_stext);
-        xen_regions[region_ro].e = __pa(&__2M_rodata_end);
-        /* hypervisor .data + .bss */
-        xen_regions[region_rw].s = __pa(&__2M_rwdata_start);
-        xen_regions[region_rw].e = __pa(&__2M_rwdata_end);
-        if ( efi_boot_mem_unused(&start, &end) )
-        {
-            ASSERT(__pa(start) >= xen_regions[region_rw].s);
-            ASSERT(__pa(end) <= xen_regions[region_rw].e);
-            xen_regions[region_rw].e = __pa(start);
-            xen_regions[region_bss].s = __pa(end);
-            xen_regions[region_bss].e = __pa(&__2M_rwdata_end);
-        }
+        ASSERT(__pa(start) >= __pa(&__2M_rwdata_start));
+        rc = rangeset_remove_range(map, PFN_DOWN(__pa(&__2M_rwdata_start)),
+                                   PFN_DOWN(__pa(start)));
+        if ( rc )
+            return rc;
+        ASSERT(__pa(end) <= __pa(&__2M_rwdata_end));
+        rc = rangeset_remove_range(map, PFN_DOWN(__pa(end)),
+                                   PFN_DOWN(__pa(&__2M_rwdata_end)));
+        if ( rc )
+            return rc;
     }
-
-    start = (paddr_t)mfn << PAGE_SHIFT;
-    end = start + PAGE_SIZE;
-    for ( i = 0; i < nr_regions; i++ )
-        if ( (start < xen_regions[i].e) && (end > xen_regions[i].s) )
-            return 1;
+    else
+    {
+        /* hypervisor .data + .bss */
+        rc = rangeset_remove_range(map, PFN_DOWN(__pa(&__2M_rwdata_start)),
+                                   PFN_DOWN(__pa(&__2M_rwdata_end)));
+        if ( rc )
+            return rc;
+    }
 
     return 0;
 }
 
-static unsigned int __hwdom_init hwdom_iommu_map(const struct domain *d,
-                                                 unsigned long pfn,
-                                                 unsigned long max_pfn)
+static int __hwdom_init map_subtract(unsigned long s, unsigned long e,
+                                     void *data)
 {
-    mfn_t mfn = _mfn(pfn);
-    unsigned int i, type, perms = IOMMUF_readable | IOMMUF_writable;
+    struct rangeset *map = data;
 
-    /*
-     * Set up 1:1 mapping for dom0. Default to include only conventional RAM
-     * areas and let RMRRs include needed reserved regions. When set, the
-     * inclusive mapping additionally maps in every pfn up to 4GB except those
-     * that fall in unusable ranges for PV Dom0.
-     */
-    if ( (pfn > max_pfn && !mfn_valid(mfn)) || xen_in_range(pfn) )
-        return 0;
+    return rangeset_remove_range(map, s, e);
+}
 
-    switch ( type = page_get_ram_type(mfn) )
+struct map_data {
+    struct domain *d;
+    unsigned int flush_flags;
+    bool ro;
+};
+
+static int __hwdom_init identity_map(unsigned long s, unsigned long e,
+                                     void *data)
+{
+    struct map_data *info = data;
+    struct domain *d = info->d;
+    long rc;
+
+    if ( iommu_verbose )
+        printk(XENLOG_INFO " [%010lx, %010lx] R%c\n",
+               s, e, info->ro ? 'O' : 'W');
+
+    if ( paging_mode_translate(d) )
     {
-    case RAM_TYPE_UNUSABLE:
-        return 0;
-
-    case RAM_TYPE_CONVENTIONAL:
-        if ( iommu_hwdom_strict )
-            return 0;
-        break;
-
-    default:
-        if ( type & RAM_TYPE_RESERVED )
+        if ( info->ro )
         {
-            if ( !iommu_hwdom_inclusive && !iommu_hwdom_reserved )
-                perms = 0;
-        }
-        else if ( is_hvm_domain(d) )
+            ASSERT_UNREACHABLE();
             return 0;
-        else if ( !iommu_hwdom_inclusive || pfn > max_pfn )
-            perms = 0;
+        }
+        while ( (rc = map_mmio_regions(d, _gfn(s), e - s + 1, _mfn(s))) > 0 )
+        {
+            s += rc;
+            process_pending_softirqs();
+        }
     }
-
-    /* Check that it doesn't overlap with the Interrupt Address Range. */
-    if ( pfn >= 0xfee00 && pfn <= 0xfeeff )
-        return 0;
-    /* ... or the IO-APIC */
-    if ( has_vioapic(d) )
+    else
     {
-        for ( i = 0; i < d->arch.hvm.nr_vioapics; i++ )
-            if ( pfn == PFN_DOWN(domain_vioapic(d, i)->base_address) )
-                return 0;
-    }
-    else if ( is_pv_domain(d) )
-    {
-        /*
-         * Be consistent with CPU mappings: Dom0 is permitted to establish r/o
-         * ones there (also for e.g. HPET in certain cases), so it should also
-         * have such established for IOMMUs.
-         */
-        if ( iomem_access_permitted(d, pfn, pfn) &&
-             rangeset_contains_singleton(mmio_ro_ranges, pfn) )
-            perms = IOMMUF_readable;
-    }
-    /*
-     * ... or the PCIe MCFG regions.
-     * TODO: runtime added MMCFG regions are not checked to make sure they
-     * don't overlap with already mapped regions, thus preventing trapping.
-     */
-    if ( has_vpci(d) && vpci_is_mmcfg_address(d, pfn_to_paddr(pfn)) )
-        return 0;
+        const unsigned int perms = IOMMUF_readable | IOMMUF_preempt |
+                                   (info->ro ? 0 : IOMMUF_writable);
 
-    return perms;
+        if ( info->ro && !iomem_access_permitted(d, s, e) )
+        {
+            /*
+             * Should be more fine grained in order to not map the forbidden
+             * frame instead of rejecting the region as a whole, but it's only
+             * for read-only MMIO regions, which are very limited.
+             */
+            printk(XENLOG_DEBUG
+                   "IOMMU read-only mapping of region [%lx,%lx] forbidden\n",
+                   s, e);
+            return 0;
+        }
+        while ( (rc = iommu_map(d, _dfn(s), _mfn(s), e - s + 1,
+                                perms, &info->flush_flags)) > 0 )
+        {
+            s += rc;
+            process_pending_softirqs();
+        }
+    }
+    ASSERT(rc <= 0);
+    if ( rc )
+        printk(XENLOG_WARNING
+               "IOMMU identity mapping of [%lx,%lx] failed: %ld\n",
+               s, e, rc);
+
+    /* Ignore errors and attempt to map the remaining regions. */
+    return 0;
 }
 
 void __hwdom_init arch_iommu_hwdom_init(struct domain *d)
 {
-    unsigned long i, top, max_pfn, start, count;
-    unsigned int flush_flags = 0, start_perms = 0;
+    const unsigned long max_pfn = PFN_DOWN(GB(4)) - 1;
+    unsigned int i;
+    struct rangeset *map;
+    struct map_data map_data = { .d = d };
+    int rc;
 
     BUG_ON(!is_hardware_domain(d));
 
@@ -447,62 +451,135 @@ void __hwdom_init arch_iommu_hwdom_init(struct domain *d)
     if ( iommu_hwdom_passthrough )
         return;
 
-    max_pfn = (GB(4) >> PAGE_SHIFT) - 1;
-    top = max(max_pdx, pfn_to_pdx(max_pfn) + 1);
+    map = rangeset_new(NULL, NULL, 0);
+    if ( !map )
+        panic("IOMMU initialization failed unable to allocate rangeset\n");
 
-    for ( i = 0, start = 0, count = 0; i < top; )
+    if ( iommu_hwdom_inclusive )
     {
-        unsigned long pfn = pdx_to_pfn(i);
-        unsigned int perms = hwdom_iommu_map(d, pfn, max_pfn);
-
-        if ( !perms )
-            /* nothing */;
-        else if ( paging_mode_translate(d) )
-        {
-            int rc;
-
-            rc = p2m_add_identity_entry(d, pfn,
-                                        perms & IOMMUF_writable ? p2m_access_rw
-                                                                : p2m_access_r,
-                                        0);
-            if ( rc )
-                printk(XENLOG_WARNING
-                       "%pd: identity mapping of %lx failed: %d\n",
-                       d, pfn, rc);
-        }
-        else if ( pfn != start + count || perms != start_perms )
-        {
-            long rc;
-
-        commit:
-            while ( (rc = iommu_map(d, _dfn(start), _mfn(start), count,
-                                    start_perms | IOMMUF_preempt,
-                                    &flush_flags)) > 0 )
-            {
-                start += rc;
-                count -= rc;
-                process_pending_softirqs();
-            }
-            if ( rc )
-                printk(XENLOG_WARNING
-                       "%pd: IOMMU identity mapping of [%lx,%lx) failed: %ld\n",
-                       d, start, start + count, rc);
-            start = pfn;
-            count = 1;
-            start_perms = perms;
-        }
-        else
-            ++count;
-
-        if ( !(++i & 0xfffff) )
-            process_pending_softirqs();
-
-        if ( i == top && count )
-            goto commit;
+        /* Add the whole range below 4GB, UNUSABLE regions will be removed. */
+        rc = rangeset_add_range(map, 0, max_pfn);
+        if ( rc )
+            panic("IOMMU inclusive mappings can't be added: %d\n",
+                  rc);
     }
 
+    for ( i = 0; i < e820.nr_map; i++ )
+    {
+        struct e820entry entry = e820.map[i];
+
+        switch ( entry.type )
+        {
+        case E820_UNUSABLE:
+            if ( !iommu_hwdom_inclusive || PFN_DOWN(entry.addr) > max_pfn )
+                continue;
+
+            rc = rangeset_remove_range(map, PFN_DOWN(entry.addr),
+                                       PFN_DOWN(entry.addr + entry.size - 1));
+            if ( rc )
+                panic("IOMMU failed to remove unusable memory: %d\n",
+                      rc);
+            continue;
+
+        case E820_RESERVED:
+            if ( !iommu_hwdom_inclusive && !iommu_hwdom_reserved )
+                continue;
+            break;
+
+        case E820_RAM:
+            if ( iommu_hwdom_strict )
+                continue;
+            break;
+
+        default:
+            if ( !iommu_hwdom_inclusive || PFN_DOWN(entry.addr) >= max_pfn )
+                continue;
+            entry.size = pfn_to_paddr(max_pfn) - 1 - entry.addr;
+            break;
+        }
+
+        if ( iommu_hwdom_inclusive &&
+             PFN_DOWN(entry.addr + entry.size - 1) <= max_pfn )
+            /*
+             * Any range below 4GB is already in the rangeset if using inclusive
+             * mode.
+             */
+            continue;
+
+        rc = rangeset_add_range(map, PFN_DOWN(entry.addr),
+                                PFN_DOWN(entry.addr + entry.size - 1));
+        if ( rc )
+            panic("IOMMU failed to add identity range: %d\n", rc);
+    }
+
+    /* Remove any areas in-use by Xen. */
+    rc = remove_xen_ranges(map);
+    if ( rc )
+        panic("IOMMU failed to remove Xen ranges: %d\n", rc);
+
+    /* Remove any overlap with the Interrupt Address Range. */
+    rc = rangeset_remove_range(map, 0xfee00, 0xfeeff);
+    if ( rc )
+        panic("IOMMU failed to remove Interrupt Address Range: %d\n",
+              rc);
+
+    /* If emulating IO-APIC(s) make sure the base address is unmapped. */
+    if ( has_vioapic(d) )
+    {
+        for ( i = 0; i < d->arch.hvm.nr_vioapics; i++ )
+        {
+            rc = rangeset_remove_singleton(map,
+                PFN_DOWN(domain_vioapic(d, i)->base_address));
+            if ( rc )
+                panic("IOMMU failed to remove IO-APIC: %d\n",
+                      rc);
+        }
+    }
+
+    if ( is_pv_domain(d) )
+    {
+        /*
+         * Be consistent with CPU mappings: Dom0 is permitted to establish r/o
+         * ones there (also for e.g. HPET in certain cases), so it should also
+         * have such established for IOMMUs.
+         */
+        rc = rangeset_report_ranges(mmio_ro_ranges, 0, ~0UL, map_subtract, map);
+        if ( rc )
+            panic("IOMMU failed to remove read-only regions: %d\n",
+                  rc);
+    }
+
+    if ( has_vpci(d) )
+    {
+        /*
+         * TODO: runtime added MMCFG regions are not checked to make sure they
+         * don't overlap with already mapped regions, thus preventing trapping.
+         */
+        rc = vpci_subtract_mmcfg(d, map);
+        if ( rc )
+            panic("IOMMU unable to remove MMCFG areas: %d\n", rc);
+    }
+
+    if ( iommu_verbose )
+        printk(XENLOG_INFO "d%u: identity mappings for IOMMU:\n",
+               d->domain_id);
+
+    rc = rangeset_report_ranges(map, 0, ~0UL, identity_map, &map_data);
+    if ( rc )
+        panic("IOMMU unable to create mappings: %d\n", rc);
+    if ( is_pv_domain(d) )
+    {
+        map_data.ro = true;
+        rc = rangeset_report_ranges(mmio_ro_ranges, 0, ~0UL, identity_map,
+                                    &map_data);
+        if ( rc )
+            panic("IOMMU unable to create read-only mappings: %d\n", rc);
+    }
+
+    rangeset_destroy(map);
+
     /* Use if to avoid compiler warning */
-    if ( iommu_iotlb_flush_all(d, flush_flags) )
+    if ( iommu_iotlb_flush_all(d, map_data.flush_flags) )
         return;
 }
 
