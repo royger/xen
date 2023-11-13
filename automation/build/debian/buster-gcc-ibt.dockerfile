@@ -1,4 +1,4 @@
-FROM debian:buster-slim AS builder
+FROM --platform=linux/amd64 debian:buster-slim AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV USER root
