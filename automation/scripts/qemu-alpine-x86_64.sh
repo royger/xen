@@ -78,13 +78,13 @@ EOF
 rm -f smoke.serial
 set +e
 timeout -k 1 720 \
-qemu-system-x86_64 \
-    -cpu qemu64,+svm \
-    -m 2G -smp 2 \
-    -monitor none -serial stdio \
-    -nographic \
-    -device virtio-net-pci,netdev=n0 \
-    -netdev user,id=n0,tftp=binaries,bootfile=/pxelinux.0 |& tee smoke.serial
+script -c "qemu-system-x86_64 \
+           -cpu qemu64,+svm \
+           -m 2G -smp 2 \
+           -monitor none -serial stdio \
+           -nographic \
+           -device virtio-net-pci,netdev=n0 \
+           -netdev user,id=n0,tftp=binaries,bootfile=/pxelinux.0" smoke.serial
 
 set -e
 (grep -q "Domain-0" smoke.serial && grep -q "BusyBox" smoke.serial) || exit 1
