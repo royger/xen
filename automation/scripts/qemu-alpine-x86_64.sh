@@ -84,7 +84,8 @@ qemu-system-x86_64 \
     -monitor none -serial stdio \
     -nographic \
     -device virtio-net-pci,netdev=n0 \
-    -netdev user,id=n0,tftp=binaries,bootfile=/pxelinux.0 |& tee smoke.serial
+    -netdev user,id=n0,tftp=binaries,bootfile=/pxelinux.0 |& \
+        tee smoke.serial | cat --show-nonprinting
 
 set -e
 (grep -q "Domain-0" smoke.serial && grep -q "BusyBox" smoke.serial) || exit 1
