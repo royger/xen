@@ -1,4 +1,4 @@
-FROM arm64v8/debian:bookworm AS builder
+FROM --platform=linux/arm64/v8 debian:bookworm AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV CPPCHECK_VERSION=2.7
