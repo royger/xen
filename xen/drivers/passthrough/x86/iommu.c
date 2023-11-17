@@ -13,6 +13,7 @@
  */
 
 #include <xen/cpu.h>
+#include <xen/efi.h>
 #include <xen/sched.h>
 #include <xen/iocap.h>
 #include <xen/iommu.h>
@@ -298,6 +299,55 @@ void iommu_identity_map_teardown(struct domain *d)
         list_del(&map->list);
         xfree(map);
     }
+}
+
+static int __hwdom_init xen_in_range(unsigned long mfn)
+{
+    paddr_t start, end;
+    int i;
+
+    enum { region_s3, region_ro, region_rw, region_bss, nr_regions };
+    static struct {
+        paddr_t s, e;
+    } xen_regions[nr_regions] __hwdom_initdata;
+
+    /* initialize first time */
+    if ( !xen_regions[0].s )
+    {
+        /* S3 resume code (and other real mode trampoline code) */
+        xen_regions[region_s3].s = bootsym_phys(trampoline_start);
+        xen_regions[region_s3].e = bootsym_phys(trampoline_end);
+
+        /*
+         * This needs to remain in sync with the uses of the same symbols in
+         * - __start_xen()
+         * - is_xen_fixed_mfn()
+         * - tboot_shutdown()
+         */
+
+        /* hypervisor .text + .rodata */
+        xen_regions[region_ro].s = __pa(&_stext);
+        xen_regions[region_ro].e = __pa(&__2M_rodata_end);
+        /* hypervisor .data + .bss */
+        xen_regions[region_rw].s = __pa(&__2M_rwdata_start);
+        xen_regions[region_rw].e = __pa(&__2M_rwdata_end);
+        if ( efi_boot_mem_unused(&start, &end) )
+        {
+            ASSERT(__pa(start) >= xen_regions[region_rw].s);
+            ASSERT(__pa(end) <= xen_regions[region_rw].e);
+            xen_regions[region_rw].e = __pa(start);
+            xen_regions[region_bss].s = __pa(end);
+            xen_regions[region_bss].e = __pa(&__2M_rwdata_end);
+        }
+    }
+
+    start = (paddr_t)mfn << PAGE_SHIFT;
+    end = start + PAGE_SIZE;
+    for ( i = 0; i < nr_regions; i++ )
+        if ( (start < xen_regions[i].e) && (end > xen_regions[i].s) )
+            return 1;
+
+    return 0;
 }
 
 static unsigned int __hwdom_init hwdom_iommu_map(const struct domain *d,
