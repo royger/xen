@@ -25,6 +25,7 @@
 #include <asm/processor.h>
 #include <asm/setup.h>
 #include <asm/smp.h>
+#include <asm/test.h>
 #include <asm/numa.h>
 #include <xen/nodemask.h>
 #include <xen/cpu.h>
@@ -422,6 +423,14 @@ long arch_do_sysctl(
 
         break;
     }
+
+    case XEN_SYSCTL_test_smoc:
+        ret = test_smoc(sysctl->u.test_smoc.tests,
+                        &sysctl->u.test_smoc.results);
+        if ( !ret && __copy_field_to_guest(u_sysctl, sysctl,
+                                           u.test_smoc.results) )
+            ret = -EFAULT;
+        break;
 
     default:
         ret = -ENOSYS;

@@ -8,6 +8,7 @@ obj-$(CONFIG_HVM) += hvm/
 obj-y += mm/
 obj-$(CONFIG_XENOPROF) += oprofile/
 obj-$(CONFIG_PV) += pv/
+obj-y += test/
 obj-y += x86_64/
 obj-y += x86_emulate/
 

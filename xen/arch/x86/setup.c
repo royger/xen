@@ -58,6 +58,7 @@
 #include <asm/microcode.h>
 #include <asm/prot-key.h>
 #include <asm/pv/domain.h>
+#include <asm/test.h>
 
 /* opt_nosmp: If true, secondary processors are ignored. */
 static bool __initdata opt_nosmp;
@@ -1950,6 +1951,8 @@ void asmlinkage __init noreturn __start_xen(unsigned long mbi_p)
     do_presmp_initcalls();
 
     alternative_branches();
+
+    execute_selftests();
 
     /*
      * NB: when running as a PV shim VCPUOP_up/down is wired to the shim

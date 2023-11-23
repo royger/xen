@@ -2658,6 +2658,8 @@ int xc_dt_overlay(xc_interface *xch, void *overlay_fdt,
                   uint32_t overlay_fdt_size, uint8_t overlay_op);
 #endif
 
+int xc_test_smoc(xc_interface *xch, uint32_t tests, uint32_t *result);
+
 /* Compat shims */
 #include "xenctrl_compat.h"
 

@@ -1,0 +1,1 @@
+obj-y += smoc.o

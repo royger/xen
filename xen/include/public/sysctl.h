@@ -1201,6 +1201,13 @@ struct xen_sysctl_dt_overlay {
 };
 #endif
 
+struct xen_sysctl_test_smoc {
+    uint32_t tests;     /* IN: bitmap with selected tests to execute. */
+#define XEN_SYSCTL_TEST_SMOC_INSN_REPL   (1U << 0)
+#define XEN_SYSCTL_TEST_SMOC_ALL         (XEN_SYSCTL_TEST_SMOC_INSN_REPL)
+    uint32_t results;   /* OUT: test result: 1 -> success, 0 -> failure. */
+};
+
 struct xen_sysctl {
     uint32_t cmd;
 #define XEN_SYSCTL_readconsole                    1
@@ -1232,6 +1239,7 @@ struct xen_sysctl {
 /* #define XEN_SYSCTL_set_parameter              28 */
 #define XEN_SYSCTL_get_cpu_policy                29
 #define XEN_SYSCTL_dt_overlay                    30
+#define XEN_SYSCTL_test_smoc                     31
     uint32_t interface_version; /* XEN_SYSCTL_INTERFACE_VERSION */
     union {
         struct xen_sysctl_readconsole       readconsole;
@@ -1259,6 +1267,7 @@ struct xen_sysctl {
         struct xen_sysctl_cpu_levelling_caps cpu_levelling_caps;
         struct xen_sysctl_cpu_featureset    cpu_featureset;
         struct xen_sysctl_livepatch_op      livepatch;
+        struct xen_sysctl_test_smoc         test_smoc;
 #if defined(__i386__) || defined(__x86_64__)
         struct xen_sysctl_cpu_policy        cpu_policy;
 #endif

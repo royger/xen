@@ -386,13 +386,14 @@ char *print_tainted(char *str)
 {
     if ( tainted )
     {
-        snprintf(str, TAINT_STRING_MAX_LEN, "Tainted: %c%c%c%c%c%c",
+        snprintf(str, TAINT_STRING_MAX_LEN, "Tainted: %c%c%c%c%c%c%c",
                  tainted & TAINT_MACHINE_INSECURE ? 'I' : ' ',
                  tainted & TAINT_MACHINE_CHECK ? 'M' : ' ',
                  tainted & TAINT_SYNC_CONSOLE ? 'C' : ' ',
                  tainted & TAINT_ERROR_INJECT ? 'E' : ' ',
                  tainted & TAINT_HVM_FEP ? 'H' : ' ',
-                 tainted & TAINT_CPU_OUT_OF_SPEC ? 'S' : ' ');
+                 tainted & TAINT_CPU_OUT_OF_SPEC ? 'S' : ' ',
+                 tainted & TAINT_ERROR_SELFTEST ? 'T' : ' ');
     }
     else
     {
