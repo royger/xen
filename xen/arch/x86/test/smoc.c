@@ -27,6 +27,10 @@ int test_smoc(uint32_t selection, uint32_t *results)
     } static const tests[] = {
         { XEN_SYSCTL_TEST_SMOC_INSN_REPL, &test_insn_replacement,
           "alternative instruction replacement" },
+#ifdef CONFIG_LIVEPATCH
+        { XEN_SYSCTL_TEST_SMOC_LP_INSN, &test_lp_insn_replacement,
+          "livepatch instruction replacement" },
+#endif
     };
     unsigned int i;
 

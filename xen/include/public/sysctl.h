@@ -1204,7 +1204,11 @@ struct xen_sysctl_dt_overlay {
 struct xen_sysctl_test_smoc {
     uint32_t tests;     /* IN: bitmap with selected tests to execute. */
 #define XEN_SYSCTL_TEST_SMOC_INSN_REPL   (1U << 0)
-#define XEN_SYSCTL_TEST_SMOC_ALL         (XEN_SYSCTL_TEST_SMOC_INSN_REPL)
+#define XEN_SYSCTL_TEST_SMOC_LP_INSN     (1U << 1)
+#define XEN_SYSCTL_TEST_SMOC_ALL         (XEN_SYSCTL_TEST_SMOC_INSN_REPL | \
+                                         XEN_SYSCTL_TEST_SMOC_LP_INSN)
+#define XEN_SYSCTL_TEST_SMOC_LP          (XEN_SYSCTL_TEST_SMOC_LP_INSN)
+
     uint32_t results;   /* OUT: test result: 1 -> success, 0 -> failure. */
 };
 

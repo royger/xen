@@ -37,6 +37,7 @@ void show_help(void)
             "  replace <name>         apply <name> patch and revert all others.\n"
             "  unload <name>          unload name <name> patch.\n"
             "  load <file> [flags]    upload and apply <file> with name as the <file> name\n"
+            "  test                   execute self modifying code livepatch hypervisor tests\n"
             "    Supported flags:\n"
             "      --nodeps           Disable inter-module buildid dependency check.\n"
             "                         Check only against hypervisor buildid.\n",
@@ -542,6 +543,33 @@ error:
     return rc;
 }
 
+static int test_func(int argc, char *argv[])
+{
+    uint32_t results = 0;
+    int rc;
+
+    if ( argc != 0 )
+    {
+        show_help();
+        return -1;
+    }
+
+    rc = xc_test_smoc(xch, XEN_SYSCTL_TEST_SMOC_LP, &results);
+    if ( rc )
+    {
+        fprintf(stderr, "test operation failed: %s\n", strerror(errno));
+        return -1;
+    }
+    if ( (results & XEN_SYSCTL_TEST_SMOC_LP) != XEN_SYSCTL_TEST_SMOC_LP )
+    {
+        fprintf(stderr, "some tests failed: %#x (expected %#x)\n",
+                results, XEN_SYSCTL_TEST_SMOC_LP);
+        return -1;
+    }
+
+    return 0;
+}
+
 /*
  * These are also functions in action_options that are called in case
  * none of the ones in main_options match.
@@ -554,6 +582,7 @@ struct {
     { "list", list_func },
     { "upload", upload_func },
     { "load", load_func },
+    { "test", test_func },
 };
 
 int main(int argc, char *argv[])

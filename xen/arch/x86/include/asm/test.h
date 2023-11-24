@@ -3,11 +3,18 @@
 
 #include <xen/types.h>
 
+#include <public/sysctl.h>
+
 int test_smoc(uint32_t selection, uint32_t *results);
+
+#ifdef CONFIG_LIVEPATCH
+bool cf_check test_lp_insn_replacement(void);
+#endif
 
 static inline void execute_selftests(void)
 {
-    const uint32_t exec_mask = XEN_SYSCTL_TEST_SMOC_ALL;
+    const uint32_t exec_mask = XEN_SYSCTL_TEST_SMOC_ALL &
+                               ~XEN_SYSCTL_TEST_SMOC_LP;
     uint32_t result;
     int rc;
 
