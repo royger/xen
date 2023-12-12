@@ -101,6 +101,10 @@ SECTIONS
        *(.text.*)
 #endif
        *(.text.__x86_indirect_thunk_*)
+#ifdef CONFIG_LIVEPATCH
+       /* Ensure enough distance with the next placed section. */
+       . = ALIGN(CONFIG_FUNCTION_ALIGNMENT);
+#endif
 
        *(.fixup)
        *(.gnu.warning)

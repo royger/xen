@@ -27,6 +27,10 @@ SECTIONS
 #ifdef CONFIG_CC_SPLIT_SECTIONS
         *(.text.*)
 #endif
+#ifdef CONFIG_LIVEPATCH
+       /* Ensure enough distance with the next placed section. */
+       . = ALIGN(CONFIG_FUNCTION_ALIGNMENT);
+#endif
 
         . = ALIGN(IDENT_AREA_SIZE);
         _ident_start = .;
