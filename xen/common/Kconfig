@@ -395,8 +395,11 @@ config CRYPTO
 config LIVEPATCH
 	bool "Live patching support"
 	default X86
-	depends on "$(XEN_HAS_BUILD_ID)" = "y"
+	depends on "$(XEN_HAS_BUILD_ID)" = "y" && CC_HAS_FUNCTION_ALIGNMENT
 	select CC_SPLIT_SECTIONS
+	select FUNCTION_ALIGNMENT_16B if XEN_IBT
+	select FUNCTION_ALIGNMENT_8B  if X86
+	select FUNCTION_ALIGNMENT_4B
 	---help---
 	  Allows a running Xen hypervisor to be dynamically patched using
 	  binary patches without rebooting. This is primarily used to binarily

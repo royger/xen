@@ -390,6 +390,9 @@ CFLAGS += -fomit-frame-pointer
 endif
 
 CFLAGS-$(CONFIG_CC_SPLIT_SECTIONS) += -ffunction-sections -fdata-sections
+ifdef CONFIG_FUNCTION_ALIGNMENT
+CFLAGS += -falign-functions=$(CONFIG_FUNCTION_ALIGNMENT)
+endif
 
 CFLAGS += -nostdinc -fno-builtin -fno-common
 CFLAGS += -Werror -Wredundant-decls -Wwrite-strings -Wno-pointer-arith

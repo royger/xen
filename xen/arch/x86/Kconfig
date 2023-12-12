@@ -29,6 +29,7 @@ config X86
 	select HAS_UBSAN
 	select HAS_VPCI if HVM
 	select NEEDS_LIBELF
+	select FUNCTION_ALIGNMENT_16B if !DEBUG
 
 config ARCH_DEFCONFIG
 	string

@@ -45,6 +45,10 @@ SECTIONS
 #ifdef CONFIG_CC_SPLIT_SECTIONS
        *(.text.*)
 #endif
+#ifdef CONFIG_FUNCTION_ALIGNMENT
+       /* Ensure enough distance with the next placed section. */
+       . = ALIGN(CONFIG_FUNCTION_ALIGNMENT);
+#endif
 
        *(.fixup)
        *(.gnu.warning)
