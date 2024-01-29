@@ -324,6 +324,9 @@ uint64_t msr_spec_ctrl_valid_bits(const struct cpu_policy *cp)
     return (SPEC_CTRL_IBRS | SPEC_CTRL_STIBP |
             (ssbd       ? SPEC_CTRL_SSBD       : 0) |
             (psfd       ? SPEC_CTRL_PSFD       : 0) |
+            (cp->feat.ipred_ctrl ? (SPEC_CTRL_IPRED_DIS_U |
+                                    SPEC_CTRL_IPRED_DIS_S)
+                                 : 0) |
             0);
 }
 
