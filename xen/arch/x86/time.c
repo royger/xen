@@ -1177,26 +1177,17 @@ static void __get_cmos_time(struct rtc_time *rtc)
 
 static unsigned long get_cmos_time(void)
 {
-    unsigned long res, flags;
+    unsigned long flags;
     struct rtc_time rtc;
     unsigned int seconds = 60;
     static bool __read_mostly cmos_rtc_probe;
     boolean_param("cmos-rtc-probe", cmos_rtc_probe);
 
-    if ( efi_enabled(EFI_RS) )
-    {
-        res = efi_get_time();
-        if ( res )
-            return res;
-    }
-
     if ( likely(!(acpi_gbl_FADT.boot_flags & ACPI_FADT_NO_CMOS_RTC)) )
         cmos_rtc_probe = false;
-    else if ( system_state < SYS_STATE_smp_boot && !cmos_rtc_probe )
-        panic("System with no CMOS RTC advertised must be booted from EFI"
-              " (or with command line option \"cmos-rtc-probe\")\n");
 
-    for ( ; ; )
+    for ( ; !(acpi_gbl_FADT.boot_flags & ACPI_FADT_NO_CMOS_RTC) ||
+            cmos_rtc_probe; )
     {
         s_time_t start, t1, t2;
 
@@ -1224,7 +1215,8 @@ static unsigned long get_cmos_time(void)
              rtc.sec >= 60 || rtc.min >= 60 || rtc.hour >= 24 ||
              !rtc.day || rtc.day > 31 ||
              !rtc.mon || rtc.mon > 12 )
-            break;
+            return mktime(rtc.year, rtc.mon, rtc.day, rtc.hour, rtc.min,
+                          rtc.sec);
 
         if ( seconds < 60 )
         {
@@ -1232,6 +1224,8 @@ static unsigned long get_cmos_time(void)
             {
                 cmos_rtc_probe = false;
                 acpi_gbl_FADT.boot_flags &= ~ACPI_FADT_NO_CMOS_RTC;
+                return mktime(rtc.year, rtc.mon, rtc.day, rtc.hour, rtc.min,
+                              rtc.sec);
             }
             break;
         }
@@ -1241,10 +1235,22 @@ static unsigned long get_cmos_time(void)
         seconds = rtc.sec;
     }
 
-    if ( unlikely(cmos_rtc_probe) )
-        panic("No CMOS RTC found - system must be booted from EFI\n");
+    if ( efi_enabled(EFI_RS) )
+    {
+        unsigned long res = efi_get_time();
 
-    return mktime(rtc.year, rtc.mon, rtc.day, rtc.hour, rtc.min, rtc.sec);
+        if ( res )
+            return res;
+
+        panic("Broken EFI_GET_TIME %s\n",
+              !cmos_rtc_probe ? "try booting with \"cmos-rtc-probe\""
+                              : "and no CMOS RTC found");
+    }
+    if ( !cmos_rtc_probe )
+        panic("System with no CMOS RTC advertised must be booted from EFI"
+              " (or with command line option \"cmos-rtc-probe\")\n");
+
+    panic("No CMOS RTC found - system must be booted from EFI\n");
 }
 
 static unsigned int __ro_after_init cmos_alias_mask;
