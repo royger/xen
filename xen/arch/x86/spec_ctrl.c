@@ -1068,6 +1068,15 @@ static void __init ibpb_calculations(void)
      */
     if ( opt_ibpb_ctxt_switch == -1 )
         opt_ibpb_ctxt_switch = !(opt_ibpb_entry_hvm && opt_ibpb_entry_pv);
+
+    /*
+     * If already using STIBP and IBPB-on-entry, there's no need to use IBRS,
+     * as the IBPB-on-entry will already flush all branch predictions, and the
+     * STIBP prevents sharing branch predictions between threads.
+     */
+    if ( (default_xen_spec_ctrl & SPEC_CTRL_STIBP) &&
+         opt_ibpb_entry_pv && opt_ibpb_entry_hvm && opt_ibrs == -1 )
+        default_xen_spec_ctrl &= ~SPEC_CTRL_IBRS;
 }
 
 /* Calculate whether this CPU is vulnerable to L1TF. */
