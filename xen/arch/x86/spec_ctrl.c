@@ -1490,7 +1490,12 @@ void __init init_speculation_mitigations(void)
 {
     enum ind_thunk thunk = THUNK_DEFAULT;
     bool has_spec_ctrl, ibrs = false, hw_smt_enabled;
-    bool cpu_has_bug_taa, retpoline_safe;
+    bool cpu_has_bug_taa;
+    /*
+     * Determine if retpoline is safe on this CPU.
+     * Fix up RSBA/RRSBA enumerations.
+     */
+    bool retpoline_safe = retpoline_calculations();
 
     hw_smt_enabled = check_smt_enabled();
 
@@ -1518,9 +1523,6 @@ void __init init_speculation_mitigations(void)
         if ( opt_thunk == THUNK_DEFAULT || opt_thunk == THUNK_RETPOLINE )
             thunk = THUNK_JMP;
     }
-
-    /* Determine if retpoline is safe on this CPU.  Fix up RSBA/RRSBA enumerations. */
-    retpoline_safe = retpoline_calculations();
 
     /*
      * Has the user specified any custom BTI mitigations?  If so, follow their
