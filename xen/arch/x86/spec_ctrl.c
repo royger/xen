@@ -1517,18 +1517,15 @@ void __init init_speculation_mitigations(void)
             printk(XENLOG_WARNING "?!? CET active, but no MSR_SPEC_CTRL?\n");
             add_taint(TAINT_CPU_OUT_OF_SPEC);
         }
-        else if ( opt_ibrs == -1 )
-            opt_ibrs = ibrs = true;
-
-        if ( opt_thunk == THUNK_DEFAULT || opt_thunk == THUNK_RETPOLINE )
-            thunk = THUNK_JMP;
+        ibrs = (opt_ibrs == -1) ? true : !!opt_ibrs;
+        thunk = (opt_thunk == THUNK_DEFAULT || opt_thunk == THUNK_RETPOLINE)
+                ? THUNK_JMP : opt_thunk;
     }
-
     /*
      * Has the user specified any custom BTI mitigations?  If so, follow their
      * instructions exactly and disable all heuristics.
      */
-    if ( opt_thunk != THUNK_DEFAULT || opt_ibrs != -1 )
+    else if ( opt_thunk != THUNK_DEFAULT || opt_ibrs != -1 )
     {
         thunk = opt_thunk;
         ibrs  = !!opt_ibrs;
