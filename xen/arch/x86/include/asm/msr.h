@@ -302,8 +302,13 @@ struct vcpu_msrs
      * For PV guests, this holds the guest kernel value.  It is accessed on
      * every entry/exit path.
      *
-     * For VT-x guests, the guest value is held in the MSR guest load/save
-     * list.
+     * For VT-x guests, the guest value is held in the MSR guest load/save list
+     * if there's no support for virtualized SPEC_CTRL. If virtualized
+     * SPEC_CTRL is enabled the value here signals which bits in SPEC_CTRL the
+     * guest is not able to modify.  Note that the value for those bits used in
+     * Xen context is also used in the guest context.  Setting a bit here
+     * doesn't force such bit to set in the guest context unless also set in
+     * Xen selection of SPEC_CTRL.
      *
      * For SVM, the guest value lives in the VMCB, and hardware saves/restores
      * the host value automatically.  However, guests run with the OR of the
