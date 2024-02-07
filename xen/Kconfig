@@ -41,6 +41,11 @@ config CC_SPLIT_SECTIONS
 #
 # Allow setting on a boolean basis, and then convert such selection to an
 # integer for the build system and code to consume more easily.
+#
+# Requires clang >= 7.0.0
+config CC_HAS_FUNCTION_ALIGNMENT
+	def_bool $(cc-option,-falign-functions)
+
 config FUNCTION_ALIGNMENT_4B
 	bool
 config FUNCTION_ALIGNMENT_8B
