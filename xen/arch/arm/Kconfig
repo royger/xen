@@ -16,6 +16,7 @@ config ARM
 	select HAS_PASSTHROUGH
 	select HAS_UBSAN
 	select IOMMU_FORCE_PT_SHARE
+	select FUNCTION_ALIGNMENT_4B
 
 config ARCH_DEFCONFIG
 	string
