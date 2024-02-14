@@ -794,28 +794,26 @@ __initcall(adjust_irq_affinities);
 
 bool __init iommu_unity_region_ok(const char *prefix, mfn_t start, mfn_t end)
 {
-    mfn_t addr;
+    paddr_t s = mfn_to_maddr(start), e = mfn_to_maddr(end);
 
-    if ( e820_all_mapped(mfn_to_maddr(start), mfn_to_maddr(end) + PAGE_SIZE,
-                         E820_RESERVED) )
+    if ( e820_all_mapped(s, e + PAGE_SIZE, E820_RESERVED) )
         return true;
 
     printk(XENLOG_WARNING
            "%s: [%#lx, %#lx] is not (entirely) in reserved memory\n",
-           prefix, mfn_to_maddr(start), mfn_to_maddr(end));
+           prefix, s, e);
 
-    for ( addr = start; mfn_x(addr) <= mfn_x(end); addr = mfn_add(addr, 1) )
+    for ( paddr_t addr = s; addr <= e; addr += PAGE_SIZE )
     {
-        unsigned int type = page_get_ram_type(addr);
+        unsigned int type = page_get_ram_type(maddr_to_mfn(addr));
 
         if ( type == RAM_TYPE_UNKNOWN )
         {
-            if ( e820_add_range(mfn_to_maddr(addr),
-                                mfn_to_maddr(addr) + PAGE_SIZE, E820_RESERVED) )
+            if ( e820_add_range(addr, addr + PAGE_SIZE, E820_RESERVED) )
                 continue;
             printk(XENLOG_ERR
-                   "%s: page at %#" PRI_mfn " couldn't be reserved\n",
-                   prefix, mfn_x(addr));
+                   "%s: page at %#lx couldn't be reserved\n",
+                   prefix, paddr_to_pfn(addr));
             return false;
         }
 
@@ -829,9 +827,8 @@ bool __init iommu_unity_region_ok(const char *prefix, mfn_t start, mfn_t end)
                      RAM_TYPE_UNUSABLE) )
             continue;
 
-        printk(XENLOG_ERR
-               "%s: page at %#" PRI_mfn " can't be converted\n",
-               prefix, mfn_x(addr));
+        printk(XENLOG_ERR "%s: page at %#lx can't be converted\n",
+               prefix, paddr_to_pfn(addr));
         return false;
     }
 
