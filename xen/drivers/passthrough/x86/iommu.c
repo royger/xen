@@ -827,8 +827,8 @@ bool __init iommu_unity_region_ok(const char *prefix, mfn_t start, mfn_t end)
                      RAM_TYPE_UNUSABLE) )
             continue;
 
-        printk(XENLOG_ERR "%s: page at %#lx can't be converted\n",
-               prefix, paddr_to_pfn(addr));
+        printk(XENLOG_ERR "%s: page at %#lx can't be converted (type %#x)\n",
+               prefix, paddr_to_pfn(addr), type);
         return false;
     }
 
