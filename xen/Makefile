@@ -358,10 +358,10 @@ config: tools_fixdep outputmakefile FORCE
 else # !config-build
 
 ifeq ($(need-config),y)
--include include/config/auto.conf
 # Read in dependencies to all Kconfig* files, make sure to run syncconfig if
 # changes are detected.
 -include include/config/auto.conf.cmd
+include include/config/auto.conf
 
 # Allow people to just run `make` as before and not force them to configure
 # Only run defconfig if $(KCONFIG_CONFIG) is missing
@@ -375,6 +375,7 @@ $(KCONFIG_CONFIG): tools_fixdep
 # This exploits the 'multi-target pattern rule' trick.
 # The syncconfig should be executed only once to make all the targets.
 include/config/%.conf include/config/%.conf.cmd: $(KCONFIG_CONFIG)
+	rm -rf include/config/$*.conf
 	$(Q)$(MAKE) $(build)=tools/kconfig syncconfig
 
 ifeq ($(CONFIG_DEBUG),y)
