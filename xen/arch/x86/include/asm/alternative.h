@@ -167,9 +167,13 @@ extern void alternative_branches(void);
 #define ALT_CALL_arg5 "r8"
 #define ALT_CALL_arg6 "r9"
 
-#define ALT_CALL_ARG(arg, n) \
-    register typeof(arg) a ## n ## _ asm ( ALT_CALL_arg ## n ) = \
-        ({ BUILD_BUG_ON(sizeof(arg) > sizeof(void *)); (arg); })
+#define ALT_CALL_ARG(arg, n)                                            \
+    register union {                                                    \
+        typeof(arg) e;                                                  \
+        unsigned long r;                                                \
+    } a ## n ## _ asm ( ALT_CALL_arg ## n ) = {                         \
+        .e = ({ BUILD_BUG_ON(sizeof(arg) > sizeof(void *)); (arg); })   \
+    }
 #define ALT_CALL_NO_ARG(n) \
     register unsigned long a ## n ## _ asm ( ALT_CALL_arg ## n )
 
