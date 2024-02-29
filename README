@@ -41,7 +41,7 @@ provided by your OS distributor:
         - GCC 4.1.2_20070115 or later
         - GNU Binutils 2.16.91.0.5 or later
         or
-        - Clang/LLVM 3.5 or later
+        - Clang/LLVM 14.0.0 or later
       - For ARM 32-bit:
         - GCC 4.9 or later
         - GNU Binutils 2.24 or later

@@ -638,21 +638,6 @@ debian-stretch-gcc:
   variables:
     CONTAINER: debian:stretch
 
-debian-stretch-clang:
-  extends: .clang-x86-64-build
-  variables:
-    CONTAINER: debian:stretch
-
-debian-stretch-clang-debug:
-  extends: .clang-x86-64-build-debug
-  variables:
-    CONTAINER: debian:stretch
-
-debian-stretch-32-clang-debug:
-  extends: .clang-x86-32-build-debug
-  variables:
-    CONTAINER: debian:stretch-i386
-
 debian-stretch-32-gcc-debug:
   extends: .gcc-x86-32-build-debug
   variables:
@@ -725,16 +710,6 @@ ubuntu-trusty-gcc-debug:
   variables:
     CONTAINER: ubuntu:trusty
 
-ubuntu-xenial-clang:
-  extends: .clang-x86-64-build
-  variables:
-    CONTAINER: ubuntu:xenial
-
-ubuntu-xenial-clang-debug:
-  extends: .clang-x86-64-build-debug
-  variables:
-    CONTAINER: ubuntu:xenial
-
 ubuntu-xenial-gcc:
   extends: .gcc-x86-64-build
   variables:
@@ -744,16 +719,6 @@ ubuntu-xenial-gcc-debug:
   extends: .gcc-x86-64-build-debug
   variables:
     CONTAINER: ubuntu:xenial
-
-ubuntu-bionic-clang:
-  extends: .clang-x86-64-build
-  variables:
-    CONTAINER: ubuntu:bionic
-
-ubuntu-bionic-clang-debug:
-  extends: .clang-x86-64-build-debug
-  variables:
-    CONTAINER: ubuntu:bionic
 
 ubuntu-bionic-gcc:
   extends: .gcc-x86-64-build
@@ -772,16 +737,6 @@ ubuntu-focal-gcc:
 
 ubuntu-focal-gcc-debug:
   extends: .gcc-x86-64-build-debug
-  variables:
-    CONTAINER: ubuntu:focal
-
-ubuntu-focal-clang:
-  extends: .clang-x86-64-build
-  variables:
-    CONTAINER: ubuntu:focal
-
-ubuntu-focal-clang-debug:
-  extends: .clang-x86-64-build-debug
   variables:
     CONTAINER: ubuntu:focal
 
