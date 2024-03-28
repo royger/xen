@@ -994,12 +994,7 @@ name_bann:      .asciz  "Video adapter: "
 force_size:     .word   0       # Use this size instead of the one in BIOS vars
 
 GLOBAL(boot_vid_info)
-        .byte   0, 0    /* orig_x, orig_y */
-        .byte   3       /* text mode 3    */
-        .byte   80, 25  /* 80x25          */
-        .byte   1       /* isVGA          */
-        .word   16      /* 8x16 font      */
-        .space  BVI_size - BVI_capabilities
+        .space  BVI_size
 GLOBAL(boot_edid_info)
         .fill   128,1,0x13
 GLOBAL(boot_edid_caps)
