@@ -1080,7 +1080,8 @@ static void free_payload(struct payload *data)
     xfree(data);
 }
 
-static int load_payload_data(struct payload *payload, void *raw, size_t len)
+static int load_payload_data(struct payload *payload, void *raw, size_t len,
+                             bool force)
 {
     struct livepatch_elf elf = { .name = payload->name, .len = len };
     int rc = 0;
@@ -1093,7 +1094,7 @@ static int load_payload_data(struct payload *payload, void *raw, size_t len)
     if ( rc )
         goto out;
 
-    rc = livepatch_elf_resolve_symbols(&elf);
+    rc = livepatch_elf_resolve_symbols(&elf, force);
     if ( rc )
         goto out;
 
@@ -1133,7 +1134,8 @@ static int load_payload_data(struct payload *payload, void *raw, size_t len)
     return rc;
 }
 
-static int livepatch_upload(struct xen_sysctl_livepatch_upload *upload)
+static int livepatch_upload(struct xen_sysctl_livepatch_upload *upload,
+                            bool force)
 {
     struct payload *data, *found;
     char n[XEN_LIVEPATCH_NAME_SIZE];
@@ -1162,7 +1164,7 @@ static int livepatch_upload(struct xen_sysctl_livepatch_upload *upload)
     {
         memcpy(data->name, n, strlen(n));
 
-        rc = load_payload_data(data, raw_data, upload->size);
+        rc = load_payload_data(data, raw_data, upload->size, force);
         if ( rc )
             goto out;
 
@@ -2132,7 +2134,8 @@ int livepatch_op(struct xen_sysctl_livepatch_op *livepatch)
     switch ( livepatch->cmd )
     {
     case XEN_SYSCTL_LIVEPATCH_UPLOAD:
-        rc = livepatch_upload(&livepatch->u.upload);
+        rc = livepatch_upload(&livepatch->u.upload,
+                              livepatch->flags & LIVEPATCH_FLAG_FORCE);
         break;
 
     case XEN_SYSCTL_LIVEPATCH_GET:
