@@ -4,6 +4,7 @@
 
 #include <xen/errno.h>
 #include <xen/lib.h>
+#include <xen/sections.h>
 #include <xen/symbols.h>
 #include <xen/livepatch_elf.h>
 #include <xen/livepatch.h>
@@ -310,6 +311,20 @@ int livepatch_elf_resolve_symbols(struct livepatch_elf *elf)
                     break;
                 }
             }
+            /*
+             * Ensure not an init symbol.  Only applicable to Xen symbols, as
+             * livepatch payloads don't have init sections or equivalent.
+             */
+            else if ( st_value >= (uintptr_t)&__init_begin &&
+                      st_value < (uintptr_t)&__init_end )
+            {
+                printk(XENLOG_ERR LIVEPATCH
+                       "%s: symbol %s is in init section, not resolving\n",
+                       elf->name, elf->sym[i].name);
+                rc = -ENXIO;
+                break;
+            }
+
             dprintk(XENLOG_DEBUG, LIVEPATCH "%s: Undefined symbol resolved: %s => %#"PRIxElfAddr"\n",
                     elf->name, elf->sym[i].name, st_value);
             break;
