@@ -912,6 +912,15 @@ static int prepare_payload(struct payload *payload,
         s = sec->load_addr;
         e = sec->load_addr + sec->sec->sh_size;
 
+        if ( !extable_in_bounds(s, e, payload->text_addr,
+                                payload->text_addr + payload->text_size) )
+        {
+            printk(XENLOG_ERR LIVEPATCH
+                   "%s: Invalid exception table with out of bounds entries\n",
+                   elf->name);
+            return -EINVAL;
+        }
+
         sort_exception_table(s ,e);
 
         region->ex = s;
