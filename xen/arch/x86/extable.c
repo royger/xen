@@ -228,3 +228,21 @@ unsigned long asmlinkage search_pre_exception_table(struct cpu_user_regs *regs)
     }
     return fixup;
 }
+
+#ifdef CONFIG_LIVEPATCH
+bool extable_in_bounds(const struct exception_table_entry *ex_start,
+                       const struct exception_table_entry *ex_end,
+                       const void *start, const void *end)
+{
+    for ( ; ex_start < ex_end; ex_start++ )
+    {
+        const void *addr = _p(ex_addr(ex_start));
+        const void *cont = _p(ex_cont(ex_start));
+
+        if ( addr < start || addr >= end || cont < start || cont >= end )
+            return false;
+    }
+
+    return true;
+}
+#endif
