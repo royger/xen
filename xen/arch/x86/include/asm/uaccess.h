@@ -426,5 +426,8 @@ extern unsigned long search_exception_table(const struct cpu_user_regs *regs,
 extern void sort_exception_tables(void);
 extern void sort_exception_table(struct exception_table_entry *start,
                                  const struct exception_table_entry *stop);
+extern bool extable_in_bounds(const struct exception_table_entry *ex_start,
+                              const struct exception_table_entry *ex_end,
+                              const void *start, const void *end);
 
 #endif /* __X86_UACCESS_H__ */
