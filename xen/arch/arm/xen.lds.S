@@ -153,8 +153,6 @@ SECTIONS
        _sinittext = .;
        *(.init.text)
        _einittext = .;
-       . = ALIGN(PAGE_SIZE);        /* Avoid mapping alt insns executable */
-       *(.altinstr_replacement)
   } :text
   . = ALIGN(PAGE_SIZE);
   .init.data : {
@@ -176,6 +174,8 @@ SECTIONS
        __alt_instructions = .;
        *(.altinstructions)
        __alt_instructions_end = .;
+
+       *(.altinstr_replacement)
 
        LOCK_PROFILE_DATA
 

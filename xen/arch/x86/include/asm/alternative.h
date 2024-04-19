@@ -81,7 +81,7 @@ extern void alternative_branches(void);
         ".section .discard, \"a\", @progbits\n"                         \
         ".byte " alt_total_len "\n" /* total_len <= 255 */              \
         DISCARD_ENTRY(1)                                                \
-        ".section .altinstr_replacement, \"ax\", @progbits\n"           \
+        ".section .altinstr_replacement, \"a\", @progbits\n"            \
         ALTINSTR_REPLACEMENT(newinstr, 1)                               \
         ".popsection\n"
 
@@ -94,7 +94,7 @@ extern void alternative_branches(void);
         ".byte " alt_total_len "\n" /* total_len <= 255 */              \
         DISCARD_ENTRY(1)                                                \
         DISCARD_ENTRY(2)                                                \
-        ".section .altinstr_replacement, \"ax\", @progbits\n"           \
+        ".section .altinstr_replacement, \"a\", @progbits\n"            \
         ALTINSTR_REPLACEMENT(newinstr1, 1)                              \
         ALTINSTR_REPLACEMENT(newinstr2, 2)                              \
         ".popsection\n"
