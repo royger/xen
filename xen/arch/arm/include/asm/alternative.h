@@ -67,7 +67,7 @@ int apply_alternatives(const struct alt_instr *start, const struct alt_instr *en
 	ALTINSTR_ENTRY(feature,cb)					\
 	".popsection\n"							\
 	" .if " __stringify(cb) " == 0\n"				\
-	".pushsection .altinstr_replacement, \"ax\"\n"			\
+	".pushsection .altinstr_replacement, \"a\"\n"			\
 	"663:\n\t"							\
 	newinstr "\n"							\
 	"664:\n\t"							\
@@ -104,7 +104,7 @@ int apply_alternatives(const struct alt_instr *start, const struct alt_instr *en
 662:	.pushsection .altinstructions, "a"
 	altinstruction_entry 661b, 663f, \cap, 662b-661b, 664f-663f
 	.popsection
-	.pushsection .altinstr_replacement, "ax"
+	.pushsection .altinstr_replacement, "a"
 663:	\insn2
 664:	.popsection
 	.org	. - (664b-663b) + (662b-661b)
@@ -147,7 +147,7 @@ int apply_alternatives(const struct alt_instr *start, const struct alt_instr *en
 	.pushsection .altinstructions, "a"
 	altinstruction_entry 663f, 661f, \cap, 664f-663f, 662f-661f
 	.popsection
-	.pushsection .altinstr_replacement, "ax"
+	.pushsection .altinstr_replacement, "a"
 	.align 2	/* So GAS knows label 661 is suitably aligned */
 661:
 .endm
@@ -158,7 +158,7 @@ int apply_alternatives(const struct alt_instr *start, const struct alt_instr *en
 .macro alternative_else
 662:
 	.if .Lasm_alt_mode==0
-	.pushsection .altinstr_replacement, "ax"
+	.pushsection .altinstr_replacement, "a"
 	.else
 	.popsection
 	.endif

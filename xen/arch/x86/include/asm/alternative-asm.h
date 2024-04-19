@@ -67,7 +67,7 @@
     .byte total_len
     .byte 0xff + repl_len(1) - total_len
 
-    .section .altinstr_replacement, "ax", @progbits
+    .section .altinstr_replacement, "a", @progbits
 
     decl_repl(\newinstr, 1)
 
@@ -94,7 +94,7 @@
     .byte 0xff + repl_len(1) - total_len
     .byte 0xff + repl_len(2) - total_len
 
-    .section .altinstr_replacement, "ax", @progbits
+    .section .altinstr_replacement, "a", @progbits
 
     decl_repl(\newinstr1, 1)
     decl_repl(\newinstr2, 2)
