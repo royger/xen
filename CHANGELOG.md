@@ -19,6 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
  - When building with Systemd support (./configure --enable-systemd), remove
    libsystemd as a build dependency.  Systemd Notify support is retained, now
    using a standalone library implementation.
+ - Allow HVM/PVH domains to map foreign pages.
 
 ### Added
  - On x86:
