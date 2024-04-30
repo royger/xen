@@ -50,7 +50,6 @@
 #define this_cpu(var) per_cpu_##var
 
 #define __init
-#define __maybe_unused __attribute__((__unused__))
 
 #define likely(x)   __builtin_expect(!!(x), true)
 #define unlikely(x) __builtin_expect(!!(x), false)

@@ -83,6 +83,10 @@
 #define __packed __attribute__((__packed__))
 #endif
 
+#ifndef __maybe_unused
+# define __maybe_unused __attribute__((__unused__))
+#endif
+
 #define container_of(ptr, type, member) ({              \
     typeof(((type *)0)->member) *mptr__ = (ptr);        \
     (type *)((char *)mptr__ - offsetof(type, member));  \
