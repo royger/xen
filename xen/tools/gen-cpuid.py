@@ -477,6 +477,32 @@ def write_results(state):
 
 """)
 
+    state.output.write(
+"""
+#define INIT_FEATURE_NAME_ARRAY { \\
+""")
+
+    try:
+        _tmp = state.names.iteritems()
+    except AttributeError:
+        _tmp = state.names.items()
+
+    for bit, name in sorted(_tmp):
+        state.output.write(
+            '    [%s] = "%s",\\\n' % (bit, name.lower().replace("_", "-"))
+            )
+
+    # Ensure array size matches featureset size.
+    if not state.names.get(state.nr_entries * 32 - 1, ""):
+        state.output.write(
+            '    [%s] = NULL,\\\n' % (state.nr_entries * 32 - 1)
+            )
+
+    state.output.write(
+"""}
+
+""")
+
     for idx, text in enumerate(state.bitfields):
         state.output.write(
             "#define CPUID_BITFIELD_%d \\\n    %s\n\n"
