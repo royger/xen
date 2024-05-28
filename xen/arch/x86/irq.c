@@ -846,19 +846,38 @@ void cf_check irq_complete_move(struct irq_desc *desc)
 
 unsigned int set_desc_affinity(struct irq_desc *desc, const cpumask_t *mask)
 {
-    int ret;
-    unsigned long flags;
     cpumask_t dest_mask;
 
     if ( mask && !cpumask_intersects(mask, &cpu_online_map) )
         return BAD_APICID;
 
-    spin_lock_irqsave(&vector_lock, flags);
-    ret = _assign_irq_vector(desc, mask ?: TARGET_CPUS);
-    spin_unlock_irqrestore(&vector_lock, flags);
+    /*
+     * mask input set con contain CPUs that are not online.  To decide whether
+     * the interrupt needs to be migrated restrict the input mask to the CPUs
+     * that are online.
+     */
+    if ( mask )
+        cpumask_and(&dest_mask, mask, &cpu_online_map);
+    else
+        cpumask_copy(&dest_mask, TARGET_CPUS);
 
-    if ( ret < 0 )
-        return BAD_APICID;
+    /*
+     * Only move the interrupt if there are no CPUs left in ->arch.cpu_mask
+     * that can handle it, otherwise just shuffle it around ->arch.cpu_mask
+     * to an available destination.
+     */
+    if ( !cpumask_intersects(desc->arch.cpu_mask, &dest_mask) )
+    {
+        int ret;
+        unsigned long flags;
+
+        spin_lock_irqsave(&vector_lock, flags);
+        ret = _assign_irq_vector(desc, mask ?: TARGET_CPUS);
+        spin_unlock_irqrestore(&vector_lock, flags);
+
+        if ( ret < 0 )
+            return BAD_APICID;
+    }
 
     if ( mask )
     {
@@ -871,6 +890,7 @@ unsigned int set_desc_affinity(struct irq_desc *desc, const cpumask_t *mask)
         cpumask_copy(&dest_mask, desc->arch.cpu_mask);
     }
     cpumask_and(&dest_mask, &dest_mask, &cpu_online_map);
+    ASSERT(!cpumask_empty(&dest_mask));
 
     return cpu_mask_to_apicid(&dest_mask);
 }
