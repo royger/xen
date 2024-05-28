@@ -49,7 +49,8 @@ static DEFINE_RWLOCK(cpu_add_remove_lock);
 
 bool get_cpu_maps(void)
 {
-    return read_trylock(&cpu_add_remove_lock);
+    return !rw_is_write_locked_by_me(&cpu_add_remove_lock) &&
+           read_trylock(&cpu_add_remove_lock);
 }
 
 void put_cpu_maps(void)
