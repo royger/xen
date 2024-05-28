@@ -13,6 +13,8 @@ void put_cpu_maps(void);
 void cpu_hotplug_begin(void);
 void cpu_hotplug_done(void);
 
+bool cpu_map_locked(void);
+
 /* Receive notification of CPU hotplug events. */
 void register_cpu_notifier(struct notifier_block *nb);
 

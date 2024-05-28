@@ -83,8 +83,11 @@ int stop_machine_run(int (*fn)(void *data), void *data, unsigned int cpu)
     BUG_ON(!is_idle_vcpu(current));
 
     /* cpu_online_map must not change. */
-    if ( !get_cpu_maps() )
+    if ( system_state >= SYS_STATE_active && !cpu_map_locked() )
+    {
+        ASSERT_UNREACHABLE();
         return -EBUSY;
+    }
 
     nr_cpus = num_online_cpus();
     if ( cpu_online(this) )
@@ -92,10 +95,7 @@ int stop_machine_run(int (*fn)(void *data), void *data, unsigned int cpu)
 
     /* Must not spin here as the holder will expect us to be descheduled. */
     if ( !spin_trylock(&stopmachine_lock) )
-    {
-        put_cpu_maps();
         return -EBUSY;
-    }
 
     stopmachine_data.fn = fn;
     stopmachine_data.fn_data = data;
@@ -135,8 +135,6 @@ int stop_machine_run(int (*fn)(void *data), void *data, unsigned int cpu)
     local_irq_enable();
 
     spin_unlock(&stopmachine_lock);
-
-    put_cpu_maps();
 
     return ret;
 }

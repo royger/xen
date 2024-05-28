@@ -68,6 +68,11 @@ void cpu_hotplug_done(void)
     write_unlock(&cpu_add_remove_lock);
 }
 
+bool cpu_map_locked(void)
+{
+    return rw_is_locked(&cpu_add_remove_lock);
+}
+
 static NOTIFIER_HEAD(cpu_chain);
 
 void __init register_cpu_notifier(struct notifier_block *nb)
