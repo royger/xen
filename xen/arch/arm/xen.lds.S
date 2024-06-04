@@ -69,6 +69,7 @@ SECTIONS
        __proc_info_end = .;
 
        VPCI_ARRAY
+       COVERAGE_RODATA
   } :text
 
 #if defined(BUILD_ID)
@@ -207,6 +208,7 @@ SECTIONS
        . = ALIGN(SMP_CACHE_BYTES);
        __per_cpu_data_end = .;
        *(.bss .bss.*)
+       COVERAGE_BSS
        . = ALIGN(POINTER_ALIGN);
        __bss_end = .;
   } :text
@@ -223,6 +225,8 @@ SECTIONS
   STABS_DEBUG_SECTIONS
 
   ELF_DETAILS_SECTIONS
+
+  COVERAGE_NOLOAD
 }
 
 /*

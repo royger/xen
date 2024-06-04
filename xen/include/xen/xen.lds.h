@@ -161,4 +161,32 @@
 #define VPCI_ARRAY
 #endif
 
+#if defined(CONFIG_COVERAGE) && defined(CONFIG_CC_IS_CLANG)
+#define COVERAGE_BSS                    \
+       __start___llvm_prf_cnts = .;     \
+       *(__llvm_prf_cnts)               \
+       __stop___llvm_prf_cnts = .;
+
+#define COVERAGE_RODATA                 \
+       __start___llvm_prf_names = .;    \
+       *(__llvm_prf_names)              \
+       __stop___llvm_prf_names = .;     \
+       __start___llvm_prf_data = .;     \
+       *(__llvm_prf_data)               \
+       __stop___llvm_prf_data = .;
+
+#define COVERAGE_NOLOAD         \
+       __llvm_covmap : {        \
+         *(__llvm_covmap)       \
+       }                        \
+       __llvm_covfun : {        \
+         *(__llvm_covfun)       \
+       }
+
+#else /* CONFIG_COVERAGE && CONFIG_CC_IS_CLANG */
+#define COVERAGE_BSS
+#define COVERAGE_RODATA
+#define COVERAGE_NOLOAD
+#endif /* CONFIG_COVERAGE && CONFIG_CC_IS_CLANG */
+
 #endif /* __XEN_LDS_H__ */

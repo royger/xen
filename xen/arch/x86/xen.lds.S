@@ -145,6 +145,7 @@ SECTIONS
        __note_gnu_build_id_end = .;
 #endif
        VPCI_ARRAY
+       COVERAGE_RODATA
   } PHDR(text)
 
 #if defined(CONFIG_PVH_GUEST) && !defined(EFI)
@@ -330,6 +331,7 @@ SECTIONS
        . = ALIGN(SMP_CACHE_BYTES);
        __per_cpu_data_end = .;
        *(.bss .bss.*)
+       COVERAGE_BSS
        . = ALIGN(POINTER_ALIGN);
        __bss_end = .;
   } PHDR(text)
@@ -378,6 +380,8 @@ SECTIONS
 
   ELF_DETAILS_SECTIONS
 #endif
+
+  COVERAGE_NOLOAD
 }
 
 ASSERT(__2M_rwdata_end <= XEN_VIRT_END - XEN_VIRT_START + __XEN_VIRT_START -

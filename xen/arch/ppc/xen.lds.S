@@ -54,6 +54,7 @@ SECTIONS
         *(.data.rel.ro.*)
 
         VPCI_ARRAY
+        COVERAGE_RODATA
 
         . = ALIGN(POINTER_ALIGN);
     } :text
@@ -157,6 +158,7 @@ SECTIONS
         . = ALIGN(SMP_CACHE_BYTES);
         __per_cpu_data_end = .;
         *(.bss .bss.*)
+        COVERAGE_BSS
         . = ALIGN(POINTER_ALIGN);
         __bss_end = .;
     } :text
@@ -173,6 +175,8 @@ SECTIONS
     STABS_DEBUG_SECTIONS
 
     ELF_DETAILS_SECTIONS
+
+    COVERAGE_NOLOAD
 }
 
 ASSERT(IS_ALIGNED(__bss_start,      POINTER_ALIGN), "__bss_start is misaligned")
