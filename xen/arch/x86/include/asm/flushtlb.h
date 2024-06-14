@@ -177,7 +177,7 @@ void flush_area_mask(const cpumask_t *mask, const void *va,
 
 #define flush_root_pgtbl_domain(d)                                       \
 {                                                                        \
-    if ( is_pv_domain(d) && (d)->arch.pv.xpti )                          \
+    if ( is_pv_domain(d) && (d)->arch.pv.flush_root_pt )                 \
         flush_mask((d)->dirty_cpumask, FLUSH_ROOT_PGTBL);                \
 }
 
