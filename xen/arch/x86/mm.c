@@ -4165,7 +4165,7 @@ long do_mmu_update(
                                       cmd == MMU_PT_UPDATE_PRESERVE_AD, v);
                     if ( !rc )
                         flush_linear_pt = true;
-                    if ( !rc && pt_owner->arch.pv.xpti )
+                    if ( !rc && pt_owner->arch.pv.flush_root_pt )
                     {
                         bool local_in_use = false;
 
