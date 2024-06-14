@@ -84,6 +84,11 @@ static bool __ro_after_init opt_verw_mmio;
 static int8_t __initdata opt_gds_mit = -1;
 static int8_t __initdata opt_div_scrub = -1;
 
+/* Use a per-vCPU root page-table and switch the per-domain slot to per-vCPU. */
+int8_t __ro_after_init opt_vcpu_pt_hvm = -1;
+int8_t __ro_after_init opt_vcpu_pt_hwdom = -1;
+int8_t __ro_after_init opt_vcpu_pt_pv = -1;
+
 static int __init cf_check parse_spec_ctrl(const char *s)
 {
     const char *ss;
@@ -380,6 +385,13 @@ int8_t __ro_after_init opt_xpti_domu = -1;
 
 static __init void xpti_init_default(void)
 {
+    ASSERT(opt_vcpu_pt_pv >= 0 && opt_vcpu_pt_hwdom >= 0);
+    if ( (opt_xpti_hwdom == 1 || opt_xpti_domu == 1) && opt_vcpu_pt_pv == 1 )
+    {
+        printk(XENLOG_ERR
+               "XPTI incompatible with per-vCPU page-tables, disabling ASI\n");
+        opt_vcpu_pt_pv = 0;
+    }
     if ( (boot_cpu_data.x86_vendor & (X86_VENDOR_AMD | X86_VENDOR_HYGON)) ||
          cpu_has_rdcl_no )
     {
@@ -391,9 +403,9 @@ static __init void xpti_init_default(void)
     else
     {
         if ( opt_xpti_hwdom < 0 )
-            opt_xpti_hwdom = 1;
+            opt_xpti_hwdom = !opt_vcpu_pt_hwdom;
         if ( opt_xpti_domu < 0 )
-            opt_xpti_domu = 1;
+            opt_xpti_domu = !opt_vcpu_pt_pv;
     }
 }
 
@@ -483,6 +495,66 @@ static int __init cf_check parse_pv_l1tf(const char *s)
     return rc;
 }
 custom_param("pv-l1tf", parse_pv_l1tf);
+
+static int __init cf_check parse_asi(const char *s)
+{
+    const char *ss;
+    int val, rc = 0;
+
+    /* Interpret 'asi' alone in its positive boolean form. */
+    if ( *s == '\0' )
+        opt_vcpu_pt_pv = opt_vcpu_pt_hwdom = opt_vcpu_pt_hvm = 1;
+
+    do {
+        ss = strchr(s, ',');
+        if ( !ss )
+            ss = strchr(s, '\0');
+
+        val = parse_bool(s, ss);
+        switch ( val )
+        {
+        case 0:
+        case 1:
+            opt_vcpu_pt_pv = opt_vcpu_pt_hwdom = opt_vcpu_pt_hvm = val;
+            break;
+
+        default:
+            if ( (val = parse_boolean("pv", s, ss)) >= 0 )
+                opt_vcpu_pt_pv = val;
+            else if ( (val = parse_boolean("hvm", s, ss)) >= 0 )
+                opt_vcpu_pt_hvm = val;
+            else if ( (val = parse_boolean("vcpu-pt", s, ss)) != -1 )
+            {
+                switch ( val )
+                {
+                case 1:
+                case 0:
+                    opt_vcpu_pt_pv = opt_vcpu_pt_hvm = opt_vcpu_pt_hwdom = val;
+                    break;
+
+                case -2:
+                    s += strlen("vcpu-pt=");
+                    if ( (val = parse_boolean("pv", s, ss)) >= 0 )
+                        opt_vcpu_pt_pv = val;
+                    else if ( (val = parse_boolean("hvm", s, ss)) >= 0 )
+                        opt_vcpu_pt_hvm = val;
+                    else
+                default:
+                        rc = -EINVAL;
+                    break;
+                }
+            }
+            else if ( *s )
+                rc = -EINVAL;
+            break;
+        }
+
+        s = ss + 1;
+    } while ( *ss );
+
+    return rc;
+}
+custom_param("asi", parse_asi);
 
 static void __init print_details(enum ind_thunk thunk)
 {
@@ -662,14 +734,28 @@ static void __init print_details(enum ind_thunk thunk)
            boot_cpu_has(X86_FEATURE_IBPB_ENTRY_PV)   ? " IBPB-entry"    : "",
            opt_bhb_entry_pv                          ? " BHB-entry"     : "");
 
-    printk("  XPTI (64-bit PV only): Dom0 %s, DomU %s (with%s PCID)\n",
-           opt_xpti_hwdom ? "enabled" : "disabled",
-           opt_xpti_domu  ? "enabled" : "disabled",
-           xpti_pcid_enabled() ? "" : "out");
+    if ( !opt_vcpu_pt_pv || (!opt_dom0_pvh && !opt_vcpu_pt_hwdom) )
+        printk("  XPTI (64-bit PV only): Dom0 %s, DomU %s (with%s PCID)\n",
+               opt_xpti_hwdom ? "enabled" : "disabled",
+               opt_xpti_domu  ? "enabled" : "disabled",
+               xpti_pcid_enabled() ? "" : "out");
 
     printk("  PV L1TF shadowing: Dom0 %s, DomU %s\n",
            opt_pv_l1tf_hwdom ? "enabled"  : "disabled",
            opt_pv_l1tf_domu  ? "enabled"  : "disabled");
+#endif
+
+#ifdef CONFIG_HVM
+    printk("  ASI features for HVM VMs:%s%s\n",
+           opt_vcpu_pt_hvm                           ? ""               : " None",
+           opt_vcpu_pt_hvm                           ? " vCPU-PT"       : "");
+
+#endif
+#ifdef CONFIG_PV
+    printk("  ASI features for PV VMs:%s%s\n",
+           opt_vcpu_pt_pv                            ? ""               : " None",
+           opt_vcpu_pt_pv                            ? " vCPU-PT"       : "");
+
 #endif
 }
 
@@ -1752,6 +1838,10 @@ void spec_ctrl_init_domain(struct domain *d)
     if ( pv )
         d->arch.pv.xpti = is_hardware_domain(d) ? opt_xpti_hwdom
                                                 : opt_xpti_domu;
+
+    d->arch.vcpu_pt = is_hardware_domain(d) ? opt_vcpu_pt_hwdom
+                                            : pv ? opt_vcpu_pt_pv
+                                                 : opt_vcpu_pt_hvm;
 }
 
 void __init init_speculation_mitigations(void)
@@ -2047,6 +2137,19 @@ void __init init_speculation_mitigations(void)
     if ( boot_cpu_has(X86_FEATURE_IBRSB) && !cpu_has_eibrs &&
          hw_smt_enabled && default_xen_spec_ctrl )
         setup_force_cpu_cap(X86_FEATURE_SC_MSR_IDLE);
+
+    /* Disable all ASI options by default until feature is finished. */
+    if ( opt_vcpu_pt_pv == -1 )
+        opt_vcpu_pt_pv = 0;
+    if ( opt_vcpu_pt_hwdom == -1 )
+        opt_vcpu_pt_hwdom = 0;
+    if ( opt_vcpu_pt_hvm == -1 )
+        opt_vcpu_pt_hvm = 0;
+
+    if ( opt_vcpu_pt_pv || opt_vcpu_pt_hvm )
+        warning_add(
+            "Address Space Isolation is not functional, this option is\n"
+            "intended to be used only for development purposes.\n");
 
     xpti_init_default();
 
