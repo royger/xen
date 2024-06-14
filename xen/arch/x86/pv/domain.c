@@ -384,6 +384,7 @@ int pv_domain_initialise(struct domain *d)
     d->arch.ctxt_switch = &pv_csw;
 
     d->arch.pv.xpti = is_hardware_domain(d) ? opt_xpti_hwdom : opt_xpti_domu;
+    d->arch.pv.flush_root_pt = d->arch.pv.xpti;
 
     if ( !is_pv_32bit_domain(d) && use_invpcid && cpu_has_pcid )
         switch ( ACCESS_ONCE(opt_pcid) )
