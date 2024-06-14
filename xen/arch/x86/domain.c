@@ -780,6 +780,11 @@ int arch_domain_create(struct domain *d,
 
     spin_lock_init(&d->arch.e820_lock);
 
+    /* Set asi for the idle domain to signal if idle vCPUs use unique L4s. */
+    d->arch.asi = is_hardware_domain(d) ? opt_asi_hwdom
+                                        : (is_pv_domain(d) ? opt_asi_pv
+                                                           : opt_asi_hvm);
+
     /* Minimal initialisation for the idle domain. */
     if ( unlikely(is_idle_domain(d)) )
     {

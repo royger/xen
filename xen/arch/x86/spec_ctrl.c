@@ -84,6 +84,11 @@ static bool __ro_after_init opt_verw_mmio;
 static int8_t __initdata opt_gds_mit = -1;
 static int8_t __initdata opt_div_scrub = -1;
 
+/* Address Space Isolation for PV/HVM. */
+int8_t __ro_after_init opt_asi_pv = -1;
+int8_t __ro_after_init opt_asi_hwdom = -1;
+int8_t __ro_after_init opt_asi_hvm = -1;
+
 static int __init cf_check parse_spec_ctrl(const char *s)
 {
     const char *ss;
@@ -143,6 +148,10 @@ static int __init cf_check parse_spec_ctrl(const char *s)
             opt_unpriv_mmio = false;
             opt_gds_mit = 0;
             opt_div_scrub = 0;
+
+            opt_asi_pv = 0;
+            opt_asi_hwdom = 0;
+            opt_asi_hvm = 0;
         }
         else if ( val > 0 )
             rc = -EINVAL;
@@ -162,6 +171,7 @@ static int __init cf_check parse_spec_ctrl(const char *s)
             opt_verw_pv = val;
             opt_ibpb_entry_pv = val;
             opt_bhb_entry_pv = val;
+            opt_asi_pv = val;
         }
         else if ( (val = parse_boolean("hvm", s, ss)) >= 0 )
         {
@@ -170,6 +180,7 @@ static int __init cf_check parse_spec_ctrl(const char *s)
             opt_verw_hvm = val;
             opt_ibpb_entry_hvm = val;
             opt_bhb_entry_hvm = val;
+            opt_asi_hvm = val;
         }
         else if ( (val = parse_boolean("msr-sc", s, ss)) != -1 )
         {
@@ -279,6 +290,27 @@ static int __init cf_check parse_spec_ctrl(const char *s)
                 break;
             }
         }
+        else if ( (val = parse_boolean("asi", s, ss)) != -1 )
+        {
+            switch ( val )
+            {
+            case 0:
+            case 1:
+                opt_asi_pv = opt_asi_hwdom = opt_asi_hvm = val;
+                break;
+
+            case -2:
+                s += strlen("asi=");
+                if ( (val = parse_boolean("pv", s, ss)) >= 0 )
+                    opt_asi_pv = val;
+                else if ( (val = parse_boolean("hvm", s, ss)) >= 0 )
+                    opt_asi_hvm = val;
+                else
+            default:
+                    rc = -EINVAL;
+                break;
+            }
+        }
 
         /* Xen's speculative sidechannel mitigation settings. */
         else if ( !strncmp(s, "bti-thunk=", 10) )
@@ -378,6 +410,13 @@ int8_t __ro_after_init opt_xpti_domu = -1;
 
 static __init void xpti_init_default(void)
 {
+    ASSERT(opt_asi_pv >= 0 && opt_asi_hwdom >= 0);
+    if ( (opt_xpti_hwdom == 1 || opt_xpti_domu == 1) && opt_asi_pv == 1 )
+    {
+        printk(XENLOG_ERR
+               "XPTI is incompatible with Address Space Isolation - disabling ASI\n");
+        opt_asi_pv = 0;
+    }
     if ( (boot_cpu_data.x86_vendor & (X86_VENDOR_AMD | X86_VENDOR_HYGON)) ||
          cpu_has_rdcl_no )
     {
@@ -389,9 +428,9 @@ static __init void xpti_init_default(void)
     else
     {
         if ( opt_xpti_hwdom < 0 )
-            opt_xpti_hwdom = 1;
+            opt_xpti_hwdom = !opt_asi_hwdom;
         if ( opt_xpti_domu < 0 )
-            opt_xpti_domu = 1;
+            opt_xpti_domu = !opt_asi_pv;
     }
 }
 
@@ -630,7 +669,7 @@ static void __init print_details(enum ind_thunk thunk)
      * mitigation support for guests.
      */
 #ifdef CONFIG_HVM
-    printk("  Support for HVM VMs:%s%s%s%s%s%s%s%s\n",
+    printk("  Support for HVM VMs:%s%s%s%s%s%s%s%s%s\n",
            (boot_cpu_has(X86_FEATURE_SC_MSR_HVM) ||
             boot_cpu_has(X86_FEATURE_SC_RSB_HVM) ||
             boot_cpu_has(X86_FEATURE_IBPB_ENTRY_HVM) ||
@@ -643,11 +682,12 @@ static void __init print_details(enum ind_thunk thunk)
            opt_eager_fpu                             ? " EAGER_FPU"     : "",
            opt_verw_hvm                              ? " VERW"          : "",
            boot_cpu_has(X86_FEATURE_IBPB_ENTRY_HVM)  ? " IBPB-entry"    : "",
-           opt_bhb_entry_hvm                         ? " BHB-entry"     : "");
+           opt_bhb_entry_hvm                         ? " BHB-entry"     : "",
+           opt_asi_hvm                               ? " ASI"           : "");
 
 #endif
 #ifdef CONFIG_PV
-    printk("  Support for PV VMs:%s%s%s%s%s%s%s\n",
+    printk("  Support for PV VMs:%s%s%s%s%s%s%s%s\n",
            (boot_cpu_has(X86_FEATURE_SC_MSR_PV) ||
             boot_cpu_has(X86_FEATURE_SC_RSB_PV) ||
             boot_cpu_has(X86_FEATURE_IBPB_ENTRY_PV) ||
@@ -658,7 +698,8 @@ static void __init print_details(enum ind_thunk thunk)
            opt_eager_fpu                             ? " EAGER_FPU"     : "",
            opt_verw_pv                               ? " VERW"          : "",
            boot_cpu_has(X86_FEATURE_IBPB_ENTRY_PV)   ? " IBPB-entry"    : "",
-           opt_bhb_entry_pv                          ? " BHB-entry"     : "");
+           opt_bhb_entry_pv                          ? " BHB-entry"     : "",
+           opt_asi_pv                                ? " ASI"           : "");
 
     printk("  XPTI (64-bit PV only): Dom0 %s, DomU %s (with%s PCID)\n",
            opt_xpti_hwdom ? "enabled" : "disabled",
@@ -2064,6 +2105,19 @@ void __init init_speculation_mitigations(void)
     if ( boot_cpu_has(X86_FEATURE_IBRSB) && !cpu_has_eibrs &&
          hw_smt_enabled && default_xen_spec_ctrl )
         setup_force_cpu_cap(X86_FEATURE_SC_MSR_IDLE);
+
+    /* Disable ASI by default until feature is finished. */
+    if ( opt_asi_pv == -1 )
+        opt_asi_pv = 0;
+    if ( opt_asi_hwdom == -1 )
+        opt_asi_hwdom = 0;
+    if ( opt_asi_hvm == -1 )
+        opt_asi_hvm = 0;
+
+    if ( opt_asi_pv || opt_asi_hwdom || opt_asi_hvm )
+        warning_add(
+            "Address Space Isolation is not functional, this option is\n"
+            "intended to be used only for development purposes.\n");
 
     xpti_init_default();
 
