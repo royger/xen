@@ -297,6 +297,8 @@ struct pv_domain
     bool pcid;
     /* Mitigate L1TF with shadow/crashing? */
     bool check_l1tf;
+    /* Issue FLUSH_ROOT_PGTBL for root page-table changes. */
+    bool flush_root_pt;
 
 #ifdef CONFIG_PV32
     unsigned int hv_compat_vstart;
