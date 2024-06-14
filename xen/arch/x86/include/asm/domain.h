@@ -283,6 +283,8 @@ struct pv_domain
     bool pcid;
     /* Mitigate L1TF with shadow/crashing? */
     bool check_l1tf;
+    /* Issue FLUSH_ROOT_PGTBL for root page-table changes. */
+    bool flush_root_pt;
 
     /* map_domain_page() mapping cache. */
     struct mapcache_domain mapcache;
