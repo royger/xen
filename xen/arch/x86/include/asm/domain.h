@@ -474,6 +474,9 @@ struct arch_domain
     /* Don't unconditionally inject #GP for unhandled MSRs. */
     bool msr_relaxed;
 
+    /* Use a per-vCPU root pt, and switch per-domain slot to per-vCPU. */
+    bool vcpu_pt;
+
     /* Emulated devices enabled bitmap. */
     uint32_t emulation_flags;
 } __cacheline_aligned;
