@@ -2385,7 +2385,7 @@ By default SSBD will be mitigated at runtime (i.e `ssbd=runtime`).
 
 ### spec-ctrl (x86)
 > `= List of [ <bool>, xen=<bool>, {pv,hvm}=<bool>,
->              {msr-sc,rsb,verw,{ibpb,bhb}-entry}=<bool>|{pv,hvm}=<bool>,
+>              {msr-sc,rsb,verw,{ibpb,bhb}-entry,asi}=<bool>|{pv,hvm}=<bool>,
 >              bti-thunk=retpoline|lfence|jmp,bhb-seq=short|tsx|long,
 >              {ibrs,ibpb,ssbd,psfd,
 >              eager-fpu,l1d-flush,branch-harden,srb-lock,
@@ -2412,10 +2412,10 @@ in place for guests to use.
 
 Use of a positive boolean value for either of these options is invalid.
 
-The `pv=`, `hvm=`, `msr-sc=`, `rsb=`, `verw=`, `ibpb-entry=` and `bhb-entry=`
-options offer fine grained control over the primitives by Xen.  These impact
-Xen's ability to protect itself, and/or Xen's ability to virtualise support
-for guests to use.
+The `pv=`, `hvm=`, `msr-sc=`, `rsb=`, `verw=`, `ibpb-entry=`, `bhb-entry=` and
+`asi=` options offer fine grained control over the primitives by Xen.  These
+impact Xen's ability to protect itself, and/or Xen's ability to virtualise
+support for guests to use.
 
 * `pv=` and `hvm=` offer control over all suboptions for PV and HVM guests
   respectively.
@@ -2447,6 +2447,11 @@ for guests to use.
   is not available (see `bhi-dis-s`).  The choice of scrubbing sequence can be
   selected using the `bhb-seq=` option.  If it is necessary to protect dom0
   too, boot with `spec-ctrl=bhb-entry`.
+* `asi=` offers control over whether the hypervisor will engage in Address
+  Space Isolation, by not having sensitive information mapped in the VMM
+  page-tables.  Not having sensitive information on the page-tables avoids
+  having to perform some mitigations for speculative attacks when
+  context-switching to the hypervisor.
 
 If Xen was compiled with `CONFIG_INDIRECT_THUNK` support, `bti-thunk=` can be
 used to select which of the thunks gets patched into the
