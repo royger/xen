@@ -17,6 +17,7 @@
 #include <asm/nops.h>
 #include <asm/page.h>
 #include <asm/pv/domain.h>
+#include <asm/pv/mm.h>
 #include <asm/spec_ctrl.h>
 
 /* Debug builds: Wrap frequently to stress-test the wrap logic. */
@@ -255,7 +256,10 @@ unsigned int flush_area_local(const void *va, unsigned int flags)
     }
 
     if ( flags & FLUSH_ROOT_PGTBL )
+    {
         get_cpu_info()->root_pgt_changed = true;
+        pv_maybe_update_shadow_l4(current);
+    }
 
     return flags;
 }

@@ -15,6 +15,7 @@
 #include <asm/invpcid.h>
 #include <asm/spec_ctrl.h>
 #include <asm/pv/domain.h>
+#include <asm/pv/mm.h>
 #include <asm/shadow.h>
 
 #ifdef CONFIG_PV32
@@ -298,6 +299,12 @@ void pv_vcpu_destroy(struct vcpu *v)
 
     pv_destroy_gdt_ldt_l1tab(v);
     XFREE(v->arch.pv.trap_ctxt);
+
+    if ( v->arch.pv.guest_l4 )
+    {
+        unmap_domain_page_global(v->arch.pv.guest_l4);
+        v->arch.pv.guest_l4 = NULL;
+    }
 }
 
 int pv_vcpu_initialise(struct vcpu *v)
@@ -384,7 +391,7 @@ int pv_domain_initialise(struct domain *d)
     d->arch.ctxt_switch = &pv_csw;
 
     d->arch.pv.xpti = is_hardware_domain(d) ? opt_xpti_hwdom : opt_xpti_domu;
-    d->arch.pv.flush_root_pt = d->arch.pv.xpti;
+    d->arch.pv.flush_root_pt = d->arch.pv.xpti || d->arch.asi;
 
     if ( !is_pv_32bit_domain(d) && use_invpcid && cpu_has_pcid )
         switch ( ACCESS_ONCE(opt_pcid) )
@@ -432,6 +439,13 @@ static void _toggle_guest_pt(struct vcpu *v)
     v->arch.flags ^= TF_kernel_mode;
     guest_update = v->arch.flags & TF_kernel_mode;
     old_shadow = update_cr3(v);
+
+    /*
+     * _toggle_guest_pt() might switch between user and kernel page tables, but
+     * doesn't use write_ptbase(), and hence needs an explicit call to sync the
+     * shadow L4.
+     */
+    pv_maybe_update_shadow_l4(v);
 
     /*
      * Don't flush user global mappings from the TLB. Don't tick TLB clock.

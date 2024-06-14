@@ -103,6 +103,54 @@ void init_xen_pae_l2_slots(l2_pgentry_t *l2t, const struct domain *d)
 }
 #endif
 
+void pv_maybe_update_shadow_l4(struct vcpu *v)
+{
+    if ( !is_pv_vcpu(v) || is_idle_vcpu(v) || !v->domain->arch.asi )
+        return;
+
+    ASSERT(v->arch.pv.guest_l4);
+    ASSERT(!v->domain->arch.pv.xpti);
+    ASSERT(mfn_eq(maddr_to_mfn(v->arch.cr3),
+                  _mfn(virt_to_mfn(this_cpu(root_pgt)))));
+
+    copy_page(this_cpu(root_pgt), v->arch.pv.guest_l4);
+}
+
+mfn_t pv_maybe_shadow_l4(struct vcpu *v, mfn_t mfn)
+{
+    if ( !is_pv_vcpu(v) || is_idle_vcpu(v) || !v->domain->arch.asi )
+        return mfn;
+
+    ASSERT(!v->domain->arch.pv.xpti);
+
+    if ( v->arch.pv.guest_l4 )
+        unmap_domain_page_global(v->arch.pv.guest_l4);
+    v->arch.pv.guest_l4 = map_domain_page_global(mfn);
+
+    ASSERT(v->arch.pv.guest_l4);
+
+    /*
+     * No need to copy the contents of the guest L4 to the per-CPU shadow.
+     * This will be done in write_ptbase() by calling
+     * pv_maybe_update_shadow_l4() ahead of the actual CR3 write.
+     *
+     * When creating a PV dom0 the build code will call make_cr3() and switch
+     * to the dom0 page-tables before the per-CPU root_pgt is allocated for the
+     * BSP.  Map the guest L4 in preparation for doing the copy later when the
+     * vCPU is started.  Note that the vCPU cr3 is adjusted to use the per-CPU
+     * root_pgt as part of the context switch logic in
+     * paravirt_ctxt_switch_to().
+     *
+     * pv_maybe_update_shadow_l4() doesn't need a similar adjustment because
+     * the PV dom0 building code explicitly avoid calling write_ptbase(), and
+     * instead uses switch_cr3_cr4().
+     */
+
+    ASSERT(this_cpu(root_pgt) || system_state < SYS_STATE_active);
+
+    return this_cpu(root_pgt) ? _mfn(virt_to_mfn(this_cpu(root_pgt))) : mfn;
+}
+
 /*
  * Local variables:
  * mode: C

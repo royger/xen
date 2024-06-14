@@ -88,7 +88,7 @@ extern uint8_t default_scf;
 
 extern int8_t opt_xpti_hwdom, opt_xpti_domu;
 
-extern int8_t opt_asi_pv, opt_asi_hvm;
+extern int8_t opt_asi_pv, opt_asi_hwdom, opt_asi_hvm;
 
 extern bool cpu_has_bug_l1tf;
 extern int8_t opt_pv_l1tf_hwdom, opt_pv_l1tf_domu;

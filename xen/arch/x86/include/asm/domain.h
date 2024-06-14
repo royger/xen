@@ -458,6 +458,9 @@ struct arch_domain
     /* Don't unconditionally inject #GP for unhandled MSRs. */
     bool msr_relaxed;
 
+    /* Run the guest without sensitive information in the VMM page-tables. */
+    bool asi;
+
     /* Emulated devices enabled bitmap. */
     uint32_t emulation_flags;
 } __cacheline_aligned;
@@ -589,6 +592,9 @@ struct pv_vcpu
     /* Deferred VA-based update state. */
     bool need_update_runstate_area;
     struct vcpu_time_info pending_system_time;
+
+    /* If shadowing guest L4, keep the guest L4 mapped. */
+    const void *guest_l4;
 };
 
 struct arch_vcpu

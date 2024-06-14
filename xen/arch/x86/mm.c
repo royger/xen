@@ -509,6 +509,8 @@ void make_cr3(struct vcpu *v, mfn_t mfn)
 {
     struct domain *d = v->domain;
 
+    mfn = pv_maybe_shadow_l4(v, mfn);
+
     v->arch.cr3 = mfn_x(mfn) << PAGE_SHIFT;
     if ( is_pv_domain(d) && d->arch.pv.pcid )
         v->arch.cr3 |= get_pcid_bits(v, false);
@@ -532,6 +534,7 @@ void write_ptbase(struct vcpu *v)
     }
     else
     {
+        pv_maybe_update_shadow_l4(v);
         /* Make sure to clear use_pv_cr3 and xen_cr3 before pv_cr3. */
         cpu_info->use_pv_cr3 = false;
         cpu_info->xen_cr3 = 0;

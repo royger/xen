@@ -873,6 +873,10 @@ int arch_domain_create(struct domain *d,
 
     psr_domain_init(d);
 
+    d->arch.asi = is_hardware_domain(d) ? opt_asi_hwdom
+                                        : (is_pv_domain(d) ? opt_asi_pv
+                                                           : opt_asi_hvm);
+
     if ( is_hvm_domain(d) )
     {
         if ( (rc = hvm_domain_initialise(d, config)) != 0 )
@@ -1917,10 +1921,16 @@ void cf_check paravirt_ctxt_switch_to(struct vcpu *v)
 {
     root_pgentry_t *root_pgt = this_cpu(root_pgt);
 
-    if ( root_pgt )
+    if ( v->domain->arch.pv.xpti )
         root_pgt[root_table_offset(PERDOMAIN_VIRT_START)] =
             l4e_from_page(v->domain->arch.perdomain_l3_pg,
                           __PAGE_HYPERVISOR_RW);
+    else if ( v->domain->arch.asi )
+    {
+        v->arch.cr3 = virt_to_maddr(this_cpu(root_pgt));
+        if ( v->domain->arch.pv.pcid )
+            v->arch.cr3 |= get_pcid_bits(v, false);
+    }
 
     if ( unlikely(v->arch.dr7 & DR7_ACTIVE_MASK) )
         activate_debugregs(v);
