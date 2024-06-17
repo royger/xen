@@ -420,8 +420,8 @@ void shadow_unhook_mappings(struct domain *d, mfn_t smfn, int user_only);
  * sh_{make,destroy}_monitor_table() depend only on the number of shadow
  * levels.
  */
-mfn_t sh_make_monitor_table(const struct vcpu *v, unsigned int shadow_levels);
-void sh_destroy_monitor_table(const struct vcpu *v, mfn_t mmfn,
+int sh_update_monitor_table(struct vcpu *v, unsigned int shadow_levels);
+void sh_destroy_monitor_table(const struct vcpu *v, mfn_t m3mfn,
                               unsigned int shadow_levels);
 
 /* VRAM dirty tracking helpers. */
