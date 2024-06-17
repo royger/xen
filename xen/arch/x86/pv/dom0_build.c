@@ -711,7 +711,8 @@ int __init dom0_construct_pv(struct domain *d,
         l4start = l4tab = __va(mpt_alloc); mpt_alloc += PAGE_SIZE;
         clear_page(l4tab);
         init_xen_l4_slots(l4tab, _mfn(virt_to_mfn(l4start)),
-                          d, INVALID_MFN, true);
+                          INVALID_MFN, d->arch.perdomain_l3_pg,
+                          true, !is_pv_64bit_domain(d), true);
         v->arch.guest_table = pagetable_from_paddr(__pa(l4start));
     }
     else
