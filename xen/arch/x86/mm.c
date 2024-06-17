@@ -1645,14 +1645,9 @@ static int promote_l3_table(struct page_info *page)
  * extended directmap.
  */
 void init_xen_l4_slots(l4_pgentry_t *l4t, mfn_t l4mfn,
-                       const struct domain *d, mfn_t sl4mfn, bool ro_mpt)
+                       mfn_t sl4mfn, const struct page_info *perdomain_l3,
+                       bool ro_mpt, bool maybe_compat, bool short_directmap)
 {
-    /*
-     * PV vcpus need a shortened directmap.  HVM and Idle vcpus get the full
-     * directmap.
-     */
-    bool short_directmap = !paging_mode_external(d);
-
     /* Slot 256: RO M2P (if applicable). */
     l4t[l4_table_offset(RO_MPT_VIRT_START)] =
         ro_mpt ? idle_pg_table[l4_table_offset(RO_MPT_VIRT_START)]
@@ -1673,13 +1668,14 @@ void init_xen_l4_slots(l4_pgentry_t *l4t, mfn_t l4mfn,
         l4e_from_mfn(sl4mfn, __PAGE_HYPERVISOR_RW);
 
     /* Slot 260: Per-domain mappings. */
-    l4t[l4_table_offset(PERDOMAIN_VIRT_START)] =
-        l4e_from_page(d->arch.perdomain_l3_pg, __PAGE_HYPERVISOR_RW);
+    if ( perdomain_l3 )
+        l4t[l4_table_offset(PERDOMAIN_VIRT_START)] =
+            l4e_from_page(perdomain_l3, __PAGE_HYPERVISOR_RW);
 
     /* Slot 4: Per-domain mappings mirror. */
     BUILD_BUG_ON(IS_ENABLED(CONFIG_PV32) &&
                  !l4_table_offset(PERDOMAIN_ALT_VIRT_START));
-    if ( !is_pv_64bit_domain(d) )
+    if ( perdomain_l3 && maybe_compat )
         l4t[l4_table_offset(PERDOMAIN_ALT_VIRT_START)] =
             l4t[l4_table_offset(PERDOMAIN_VIRT_START)];
 
@@ -1710,6 +1706,10 @@ void init_xen_l4_slots(l4_pgentry_t *l4t, mfn_t l4mfn,
     else
 #endif
     {
+        /*
+         * PV vcpus need a shortened directmap.  HVM and Idle vcpus get the full
+         * directmap.
+         */
         unsigned int slots = (short_directmap
                               ? ROOT_PAGETABLE_PV_XEN_SLOTS
                               : ROOT_PAGETABLE_XEN_SLOTS);
@@ -1830,7 +1830,9 @@ static int promote_l4_table(struct page_info *page)
     if ( !rc )
     {
         init_xen_l4_slots(pl4e, l4mfn,
-                          d, INVALID_MFN, VM_ASSIST(d, m2p_strict));
+                          INVALID_MFN, d->arch.perdomain_l3_pg,
+                          VM_ASSIST(d, m2p_strict), !is_pv_64bit_domain(d),
+                          true);
         atomic_inc(&d->arch.pv.nr_l4_pages);
     }
     unmap_domain_page(pl4e);
