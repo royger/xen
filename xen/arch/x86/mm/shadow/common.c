@@ -2413,16 +2413,12 @@ static void sh_update_paging_modes(struct vcpu *v)
                 &SHADOW_INTERNAL_NAME(sh_paging_mode, 2);
         }
 
-        if ( pagetable_is_null(v->arch.hvm.monitor_table) )
+        if ( mfn_eq(v->arch.hvm.shadow_linear_l3, INVALID_MFN) )
         {
-            mfn_t mmfn = sh_make_monitor_table(
-                             v, v->arch.paging.mode->shadow.shadow_levels);
-
-            if ( mfn_eq(mmfn, INVALID_MFN) )
+            if ( sh_update_monitor_table(
+                     v, v->arch.paging.mode->shadow.shadow_levels) )
                 return;
 
-            v->arch.hvm.monitor_table = pagetable_from_mfn(mmfn);
-            make_cr3(v, mmfn);
             hvm_update_host_cr3(v);
         }
 
@@ -2440,8 +2436,8 @@ static void sh_update_paging_modes(struct vcpu *v)
                  (v->arch.paging.mode->shadow.shadow_levels !=
                   old_mode->shadow.shadow_levels) )
             {
-                /* Need to make a new monitor table for the new mode */
-                mfn_t new_mfn, old_mfn;
+                /* Might need to make a new L3 linear table for the new mode */
+                mfn_t old_mfn;
 
                 if ( v != current && vcpu_runnable(v) )
                 {
@@ -2455,24 +2451,21 @@ static void sh_update_paging_modes(struct vcpu *v)
                     return;
                 }
 
-                old_mfn = pagetable_get_mfn(v->arch.hvm.monitor_table);
-                v->arch.hvm.monitor_table = pagetable_null();
-                new_mfn = sh_make_monitor_table(
-                              v, v->arch.paging.mode->shadow.shadow_levels);
-                if ( mfn_eq(new_mfn, INVALID_MFN) )
+                old_mfn = v->arch.hvm.shadow_linear_l3;
+                v->arch.hvm.shadow_linear_l3 = INVALID_MFN;
+                if ( sh_update_monitor_table(
+                         v, v->arch.paging.mode->shadow.shadow_levels) )
                 {
                     sh_destroy_monitor_table(v, old_mfn,
                                              old_mode->shadow.shadow_levels);
                     return;
                 }
-                v->arch.hvm.monitor_table = pagetable_from_mfn(new_mfn);
-                SHADOW_PRINTK("new monitor table %"PRI_mfn "\n",
-                               mfn_x(new_mfn));
+                SHADOW_PRINTK("new L3 linear table %"PRI_mfn "\n",
+                               mfn_x(v->arch.hvm.shadow_linear_l3));
 
                 /* Don't be running on the old monitor table when we
                  * pull it down!  Switch CR3, and warn the HVM code that
                  * its host cr3 has changed. */
-                make_cr3(v, new_mfn);
                 if ( v == current )
                     write_ptbase(v);
                 hvm_update_host_cr3(v);
@@ -2781,16 +2774,13 @@ void shadow_vcpu_teardown(struct vcpu *v)
 
     sh_detach_old_tables(v);
 #ifdef CONFIG_HVM
-    if ( shadow_mode_external(d) )
+    if ( shadow_mode_external(d) &&
+         !mfn_eq(v->arch.hvm.shadow_linear_l3, INVALID_MFN) )
     {
-        mfn_t mfn = pagetable_get_mfn(v->arch.hvm.monitor_table);
-
-        if ( mfn_x(mfn) )
-            sh_destroy_monitor_table(
-                v, mfn,
+        sh_destroy_monitor_table(
+                v, v->arch.hvm.shadow_linear_l3,
                 v->arch.paging.mode->shadow.shadow_levels);
-
-        v->arch.hvm.monitor_table = pagetable_null();
+        v->arch.hvm.shadow_linear_l3 = INVALID_MFN;
     }
 #endif
 

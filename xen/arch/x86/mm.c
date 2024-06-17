@@ -534,6 +534,9 @@ void write_ptbase(struct vcpu *v)
     }
     else
     {
+        ASSERT(!is_hvm_vcpu(v) ||
+               mfn_eq(maddr_to_mfn(v->arch.cr3),
+                      virt_to_mfn(this_cpu(monitor_pgt))));
         pv_maybe_update_shadow_l4(v);
         /* Make sure to clear use_pv_cr3 and xen_cr3 before pv_cr3. */
         cpu_info->use_pv_cr3 = false;

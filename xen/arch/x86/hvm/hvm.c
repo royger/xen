@@ -141,6 +141,8 @@ void hvm_set_cpu_monitor_table(struct vcpu *v)
 
     ASSERT(pgt);
 
+    paging_set_cpu_monitor_table(v);
+
     pgt[root_table_offset(PERDOMAIN_VIRT_START)] =
         l4e_from_page(v->domain->arch.perdomain_l3_pg, __PAGE_HYPERVISOR_RW);
     /*
@@ -156,6 +158,8 @@ void hvm_clear_cpu_monitor_table(struct vcpu *v)
 {
     if ( IS_ENABLED(CONFIG_DEBUG) )
         make_cr3(v, INVALID_MFN);
+
+    paging_clear_cpu_monitor_table(v);
 }
 
 static int cf_check cpu_callback(
@@ -1650,6 +1654,10 @@ int hvm_vcpu_initialise(struct vcpu *v)
 {
     int rc;
     struct domain *d = v->domain;
+
+#ifdef CONFIG_SHADOW_PAGING
+    v->arch.hvm.shadow_linear_l3 = INVALID_MFN;
+#endif
 
     hvm_asid_flush_vcpu(v);
 

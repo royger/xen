@@ -3007,6 +3007,33 @@ static unsigned long cf_check sh_gva_to_gfn(
     return gfn_x(gfn);
 }
 
+static void cf_check set_cpu_monitor_table(struct vcpu *v)
+{
+    root_pgentry_t *pgt = this_cpu(monitor_pgt);
+
+    virt_to_page(pgt)->shadow_flags = 4;
+
+    /* Setup linear L3 entry. */
+    if ( !mfn_eq(v->arch.hvm.shadow_linear_l3, INVALID_MFN) )
+        pgt[l4_table_offset(SH_LINEAR_PT_VIRT_START)] =
+            l4e_from_mfn(v->arch.hvm.shadow_linear_l3, __PAGE_HYPERVISOR_RW);
+    else
+        pgt[l4_table_offset(SH_LINEAR_PT_VIRT_START)] =
+            l4e_from_pfn(
+                pagetable_get_pfn(v->arch.paging.shadow.shadow_table[0]),
+                __PAGE_HYPERVISOR_RW);
+}
+
+static void cf_check clear_cpu_monitor_table(struct vcpu *v)
+{
+    root_pgentry_t *pgt = this_cpu(monitor_pgt);
+
+    virt_to_page(pgt)->shadow_flags = 0;
+
+    if ( IS_ENABLED(CONFIG_DEBUG) )
+        pgt[l4_table_offset(SH_LINEAR_PT_VIRT_START)] = l4e_empty();
+}
+
 #endif /* CONFIG_HVM */
 
 static inline void
@@ -3033,8 +3060,11 @@ sh_update_linear_entries(struct vcpu *v)
      */
 
     /* Don't try to update the monitor table if it doesn't exist */
-    if ( !shadow_mode_external(d) ||
-         pagetable_get_pfn(v->arch.hvm.monitor_table) == 0 )
+    if ( !shadow_mode_external(d)
+#if SHADOW_PAGING_LEVELS == 3
+         || mfn_eq(v->arch.hvm.shadow_linear_l3, INVALID_MFN)
+#endif
+       )
         return;
 
 #if !defined(CONFIG_HVM)
@@ -3050,17 +3080,6 @@ sh_update_linear_entries(struct vcpu *v)
             l4e_from_pfn(
                 pagetable_get_pfn(v->arch.paging.shadow.shadow_table[0]),
                 __PAGE_HYPERVISOR_RW);
-    }
-    else
-    {
-        l4_pgentry_t *ml4e;
-
-        ml4e = map_domain_page(pagetable_get_mfn(v->arch.hvm.monitor_table));
-        ml4e[l4_table_offset(SH_LINEAR_PT_VIRT_START)] =
-            l4e_from_pfn(
-                pagetable_get_pfn(v->arch.paging.shadow.shadow_table[0]),
-                __PAGE_HYPERVISOR_RW);
-        unmap_domain_page(ml4e);
     }
 
 #elif SHADOW_PAGING_LEVELS == 3
@@ -3087,16 +3106,8 @@ sh_update_linear_entries(struct vcpu *v)
                 + l2_linear_offset(SH_LINEAR_PT_VIRT_START);
         else
         {
-            mfn_t l3mfn, l2mfn;
-            l4_pgentry_t *ml4e;
-            l3_pgentry_t *ml3e;
-            int linear_slot = shadow_l4_table_offset(SH_LINEAR_PT_VIRT_START);
-            ml4e = map_domain_page(pagetable_get_mfn(v->arch.hvm.monitor_table));
-
-            ASSERT(l4e_get_flags(ml4e[linear_slot]) & _PAGE_PRESENT);
-            l3mfn = l4e_get_mfn(ml4e[linear_slot]);
-            ml3e = map_domain_page(l3mfn);
-            unmap_domain_page(ml4e);
+            mfn_t l2mfn;
+            l3_pgentry_t *ml3e = map_domain_page(v->arch.hvm.shadow_linear_l3);
 
             ASSERT(l3e_get_flags(ml3e[0]) & _PAGE_PRESENT);
             l2mfn = l3e_get_mfn(ml3e[0]);
@@ -3341,9 +3352,9 @@ static pagetable_t cf_check sh_update_cr3(struct vcpu *v, bool noflush)
     ///
     /// v->arch.cr3
     ///
-    if ( shadow_mode_external(d) )
+    if ( shadow_mode_external(d) && v == current )
     {
-        make_cr3(v, pagetable_get_mfn(v->arch.hvm.monitor_table));
+        make_cr3(v, _mfn(virt_to_mfn(this_cpu(monitor_pgt))));
     }
 #if SHADOW_PAGING_LEVELS == 4
     else // not shadow_mode_external...
@@ -4106,6 +4117,8 @@ const struct paging_mode sh_paging_mode = {
     .invlpg                        = sh_invlpg,
 #ifdef CONFIG_HVM
     .gva_to_gfn                    = sh_gva_to_gfn,
+    .set_cpu_monitor_table         = set_cpu_monitor_table,
+    .clear_cpu_monitor_table       = clear_cpu_monitor_table,
 #endif
     .update_cr3                    = sh_update_cr3,
     .guest_levels                  = GUEST_PAGING_LEVELS,
