@@ -550,6 +550,14 @@ static inline void hvm_invlpg(struct vcpu *v, unsigned long linear)
                        (1U << X86_EXC_AC) | \
                        (1U << X86_EXC_MC))
 
+/*
+ * Setup the per-domain slots of the per-cpu monitor table and update the vCPU
+ * cr3 to use it.
+ */
+DECLARE_PER_CPU(root_pgentry_t *, monitor_pgt);
+void hvm_set_cpu_monitor_table(struct vcpu *v);
+void hvm_clear_cpu_monitor_table(struct vcpu *v);
+
 /* Called in boot/resume paths.  Must cope with no HVM support. */
 static inline int hvm_cpu_up(void)
 {

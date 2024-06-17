@@ -1669,13 +1669,14 @@ void init_xen_l4_slots(l4_pgentry_t *l4t, mfn_t l4mfn,
         l4e_from_mfn(sl4mfn, __PAGE_HYPERVISOR_RW);
 
     /* Slot 260: Per-domain mappings. */
-    l4t[l4_table_offset(PERDOMAIN_VIRT_START)] =
-        l4e_from_page(perdomain_l3, __PAGE_HYPERVISOR_RW);
+    if ( perdomain_l3 )
+        l4t[l4_table_offset(PERDOMAIN_VIRT_START)] =
+            l4e_from_page(perdomain_l3, __PAGE_HYPERVISOR_RW);
 
     /* Slot 4: Per-domain mappings mirror. */
     BUILD_BUG_ON(IS_ENABLED(CONFIG_PV32) &&
                  !l4_table_offset(PERDOMAIN_ALT_VIRT_START));
-    if ( maybe_compat )
+    if ( perdomain_l3 && maybe_compat )
         l4t[l4_table_offset(PERDOMAIN_ALT_VIRT_START)] =
             l4t[l4_table_offset(PERDOMAIN_VIRT_START)];
 

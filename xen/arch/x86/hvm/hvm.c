@@ -104,6 +104,60 @@ static const char __initconst warning_hvm_fep[] =
 static bool __initdata opt_altp2m_enabled;
 boolean_param("altp2m", opt_altp2m_enabled);
 
+DEFINE_PER_CPU(root_pgentry_t *, monitor_pgt);
+
+static int allocate_cpu_monitor_table(unsigned int cpu)
+{
+    root_pgentry_t *pgt = alloc_xenheap_page();
+
+    if ( !pgt )
+        return -ENOMEM;
+
+    clear_page(pgt);
+
+    init_xen_l4_slots(pgt, _mfn(virt_to_mfn(pgt)), INVALID_MFN, NULL,
+                      false, true, false);
+
+    ASSERT(!per_cpu(monitor_pgt, cpu));
+    per_cpu(monitor_pgt, cpu) = pgt;
+
+    return 0;
+}
+
+static void free_cpu_monitor_table(unsigned int cpu)
+{
+    root_pgentry_t *pgt = per_cpu(monitor_pgt, cpu);
+
+    if ( !pgt )
+        return;
+
+    per_cpu(monitor_pgt, cpu) = NULL;
+    free_xenheap_page(pgt);
+}
+
+void hvm_set_cpu_monitor_table(struct vcpu *v)
+{
+    root_pgentry_t *pgt = this_cpu(monitor_pgt);
+
+    ASSERT(pgt);
+
+    pgt[root_table_offset(PERDOMAIN_VIRT_START)] =
+        l4e_from_page(v->domain->arch.perdomain_l3_pg, __PAGE_HYPERVISOR_RW);
+    /*
+     * HVM guests always have the compatibility L4 per-domain area because
+     * bitness is not know, and can change at runtime.
+     */
+    pgt[root_table_offset(PERDOMAIN_ALT_VIRT_START)] =
+        pgt[root_table_offset(PERDOMAIN_VIRT_START)];
+    make_cr3(v, _mfn(virt_to_mfn(pgt)));
+}
+
+void hvm_clear_cpu_monitor_table(struct vcpu *v)
+{
+    if ( IS_ENABLED(CONFIG_DEBUG) )
+        make_cr3(v, INVALID_MFN);
+}
+
 static int cf_check cpu_callback(
     struct notifier_block *nfb, unsigned long action, void *hcpu)
 {
@@ -113,6 +167,9 @@ static int cf_check cpu_callback(
     switch ( action )
     {
     case CPU_UP_PREPARE:
+        rc = allocate_cpu_monitor_table(cpu);
+        if ( rc )
+            break;
         rc = alternative_call(hvm_funcs.cpu_up_prepare, cpu);
         break;
     case CPU_DYING:
@@ -121,6 +178,7 @@ static int cf_check cpu_callback(
     case CPU_UP_CANCELED:
     case CPU_DEAD:
         alternative_vcall(hvm_funcs.cpu_dead, cpu);
+        free_cpu_monitor_table(cpu);
         break;
     default:
         break;
@@ -154,6 +212,7 @@ static bool __init hap_supported(struct hvm_function_table *fns)
 static int __init cf_check hvm_enable(void)
 {
     const struct hvm_function_table *fns = NULL;
+    int rc;
 
     if ( cpu_has_vmx )
         fns = start_vmx();
@@ -204,6 +263,13 @@ static int __init cf_check hvm_enable(void)
     __clear_bit(0xed, hvm_io_bitmap);
 
     register_cpu_notifier(&cpu_nfb);
+
+    rc = allocate_cpu_monitor_table(0);
+    if ( rc )
+    {
+        printk(XENLOG_ERR "Error %d setting up HVM monitor page tables\n", rc);
+        return rc;
+    }
 
     return 0;
 }
