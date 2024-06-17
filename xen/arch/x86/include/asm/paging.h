@@ -117,6 +117,8 @@ struct paging_mode {
                                             unsigned long cr3,
                                             paddr_t ga, uint32_t *pfec,
                                             unsigned int *page_order);
+    void          (*set_cpu_monitor_table  )(struct vcpu *v);
+    void          (*clear_cpu_monitor_table)(struct vcpu *v);
 #endif
     pagetable_t   (*update_cr3            )(struct vcpu *v, bool noflush);
 
@@ -286,6 +288,22 @@ static inline unsigned long paging_ga_to_gfn_cr3(struct vcpu *v,
 static inline bool paging_flush_tlb(const unsigned long *vcpu_bitmap)
 {
     return current->domain->arch.paging.flush_tlb(vcpu_bitmap);
+}
+
+static inline void paging_set_cpu_monitor_table(struct vcpu *v)
+{
+    const struct paging_mode *mode = paging_get_hostmode(v);
+
+    if ( mode->set_cpu_monitor_table )
+        mode->set_cpu_monitor_table(v);
+}
+
+static inline void paging_clear_cpu_monitor_table(struct vcpu *v)
+{
+    const struct paging_mode *mode = paging_get_hostmode(v);
+
+    if ( mode->clear_cpu_monitor_table )
+        mode->clear_cpu_monitor_table(v);
 }
 
 #endif /* CONFIG_HVM */

@@ -534,6 +534,12 @@ void write_ptbase(struct vcpu *v)
     }
     else
     {
+        ASSERT(!is_hvm_domain(d) || !d->arch.asi
+#ifdef CONFIG_HVM
+               || mfn_eq(maddr_to_mfn(v->arch.cr3),
+                         virt_to_mfn(this_cpu(monitor_pgt)))
+#endif
+               );
         /* Make sure to clear use_pv_cr3 and xen_cr3 before pv_cr3. */
         cpu_info->use_pv_cr3 = false;
         cpu_info->xen_cr3 = 0;

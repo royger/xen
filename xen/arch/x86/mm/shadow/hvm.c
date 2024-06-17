@@ -736,30 +736,15 @@ bool cf_check shadow_flush_tlb(const unsigned long *vcpu_bitmap)
     return true;
 }
 
-mfn_t sh_make_monitor_table(const struct vcpu *v, unsigned int shadow_levels)
+int sh_update_monitor_table(struct vcpu *v, unsigned int shadow_levels)
 {
     struct domain *d = v->domain;
-    mfn_t m4mfn;
-    l4_pgentry_t *l4e;
 
-    ASSERT(!pagetable_get_pfn(v->arch.hvm.monitor_table));
+    ASSERT(mfn_eq(v->arch.hvm.shadow_linear_l3, INVALID_MFN));
 
     /* Guarantee we can get the memory we need */
-    if ( !shadow_prealloc(d, SH_type_monitor_table, CONFIG_PAGING_LEVELS) )
-        return INVALID_MFN;
-
-    m4mfn = shadow_alloc(d, SH_type_monitor_table, 0);
-    mfn_to_page(m4mfn)->shadow_flags = 4;
-
-    l4e = map_domain_page(m4mfn);
-
-    /*
-     * Create a self-linear mapping, but no shadow-linear mapping.  A
-     * shadow-linear mapping will either be inserted below when creating
-     * lower level monitor tables, or later in sh_update_cr3().
-     */
-    init_xen_l4_slots(l4e, m4mfn, INVALID_MFN, d->arch.perdomain_l3_pg,
-                      false, true, false);
+    if ( !shadow_prealloc(d, SH_type_monitor_table, CONFIG_PAGING_LEVELS - 1) )
+        return -ENOMEM;
 
     if ( shadow_levels < 4 )
     {
@@ -773,52 +758,54 @@ mfn_t sh_make_monitor_table(const struct vcpu *v, unsigned int shadow_levels)
          */
         m3mfn = shadow_alloc(d, SH_type_monitor_table, 0);
         mfn_to_page(m3mfn)->shadow_flags = 3;
-        l4e[l4_table_offset(SH_LINEAR_PT_VIRT_START)]
-            = l4e_from_mfn(m3mfn, __PAGE_HYPERVISOR_RW);
 
         m2mfn = shadow_alloc(d, SH_type_monitor_table, 0);
         mfn_to_page(m2mfn)->shadow_flags = 2;
         l3e = map_domain_page(m3mfn);
         l3e[0] = l3e_from_mfn(m2mfn, __PAGE_HYPERVISOR_RW);
         unmap_domain_page(l3e);
+
+        v->arch.hvm.shadow_linear_l3 = m3mfn;
+
+        /*
+         * If the vCPU is not the current one the L4 entry will be updated on
+         * context switch.
+         */
+        if ( v == current )
+            this_cpu(monitor_pgt)[l4_table_offset(SH_LINEAR_PT_VIRT_START)]
+                = l4e_from_mfn(m3mfn, __PAGE_HYPERVISOR_RW);
     }
+    else if ( v == current )
+        /* The shadow linear mapping will be inserted in sh_update_cr3(). */
+        this_cpu(monitor_pgt)[l4_table_offset(SH_LINEAR_PT_VIRT_START)]
+            = l4e_empty();
 
-    unmap_domain_page(l4e);
-
-    return m4mfn;
+    return 0;
 }
 
-void sh_destroy_monitor_table(const struct vcpu *v, mfn_t mmfn,
+void sh_destroy_monitor_table(const struct vcpu *v, mfn_t m3mfn,
                               unsigned int shadow_levels)
 {
     struct domain *d = v->domain;
 
-    ASSERT(mfn_to_page(mmfn)->u.sh.type == SH_type_monitor_table);
-
     if ( shadow_levels < 4 )
     {
-        mfn_t m3mfn;
-        l4_pgentry_t *l4e = map_domain_page(mmfn);
-        l3_pgentry_t *l3e;
-        unsigned int linear_slot = l4_table_offset(SH_LINEAR_PT_VIRT_START);
+        l3_pgentry_t *l3e = map_domain_page(m3mfn);
+
+        ASSERT(!mfn_eq(m3mfn, INVALID_MFN));
+        ASSERT(mfn_to_page(m3mfn)->u.sh.type == SH_type_monitor_table);
 
         /*
          * Need to destroy the l3 and l2 monitor pages used
          * for the linear map.
          */
-        ASSERT(l4e_get_flags(l4e[linear_slot]) & _PAGE_PRESENT);
-        m3mfn = l4e_get_mfn(l4e[linear_slot]);
-        l3e = map_domain_page(m3mfn);
         ASSERT(l3e_get_flags(l3e[0]) & _PAGE_PRESENT);
         shadow_free(d, l3e_get_mfn(l3e[0]));
         unmap_domain_page(l3e);
         shadow_free(d, m3mfn);
-
-        unmap_domain_page(l4e);
     }
-
-    /* Put the memory back in the pool */
-    shadow_free(d, mmfn);
+    else
+        ASSERT(mfn_eq(m3mfn, INVALID_MFN));
 }
 
 /**************************************************************************/
