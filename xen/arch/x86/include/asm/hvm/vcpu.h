@@ -149,8 +149,10 @@ struct hvm_vcpu {
         uint16_t p2midx;
     } fast_single_step;
 
-    /* (MFN) hypervisor page table */
-    pagetable_t         monitor_table;
+#ifdef CONFIG_SHADOW_PAGING
+    /* Reference to the linear L3 page table. */
+    mfn_t shadow_linear_l3;
+#endif
 
     struct hvm_vcpu_asid n1asid;
 
