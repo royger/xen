@@ -902,6 +902,8 @@ static void cf_check svm_ctxt_switch_from(struct vcpu *v)
     if ( unlikely((read_efer() & EFER_SVME) == 0) )
         return;
 
+    hvm_clear_cpu_monitor_table(v);
+
     if ( !v->arch.fully_eager_fpu )
         svm_fpu_leave(v);
 
@@ -957,6 +959,8 @@ static void cf_check svm_ctxt_switch_to(struct vcpu *v)
         ASSERT(v->domain->arch.cpuid->extd.virt_ssbd);
         amd_set_legacy_ssbd(true);
     }
+
+    hvm_set_cpu_monitor_table(v);
 }
 
 static void noreturn cf_check svm_do_resume(void)
@@ -990,6 +994,7 @@ static void noreturn cf_check svm_do_resume(void)
         hvm_migrate_pirqs(v);
         /* Migrating to another ASID domain.  Request a new ASID. */
         hvm_asid_flush_vcpu(v);
+        hvm_update_host_cr3(v);
     }
 
     if ( !vcpu_guestmode && !vlapic_hw_disabled(vlapic) )

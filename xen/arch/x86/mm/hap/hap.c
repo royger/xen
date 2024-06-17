@@ -387,46 +387,6 @@ int hap_set_allocation(struct domain *d, unsigned int pages, bool *preempted)
     return 0;
 }
 
-static mfn_t hap_make_monitor_table(struct vcpu *v)
-{
-    struct domain *d = v->domain;
-    struct page_info *pg;
-    l4_pgentry_t *l4e;
-    mfn_t m4mfn;
-
-    ASSERT(pagetable_get_pfn(v->arch.hvm.monitor_table) == 0);
-
-    if ( (pg = hap_alloc(d)) == NULL )
-        goto oom;
-
-    m4mfn = page_to_mfn(pg);
-    l4e = map_domain_page(m4mfn);
-
-    init_xen_l4_slots(l4e, m4mfn, INVALID_MFN, d->arch.perdomain_l3_pg,
-                      false, true, false);
-    unmap_domain_page(l4e);
-
-    return m4mfn;
-
- oom:
-    if ( !d->is_dying &&
-         (!d->is_shutting_down || d->shutdown_code != SHUTDOWN_crash) )
-    {
-        printk(XENLOG_G_ERR "%pd: out of memory building monitor pagetable\n",
-               d);
-        domain_crash(d);
-    }
-    return INVALID_MFN;
-}
-
-static void hap_destroy_monitor_table(struct vcpu* v, mfn_t mmfn)
-{
-    struct domain *d = v->domain;
-
-    /* Put the memory back in the pool */
-    hap_free(d, mmfn);
-}
-
 /************************************************/
 /*          HAP DOMAIN LEVEL FUNCTIONS          */
 /************************************************/
@@ -548,25 +508,6 @@ void hap_final_teardown(struct domain *d)
     }
 }
 
-void hap_vcpu_teardown(struct vcpu *v)
-{
-    struct domain *d = v->domain;
-    mfn_t mfn;
-
-    paging_lock(d);
-
-    if ( !paging_mode_hap(d) || !v->arch.paging.mode )
-        goto out;
-
-    mfn = pagetable_get_mfn(v->arch.hvm.monitor_table);
-    if ( mfn_x(mfn) )
-        hap_destroy_monitor_table(v, mfn);
-    v->arch.hvm.monitor_table = pagetable_null();
-
- out:
-    paging_unlock(d);
-}
-
 void hap_teardown(struct domain *d, bool *preempted)
 {
     struct vcpu *v;
@@ -574,10 +515,6 @@ void hap_teardown(struct domain *d, bool *preempted)
 
     ASSERT(d->is_dying);
     ASSERT(d != current->domain);
-
-    /* TODO - Remove when the teardown path is better structured. */
-    for_each_vcpu ( d, v )
-        hap_vcpu_teardown(v);
 
     /* Leave the root pt in case we get further attempts to modify the p2m. */
     if ( hvm_altp2m_supported() )
@@ -782,21 +719,9 @@ static void cf_check hap_update_paging_modes(struct vcpu *v)
 
     v->arch.paging.mode = hap_paging_get_mode(v);
 
-    if ( pagetable_is_null(v->arch.hvm.monitor_table) )
-    {
-        mfn_t mmfn = hap_make_monitor_table(v);
-
-        if ( mfn_eq(mmfn, INVALID_MFN) )
-            goto unlock;
-        v->arch.hvm.monitor_table = pagetable_from_mfn(mmfn);
-        make_cr3(v, mmfn);
-        hvm_update_host_cr3(v);
-    }
-
     /* CR3 is effectively updated by a mode change. Flush ASIDs, etc. */
     hap_update_cr3(v, false);
 
- unlock:
     paging_unlock(d);
     put_gfn(d, cr3_gfn);
 }

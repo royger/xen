@@ -1153,6 +1153,8 @@ static void cf_check vmx_ctxt_switch_from(struct vcpu *v)
     if ( unlikely(!this_cpu(vmxon)) )
         return;
 
+    hvm_clear_cpu_monitor_table(v);
+
     if ( !v->is_running )
     {
         /*
@@ -1182,6 +1184,8 @@ static void cf_check vmx_ctxt_switch_to(struct vcpu *v)
 
     if ( v->domain->arch.hvm.pi_ops.flags & PI_CSW_TO )
         vmx_pi_switch_to(v);
+
+    hvm_set_cpu_monitor_table(v);
 }
 
 

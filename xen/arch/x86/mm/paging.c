@@ -794,9 +794,7 @@ long do_paging_domctl_cont(
 
 void paging_vcpu_teardown(struct vcpu *v)
 {
-    if ( hap_enabled(v->domain) )
-        hap_vcpu_teardown(v);
-    else
+    if ( !hap_enabled(v->domain) )
         shadow_vcpu_teardown(v);
 }
 
