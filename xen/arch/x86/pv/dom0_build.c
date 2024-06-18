@@ -830,6 +830,15 @@ int __init dom0_construct_pv(struct domain *d,
         printk("Failed to load the kernel binary\n");
         goto out;
     }
+
+    /*
+     * Disable SMAP to allow user-accesses when running on dom0 page-tables.
+     * Note this must be done after elf_load_binary(), as such helper uses
+     * raw_{copy_to,clear}_guest() helpers which internally call stac()/clac()
+     * and those calls would otherwise nest with the ones here.
+     */
+    stac();
+
     bootstrap_map(NULL);
 
     if ( UNSET_ADDR != parms.virt_hypercall )
@@ -837,6 +846,7 @@ int __init dom0_construct_pv(struct domain *d,
         if ( (parms.virt_hypercall < v_start) ||
              (parms.virt_hypercall >= v_end) )
         {
+            clac();
             mapcache_override_current(NULL);
             switch_cr3_cr4(current->arch.cr3, read_cr4());
             printk("Invalid HYPERCALL_PAGE field in ELF notes.\n");
@@ -977,6 +987,9 @@ int __init dom0_construct_pv(struct domain *d,
         xlat_start_info(si, pv_shim ? XLAT_start_info_console_domU
                                     : XLAT_start_info_console_dom0);
 #endif
+
+    /* Possibly re-enable SMAP. */
+    clac();
 
     /* Return to idle domain's page tables. */
     mapcache_override_current(NULL);
