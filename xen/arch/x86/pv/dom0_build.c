@@ -814,6 +814,13 @@ int __init dom0_construct_pv(struct domain *d,
     /* Set up CR3 value for switch_cr3_cr4(). */
     update_cr3(v);
 
+    /*
+     * Temporarily clear SMAP in CR4 to allow user-accesses when running with
+     * the dom0 page-tables.
+     */
+    if ( cpu_has_smap )
+        write_cr4(read_cr4() & ~X86_CR4_SMAP);
+
     /* We run on dom0's page tables for the final part of the build process. */
     switch_cr3_cr4(cr3_pa(v->arch.cr3), read_cr4());
     mapcache_override_current(v);
@@ -837,6 +844,8 @@ int __init dom0_construct_pv(struct domain *d,
         {
             mapcache_override_current(NULL);
             switch_cr3_cr4(current->arch.cr3, read_cr4());
+            if ( cpu_has_smap )
+                write_cr4(read_cr4() | X86_CR4_SMAP);
             printk("Invalid HYPERCALL_PAGE field in ELF notes.\n");
             return -EINVAL;
         }
@@ -979,6 +988,9 @@ int __init dom0_construct_pv(struct domain *d,
     /* Return to idle domain's page tables. */
     mapcache_override_current(NULL);
     switch_cr3_cr4(current->arch.cr3, read_cr4());
+
+    if ( cpu_has_smap )
+        write_cr4(read_cr4() | X86_CR4_SMAP);
 
     update_domain_wallclock_time(d);
 
