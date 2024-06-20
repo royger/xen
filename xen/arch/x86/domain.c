@@ -1904,8 +1904,7 @@ void cf_check paravirt_ctxt_switch_to(struct vcpu *v)
     const struct domain *d = v->domain;
 
     if ( d->arch.pv.xpti )
-        this_cpu(root_pgt)[root_table_offset(PERDOMAIN_VIRT_START)] =
-            l4e_from_page(d->arch.perdomain_l3_pg, __PAGE_HYPERVISOR_RW);
+        setup_perdomain_slot(d, this_cpu(root_pgt));
 
     if ( unlikely(v->arch.dr7 & DR7_ACTIVE_MASK) )
         activate_debugregs(v);
