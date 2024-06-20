@@ -666,4 +666,7 @@ int modify_mappings(unsigned long s, unsigned long e, unsigned int nf,
 int destroy_mappings(unsigned long s, unsigned long e,
                      root_pgentry_t *root_pgt, struct domain *d);
 
+/* Setup the per-domain slot in the root page table pointer. */
+void setup_perdomain_slot(const struct domain *d, root_pgentry_t *root_pgt);
+
 #endif /* __ASM_X86_MM_H__ */
