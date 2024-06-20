@@ -630,4 +630,7 @@ static inline bool arch_mfns_in_directmap(unsigned long mfn, unsigned long nr)
     return (mfn + nr) <= (virt_to_mfn(eva - 1) + 1);
 }
 
+/* Setup the per-domain slot in the root page table pointer. */
+void setup_perdomain_slot(const struct vcpu *v, root_pgentry_t *root_pgt);
+
 #endif /* __ASM_X86_MM_H__ */
