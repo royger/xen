@@ -6362,6 +6362,12 @@ unsigned long get_upper_mfn_bound(void)
     return min(max_mfn, 1UL << (paddr_bits - PAGE_SHIFT)) - 1;
 }
 
+void setup_perdomain_slot(const struct domain *d, root_pgentry_t *root_pgt)
+{
+    l4e_write(&root_pgt[root_table_offset(PERDOMAIN_VIRT_START)],
+              l4e_from_page(d->arch.perdomain_l3_pg, __PAGE_HYPERVISOR_RW));
+}
+
 static void __init __maybe_unused build_assertions(void)
 {
     /*
