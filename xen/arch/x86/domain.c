@@ -1940,9 +1940,7 @@ void cf_check paravirt_ctxt_switch_to(struct vcpu *v)
     root_pgentry_t *root_pgt = this_cpu(root_pgt);
 
     if ( v->domain->arch.pv.xpti )
-        root_pgt[root_table_offset(PERDOMAIN_VIRT_START)] =
-            l4e_from_page(v->domain->arch.perdomain_l3_pg,
-                          __PAGE_HYPERVISOR_RW);
+        setup_perdomain_slot(v, root_pgt);
     else if ( v->domain->arch.asi )
     {
         v->arch.cr3 = virt_to_maddr(this_cpu(root_pgt));

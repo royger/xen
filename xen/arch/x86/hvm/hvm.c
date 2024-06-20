@@ -143,14 +143,8 @@ void hvm_set_cpu_monitor_table(struct vcpu *v)
 
     paging_set_cpu_monitor_table(v);
 
-    pgt[root_table_offset(PERDOMAIN_VIRT_START)] =
-        l4e_from_page(v->domain->arch.perdomain_l3_pg, __PAGE_HYPERVISOR_RW);
-    /*
-     * HVM guests always have the compatibility L4 per-domain area because
-     * bitness is not know, and can change at runtime.
-     */
-    pgt[root_table_offset(PERDOMAIN_ALT_VIRT_START)] =
-        pgt[root_table_offset(PERDOMAIN_VIRT_START)];
+    setup_perdomain_slot(v, pgt);
+
     make_cr3(v, _mfn(virt_to_mfn(pgt)));
 }
 

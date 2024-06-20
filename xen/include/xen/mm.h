@@ -586,6 +586,9 @@ void destroy_ring_for_helper(void **_va, struct page_info *page);
 /* Return the upper bound of MFNs, including hotplug memory. */
 unsigned long get_upper_mfn_bound(void);
 
+/* Setup the per-domain slot in the root page table pointer. */
+void setup_perdomain_slot(const struct vcpu *v, root_pgentry_t *root_pgt);
+
 #include <asm/flushtlb.h>
 
 static inline void accumulate_tlbflush(bool *need_tlbflush,
