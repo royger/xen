@@ -555,6 +555,7 @@ void arch_vcpu_regs_init(struct vcpu *v)
 int arch_vcpu_create(struct vcpu *v)
 {
     struct domain *d = v->domain;
+    root_pgentry_t *pgt = NULL;
     int rc;
 
     v->arch.flags = TF_kernel_mode;
@@ -589,7 +590,31 @@ int arch_vcpu_create(struct vcpu *v)
     else
     {
         /* Idle domain */
-        v->arch.cr3 = __pa(idle_pg_table);
+        if ( (opt_asi_pv || opt_asi_hvm) && v->vcpu_id )
+        {
+            pgt = alloc_xenheap_page();
+
+            if ( !pgt )
+            {
+                rc = -ENOMEM;
+                goto fail;
+            }
+
+            copy_page(pgt, idle_pg_table);
+
+            /* Set up linear page table mapping. */
+            l4e_write(&pgt[l4_table_offset(LINEAR_PT_VIRT_START)],
+                      l4e_from_paddr(__pa(pgt), __PAGE_HYPERVISOR_RW));
+
+            v->arch.cr3 = __pa(pgt);
+        }
+        else
+            /*
+             * For the idle vCPU 0 (the BSP idle vCPU) use idle_pg_table
+             * directly, there's no need to create yet another copy.
+             */
+            v->arch.cr3 = __pa(idle_pg_table);
+
         rc = 0;
         v->arch.msrs = ZERO_BLOCK_PTR; /* Catch stray misuses */
     }
@@ -611,6 +636,7 @@ int arch_vcpu_create(struct vcpu *v)
     vcpu_destroy_fpu(v);
     xfree(v->arch.msrs);
     v->arch.msrs = NULL;
+    free_xenheap_page(pgt);
 
     return rc;
 }
