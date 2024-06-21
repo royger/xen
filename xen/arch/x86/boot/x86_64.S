@@ -15,6 +15,17 @@ ENTRY(__high_start)
         mov     $XEN_MINIMAL_CR4,%rcx
         mov     %rcx,%cr4
 
+        /*
+         * Possibly switch to the per-CPU idle page-tables. Note we cannot
+         * switch earlier as the per-CPU page-tables might be above 4G, and
+         * hence need to load them from 64bit code.
+         */
+        mov     ap_cr3(%rip), %rax
+        test    %rax, %rax
+        jz      .L_skip_cr3
+        mov     %rax, %cr3
+.L_skip_cr3:
+
         mov     stack_start(%rip),%rsp
 
         /* Reset EFLAGS (subsumes CLI and CLD). */
