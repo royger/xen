@@ -158,6 +158,9 @@ char asmlinkage __section(".init.bss.stack_aligned") __aligned(STACK_SIZE)
 /* Used by the BSP/AP paths to find the higher half stack mapping to use. */
 void *stack_start = cpu0_stack + STACK_SIZE - sizeof(struct cpu_info);
 
+/* cr3 value for the AP to load on boot. */
+unsigned long ap_cr3;
+
 /* Used by the boot asm to stash the relocated multiboot info pointer. */
 unsigned int asmlinkage __initdata multiboot_ptr;
 

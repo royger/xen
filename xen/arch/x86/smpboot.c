@@ -581,6 +581,13 @@ static int do_boot_cpu(int apicid, int cpu)
 
     stack_start = stack_base[cpu] + STACK_SIZE - sizeof(struct cpu_info);
 
+    /*
+     * If per-CPU idle root page table has been allocated, switch to it as
+     * part of the AP bringup trampoline.
+     */
+    ap_cr3 = idle_vcpu[cpu]->arch.cr3 != __pa(idle_pg_table) ?
+             idle_vcpu[cpu]->arch.cr3 : 0;
+
     /* This grunge runs the startup process for the targeted processor. */
 
     set_cpu_state(CPU_STATE_INIT);
