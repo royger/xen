@@ -631,4 +631,7 @@ static inline bool arch_mfns_in_directmap(unsigned long mfn, unsigned long nr)
 /* Setup the per-domain slot in the root page table pointer. */
 void setup_perdomain_slot(const struct domain *d, root_pgentry_t *root_pgt);
 
+/* Allocate a per-CPU local L3 table to use in the per-domain slot. */
+int allocate_perdomain_local_l3(unsigned int cpu);
+
 #endif /* __ASM_X86_MM_H__ */

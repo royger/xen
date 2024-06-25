@@ -1178,6 +1178,8 @@ static void cf_check vmx_ctxt_switch_to(struct vcpu *v)
 
     if ( v->domain->arch.hvm.pi_ops.flags & PI_CSW_TO )
         vmx_pi_switch_to(v);
+
+    hvm_vcpu_ctxt_switch_to(v);
 }
 
 

@@ -5453,6 +5453,21 @@ int hvm_copy_context_and_params(struct domain *dst, struct domain *src)
     return rc;
 }
 
+void hvm_vcpu_ctxt_switch_to(const struct vcpu *v)
+{
+    const struct domain *d = v->domain;
+    root_pgentry_t *root_pgt;
+
+    if ( !d->arch.asi )
+        return;
+
+    ASSERT(!pagetable_is_null(v->arch.hvm.monitor_table));
+
+    root_pgt = map_domain_page(pagetable_get_mfn(v->arch.hvm.monitor_table));
+    setup_perdomain_slot(d, root_pgt);
+    unmap_domain_page(root_pgt);
+}
+
 /*
  * Local variables:
  * mode: C

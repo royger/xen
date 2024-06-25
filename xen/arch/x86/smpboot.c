@@ -1103,6 +1103,9 @@ static int cpu_smpboot_alloc(unsigned int cpu)
     rc = setup_cpu_root_pgt(cpu);
     if ( rc )
         goto out;
+    rc = allocate_perdomain_local_l3(cpu);
+    if ( rc )
+        goto out;
     rc = -ENOMEM;
 
     if ( secondary_socket_cpumask == NULL &&

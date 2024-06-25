@@ -959,6 +959,8 @@ static void cf_check svm_ctxt_switch_to(struct vcpu *v)
         ASSERT(v->domain->arch.cpuid->extd.virt_ssbd);
         amd_set_legacy_ssbd(true);
     }
+
+    hvm_vcpu_ctxt_switch_to(v);
 }
 
 static void noreturn cf_check svm_do_resume(void)
