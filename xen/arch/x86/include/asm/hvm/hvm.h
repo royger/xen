@@ -373,6 +373,9 @@ static inline bool using_svm(void)
     return IS_ENABLED(CONFIG_AMD_SVM) && cpu_has_svm;
 }
 
+/* Generic context switch to vCPU hook. */
+void hvm_vcpu_ctxt_switch_to(const struct vcpu *v);
+
 #ifdef CONFIG_HVM
 
 #define hvm_get_guest_tsc(v) hvm_get_guest_tsc_fixed(v, 0)

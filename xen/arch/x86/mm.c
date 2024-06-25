@@ -6073,6 +6073,12 @@ int create_perdomain_mapping(struct domain *d, unsigned long va,
         l2tab = __map_domain_page(pg);
         clear_page(l2tab);
         l3tab[l3_table_offset(va)] = l3e_from_page(pg, __PAGE_HYPERVISOR_RW);
+        /*
+         * Keep a reference to the per-domain L3 entries in case a per-CPU L3
+         * is in use (as opposed to using perdomain_l3_pg).
+         */
+        ASSERT(!d->creation_finished);
+        d->arch.perdomain_l2_pgs[l3_table_offset(va)] = pg;
     }
     else
         l2tab = map_l2t_from_l3e(l3tab[l3_table_offset(va)]);
@@ -6362,10 +6368,74 @@ unsigned long get_upper_mfn_bound(void)
     return min(max_mfn, 1UL << (paddr_bits - PAGE_SHIFT)) - 1;
 }
 
+static DEFINE_PER_CPU(l3_pgentry_t *, local_l3);
+
+int allocate_perdomain_local_l3(unsigned int cpu)
+{
+    root_pgentry_t *idle_pgt = maddr_to_virt(idle_vcpu[cpu]->arch.cr3);
+    l3_pgentry_t *l3;
+
+    ASSERT(!per_cpu(local_l3, cpu));
+
+    if ( !opt_asi_pv && !opt_asi_hvm )
+        return 0;
+
+    l3 = alloc_xenheap_page();
+    if ( !l3 )
+        return -ENOMEM;
+
+    clear_page(l3);
+
+    /*
+     * Populate the per-domain slot in the per-pCPU idle page-tables with the
+     * allocated L3, so map_pages_to_xen() and friends can create mappings in
+     * the per-pCPU area.
+     */
+    l4e_write(&idle_pgt[l4_table_offset(PERDOMAIN_VIRT_START)],
+              l4e_from_mfn(virt_to_mfn(l3), __PAGE_HYPERVISOR_RW));
+
+    per_cpu(local_l3, cpu) = l3;
+
+    return 0;
+}
+
+void free_perdomain_local_l3(unsigned int cpu)
+{
+    l3_pgentry_t *l3 = per_cpu(local_l3, cpu);
+
+    if ( !l3 )
+        return;
+
+    per_cpu(local_l3, cpu) = NULL;
+    free_xenheap_page(l3);
+}
+
 void setup_perdomain_slot(const struct domain *d, root_pgentry_t *root_pgt)
 {
-    l4e_write(&root_pgt[root_table_offset(PERDOMAIN_VIRT_START)],
-              l4e_from_page(d->arch.perdomain_l3_pg, __PAGE_HYPERVISOR_RW));
+    if ( d->arch.asi )
+    {
+        l3_pgentry_t *l3 = this_cpu(local_l3);
+        unsigned int i;
+
+        ASSERT(l3);
+
+        /* Populate the per-CPU L3 with the per-domain entries. */
+        for ( i = 0; i < ARRAY_SIZE(d->arch.perdomain_l2_pgs); i++ )
+        {
+            const struct page_info *pg = d->arch.perdomain_l2_pgs[i];
+
+            BUILD_BUG_ON(ARRAY_SIZE(d->arch.perdomain_l2_pgs) >
+                         L3_PAGETABLE_ENTRIES);
+            l3e_write(&l3[i], pg ? l3e_from_page(pg, __PAGE_HYPERVISOR_RW)
+                                 : l3e_empty());
+        }
+
+        l4e_write(&root_pgt[root_table_offset(PERDOMAIN_VIRT_START)],
+                  l4e_from_mfn(virt_to_mfn(l3), __PAGE_HYPERVISOR_RW));
+    }
+    else if ( d->arch.pv.xpti )
+        l4e_write(&root_pgt[root_table_offset(PERDOMAIN_VIRT_START)],
+                  l4e_from_page(d->arch.perdomain_l3_pg, __PAGE_HYPERVISOR_RW));
 }
 
 static void __init __maybe_unused build_assertions(void)

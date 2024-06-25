@@ -171,7 +171,10 @@
 /* Slot 259: linear page table (shadow table). */
 #define SH_LINEAR_PT_VIRT_START (PML4_ADDR(259))
 #define SH_LINEAR_PT_VIRT_END   (SH_LINEAR_PT_VIRT_START + PML4_ENTRY_BYTES)
-/* Slot 260: per-domain mappings (including map cache). */
+/*
+ * Slot 260: per-pCPU (when using ASI) and per-domain mappings (including map
+ * cache).
+ */
 #define PERDOMAIN_VIRT_START    (PML4_ADDR(260))
 #define PERDOMAIN_SLOT_MBYTES   (PML4_ENTRY_BYTES >> (20 + PAGETABLE_ORDER))
 #define PERDOMAIN_SLOTS         3
