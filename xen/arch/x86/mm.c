@@ -516,6 +516,70 @@ void make_cr3(struct vcpu *v, mfn_t mfn)
         v->arch.cr3 |= get_pcid_bits(v, false);
 }
 
+static DEFINE_PER_CPU(l3_pgentry_t *, local_l3);
+
+int allocate_perdomain_local_l3(unsigned int cpu)
+{
+    root_pgentry_t *idle_pgt = maddr_to_virt(idle_vcpu[cpu]->arch.cr3);
+    l3_pgentry_t *l3;
+
+    if ( (!opt_asi_pv && !opt_asi_hvm) || per_cpu(local_l3, cpu) )
+        return 0;
+
+    l3 = alloc_xenheap_page();
+    if ( !l3 )
+        return -ENOMEM;
+
+    clear_page(l3);
+
+    /*
+     * Populate the per-domain slot in the per-pCPU idle page-tables with the
+     * allocated L3, so map_pages_to_xen() and friends can create mappings in
+     * the per-pCPU area.
+     */
+    l4e_write(&idle_pgt[l4_table_offset(PERDOMAIN_VIRT_START)],
+              l4e_from_mfn(virt_to_mfn(l3), __PAGE_HYPERVISOR_RW));
+
+    per_cpu(local_l3, cpu) = l3;
+
+    return 0;
+}
+
+static void asi_adjust_pt(const struct vcpu *v)
+{
+    const struct domain *d = v->domain;
+
+    if ( v != current )
+    {
+        l3_pgentry_t *l3 = this_cpu(local_l3);
+        unsigned int i;
+
+        /*
+         * If v != current this page-table change is a vCPU context switch,
+         * hence update the perdomain slots in the per-pCPU L3 used for the
+         * per-domain slot.
+         *
+         * Do the update of the L3 slots as close to the cr3 write as possible:
+         * if currently running a vCPU with ASI or on the idle vCPU page-tables
+         * this L3 will be in-use, hence minimize the window between the
+         * modification and the TLB flush.
+         */
+
+        ASSERT(l3);
+        BUILD_BUG_ON(ARRAY_SIZE(d->arch.perdomain_l2_pgs) >
+                     L3_PAGETABLE_ENTRIES);
+
+        /* Populate the per-CPU L3 with the per-domain entries. */
+        for ( i = 0; i < ARRAY_SIZE(d->arch.perdomain_l2_pgs); i++ )
+        {
+            const struct page_info *pg = d->arch.perdomain_l2_pgs[i];
+
+            l3e_write(&l3[i], pg ? l3e_from_page(pg, __PAGE_HYPERVISOR_RW)
+                                 : l3e_empty());
+        }
+    }
+}
+
 void write_ptbase(struct vcpu *v)
 {
     const struct domain *d = v->domain;
@@ -535,6 +599,9 @@ void write_ptbase(struct vcpu *v)
     }
     else
     {
+        if ( d->arch.asi )
+            asi_adjust_pt(v);
+
         /* Make sure to clear use_pv_cr3 and xen_cr3 before pv_cr3. */
         cpu_info->use_pv_cr3 = false;
         cpu_info->xen_cr3 = 0;
@@ -1674,9 +1741,16 @@ void init_xen_l4_slots(l4_pgentry_t *l4t, mfn_t l4mfn,
         mfn_eq(sl4mfn, INVALID_MFN) ? l4e_empty() :
         l4e_from_mfn(sl4mfn, __PAGE_HYPERVISOR_RW);
 
-    /* Slot 260: Per-domain mappings. */
+    /*
+     * Slot 260: Per-domain (and per-pCPU when using ASI) mappings.
+     *
+     * Leave empty if the domain has ASI enabled, it will be populated by the
+     * caller or by the context switch code with the per-pCPU L3.
+     */
     l4t[l4_table_offset(PERDOMAIN_VIRT_START)] =
-        l4e_from_page(d->arch.perdomain_l3_pg, __PAGE_HYPERVISOR_RW);
+        d->arch.asi ? l4e_empty()
+                    : l4e_from_page(d->arch.perdomain_l3_pg,
+                                    __PAGE_HYPERVISOR_RW);
 
     /* Slot 4: Per-domain mappings mirror. */
     BUILD_BUG_ON(IS_ENABLED(CONFIG_PV32) &&
@@ -6073,6 +6147,12 @@ int create_perdomain_mapping(struct domain *d, unsigned long va,
         l2tab = __map_domain_page(pg);
         clear_page(l2tab);
         l3tab[l3_table_offset(va)] = l3e_from_page(pg, __PAGE_HYPERVISOR_RW);
+        /*
+         * Keep a reference to the per-domain L3 entries in case a per-CPU L3
+         * is in use (as opposed to using perdomain_l3_pg).
+         */
+        ASSERT(!d->creation_finished);
+        d->arch.perdomain_l2_pgs[l3_table_offset(va)] = pg;
     }
     else
         l2tab = map_l2t_from_l3e(l3tab[l3_table_offset(va)]);
@@ -6364,8 +6444,19 @@ unsigned long get_upper_mfn_bound(void)
 
 void setup_perdomain_slot(const struct domain *d, root_pgentry_t *root_pgt)
 {
-    l4e_write(&root_pgt[root_table_offset(PERDOMAIN_VIRT_START)],
-              l4e_from_page(d->arch.perdomain_l3_pg, __PAGE_HYPERVISOR_RW));
+    if ( d->arch.asi )
+    {
+        l4e_write(&root_pgt[root_table_offset(PERDOMAIN_VIRT_START)],
+                  l4e_from_mfn(virt_to_mfn(this_cpu(local_l3)),
+                               __PAGE_HYPERVISOR_RW));
+
+        if ( !is_pv_64bit_domain(d) )
+            l4e_write(&root_pgt[l4_table_offset(PERDOMAIN_ALT_VIRT_START)],
+                      root_pgt[l4_table_offset(PERDOMAIN_VIRT_START)]);
+    }
+    else if ( d->arch.pv.xpti )
+        l4e_write(&root_pgt[root_table_offset(PERDOMAIN_VIRT_START)],
+                  l4e_from_page(d->arch.perdomain_l3_pg, __PAGE_HYPERVISOR_RW));
 }
 
 static void __init __maybe_unused build_assertions(void)

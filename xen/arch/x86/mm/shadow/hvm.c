@@ -760,6 +760,9 @@ mfn_t sh_make_monitor_table(const struct vcpu *v, unsigned int shadow_levels)
      */
     init_xen_l4_slots(l4e, m4mfn, d, INVALID_MFN, false);
 
+    if ( v == current )
+        setup_perdomain_slot(d, l4e);
+
     if ( shadow_levels < 4 )
     {
         mfn_t m3mfn, m2mfn;

@@ -403,6 +403,10 @@ static mfn_t hap_make_monitor_table(struct vcpu *v)
     l4e = map_domain_page(m4mfn);
 
     init_xen_l4_slots(l4e, m4mfn, d, INVALID_MFN, false);
+
+    if ( v == current )
+        setup_perdomain_slot(d, l4e);
+
     unmap_domain_page(l4e);
 
     return m4mfn;
