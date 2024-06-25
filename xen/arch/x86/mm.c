@@ -5026,6 +5026,12 @@ static l3_pgentry_t *virt_to_xen_l3e(unsigned long v)
         mfn_t l3mfn;
         l3_pgentry_t *l3t = alloc_mapped_pagetable(&l3mfn);
 
+        /*
+         * Do not allow modifying the idle L4 directory once it is used as the
+         * base to populate further L4s.
+         */
+        BUG_ON(system_state >= SYS_STATE_smp_boot);
+
         if ( !l3t )
             return NULL;
         UNMAP_DOMAIN_PAGE(l3t);
