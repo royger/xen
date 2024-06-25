@@ -813,6 +813,9 @@ static void __init noreturn reinit_bsp_stack(void)
     rc = setup_cpu_root_pgt(0);
     if ( rc )
         panic("Error %d setting up PV root page table\n", rc);
+    rc = allocate_perdomain_local_l3(0);
+    if ( rc )
+        panic("Error %d setting up local per-domain L3\n", rc);
 
     if ( cpu_has_xen_shstk )
     {

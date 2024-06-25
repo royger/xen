@@ -313,6 +313,8 @@ struct arch_domain
 {
     struct page_info *perdomain_l3_pg;
 
+    struct page_info *perdomain_l2_pgs[PERDOMAIN_SLOTS];
+
 #ifdef CONFIG_PV32
     unsigned int hv_compat_vstart;
 #endif

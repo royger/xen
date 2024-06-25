@@ -114,6 +114,8 @@ void pv_maybe_update_shadow_l4(struct vcpu *v)
                   _mfn(virt_to_mfn(this_cpu(root_pgt)))));
 
     copy_page(this_cpu(root_pgt), v->arch.pv.guest_l4);
+
+    setup_perdomain_slot(v, this_cpu(root_pgt));
 }
 
 mfn_t pv_maybe_shadow_l4(struct vcpu *v, mfn_t mfn)

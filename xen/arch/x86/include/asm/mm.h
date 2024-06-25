@@ -632,4 +632,8 @@ static inline bool arch_mfns_in_directmap(unsigned long mfn, unsigned long nr)
     return (mfn + nr) <= (virt_to_mfn(eva - 1) + 1);
 }
 
+int allocate_perdomain_local_l3(unsigned int cpu);
+void free_perdomain_local_l3(unsigned int cpu);
+void setup_perdomain_slot(const struct vcpu *v, root_pgentry_t *root_pgt);
+
 #endif /* __ASM_X86_MM_H__ */

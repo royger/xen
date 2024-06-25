@@ -6083,6 +6083,7 @@ int create_perdomain_mapping(struct domain *d, unsigned long va,
         l2tab = __map_domain_page(pg);
         clear_page(l2tab);
         l3tab[l3_table_offset(va)] = l3e_from_page(pg, __PAGE_HYPERVISOR_RW);
+        d->arch.perdomain_l2_pgs[l3_table_offset(va)] = pg;
     }
     else
         l2tab = map_l2t_from_l3e(l3tab[l3_table_offset(va)]);
@@ -6372,11 +6373,69 @@ unsigned long get_upper_mfn_bound(void)
     return min(max_mfn, 1UL << (paddr_bits - PAGE_SHIFT)) - 1;
 }
 
+static DEFINE_PER_CPU(l3_pgentry_t *, local_l3);
+
+int allocate_perdomain_local_l3(unsigned int cpu)
+{
+    l3_pgentry_t *l3;
+    root_pgentry_t *root_pgt = maddr_to_virt(idle_vcpu[cpu]->arch.cr3);
+
+    ASSERT(!per_cpu(local_l3, cpu));
+
+    if ( !opt_asi_pv && !opt_asi_hvm )
+        return 0;
+
+    l3 = alloc_xenheap_page();
+    if ( !l3 )
+        return -ENOMEM;
+
+    clear_page(l3);
+
+    per_cpu(local_l3, cpu) = l3;
+
+    /* Setup the slot in the idle page table. */
+    root_pgt[root_table_offset(PERDOMAIN_VIRT_START)] =
+            l4e_from_mfn(virt_to_mfn(l3), __PAGE_HYPERVISOR_RW);
+
+    return 0;
+}
+
+void free_perdomain_local_l3(unsigned int cpu)
+{
+    l3_pgentry_t *l3 = per_cpu(local_l3, cpu);
+
+    if ( !l3 )
+        return;
+
+    per_cpu(local_l3, cpu) = NULL;
+    free_xenheap_page(l3);
+}
+
 void setup_perdomain_slot(const struct vcpu *v, root_pgentry_t *root_pgt)
 {
-    root_pgt[root_table_offset(PERDOMAIN_VIRT_START)] =
-        l4e_from_page(v->domain->arch.perdomain_l3_pg,
-                      __PAGE_HYPERVISOR_RW);
+    const struct domain *d = v->domain;
+
+    if ( is_pv_64bit_domain(d) && d->arch.pv.xpti )
+        root_pgt[root_table_offset(PERDOMAIN_VIRT_START)] =
+            l4e_from_page(v->domain->arch.perdomain_l3_pg,
+                          __PAGE_HYPERVISOR_RW);
+    else if ( d->arch.asi )
+    {
+        l3_pgentry_t *l3 = this_cpu(local_l3);
+        unsigned int i;
+
+        ASSERT(l3);
+
+        for ( i = 0; i < ARRAY_SIZE(d->arch.perdomain_l2_pgs); i++ )
+        {
+            const struct page_info *pg = d->arch.perdomain_l2_pgs[i];
+
+            l3[i] = pg ? l3e_from_page(pg, __PAGE_HYPERVISOR_RW) : l3e_empty();
+        }
+
+        root_pgt[root_table_offset(PERDOMAIN_VIRT_START)] =
+            l4e_from_mfn(virt_to_mfn(l3), __PAGE_HYPERVISOR_RW);
+    }
 
     if ( !is_pv_64bit_vcpu(v) )
         /*
