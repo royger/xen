@@ -986,6 +986,7 @@ static void cpu_smpboot_free(unsigned int cpu, bool remove)
     }
 
     cleanup_cpu_root_pgt(cpu);
+    free_perdomain_local_l3(cpu);
 
     if ( per_cpu(stubs.addr, cpu) )
     {
@@ -1100,6 +1101,9 @@ static int cpu_smpboot_alloc(unsigned int cpu)
     per_cpu(stubs.addr, cpu) = stub_page + STUB_BUF_CPU_OFFS(cpu);
 
     rc = setup_cpu_root_pgt(cpu);
+    if ( rc )
+        goto out;
+    rc = allocate_perdomain_local_l3(cpu);
     if ( rc )
         goto out;
     rc = -ENOMEM;
