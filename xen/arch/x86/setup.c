@@ -1962,6 +1962,14 @@ void asmlinkage __init noreturn __start_xen(unsigned long mbi_p)
     alternative_branches();
 
     /*
+     * Setup the local per-domain L3 for the BSP also, so it matches the state
+     * of the APs.
+     */
+    ret = allocate_perdomain_local_l3(0);
+    if ( ret )
+        panic("Error %d setting up local per-domain L3\n", ret);
+
+    /*
      * NB: when running as a PV shim VCPUOP_up/down is wired to the shim
      * physical cpu_add/remove functions, so launch the guest with only
      * the BSP online and let it bring up the other CPUs as required.
