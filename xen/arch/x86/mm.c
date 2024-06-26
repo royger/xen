@@ -522,6 +522,7 @@ int allocate_perdomain_local_l3(unsigned int cpu)
 {
     root_pgentry_t *idle_pgt = maddr_to_virt(idle_vcpu[cpu]->arch.cr3);
     l3_pgentry_t *l3;
+    int rc;
 
     if ( (!opt_asi_pv && !opt_asi_hvm) || per_cpu(local_l3, cpu) )
         return 0;
@@ -539,6 +540,20 @@ int allocate_perdomain_local_l3(unsigned int cpu)
      */
     l4e_write(&idle_pgt[l4_table_offset(PERDOMAIN_VIRT_START)],
               l4e_from_mfn(virt_to_mfn(l3), __PAGE_HYPERVISOR_RW));
+
+    /*
+     * Pre-allocate the page-table structures for the per-cpu fixmap.  Some of
+     * the per-cpu fixmap calls might happen in contexts where memory
+     * allocation is not possible.
+     *
+     * Only one L3 slot is currently reserved for the per-CPU fixmap.
+     */
+    BUILD_BUG_ON(PERCPU_FIXADDR_SIZE > (1 << L3_PAGETABLE_SHIFT));
+    rc = map_pages_to_xen_cpu(PERCPU_VIRT_START, INVALID_MFN,
+                              PFN_DOWN(PERCPU_FIXADDR_SIZE), MAP_SMALL_PAGES,
+                              cpu);
+    if ( rc )
+        return rc;
 
     per_cpu(local_l3, cpu) = l3;
 
