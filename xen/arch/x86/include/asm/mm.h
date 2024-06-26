@@ -637,4 +637,19 @@ void setup_perdomain_slot(const struct vcpu *v, root_pgentry_t *root_pgt);
 int allocate_perdomain_local_l3(unsigned int cpu);
 void free_perdomain_local_l3(unsigned int cpu);
 
+/* Specify the CPU idle root page-table to use for modifications. */
+int map_pages_to_xen_cpu(
+    unsigned long virt,
+    mfn_t mfn,
+    unsigned long nr_mfns,
+    unsigned int flags,
+    unsigned int cpu);
+int modify_xen_mappings_cpu(unsigned long s, unsigned long e, unsigned int nf,
+                            unsigned int cpu);
+static inline int destroy_xen_mappings_cpu(unsigned long s, unsigned long e,
+                                           unsigned int cpu)
+{
+    return modify_xen_mappings_cpu(s, e, _PAGE_NONE, cpu);
+}
+
 #endif /* __ASM_X86_MM_H__ */
