@@ -808,14 +808,9 @@ static void __init noreturn reinit_bsp_stack(void)
     /* Update SYSCALL trampolines */
     percpu_traps_init();
 
-    stack_base[0] = stack;
-
     rc = setup_cpu_root_pgt(0);
     if ( rc )
         panic("Error %d setting up PV root page table\n", rc);
-    rc = allocate_perdomain_local_l3(0);
-    if ( rc )
-        panic("Error %d setting up local per-domain L3\n", rc);
 
     if ( cpu_has_xen_shstk )
     {
@@ -825,6 +820,7 @@ static void __init noreturn reinit_bsp_stack(void)
         asm volatile ("setssbsy" ::: "memory");
     }
 
+    printk("shstk enabled\n");
     reset_stack_and_jump(init_done);
 }
 
@@ -2077,8 +2073,32 @@ void asmlinkage __init noreturn __start_xen(unsigned long mbi_p)
         info->last_spec_ctrl = default_xen_spec_ctrl;
     }
 
+    ret = allocate_perdomain_local_l3(0);
+    if ( ret )
+        panic("Error %d setting up local per-domain L3\n", ret);
+
+    for ( i = 0; i < (1U << STACK_ORDER); i++ )
+    {
+        percpu_set_fixmap(PERCPU_STACK_IDX(0) + i,
+                          _mfn(virt_to_mfn(bsp_stack + i * PAGE_SIZE)),
+                          PAGE_HYPERVISOR_RW);
+        printk("CPU%u populating %p -> %lx\n", 0,
+               percpu_fix_to_virt(PERCPU_STACK_IDX(0) + i),
+               virt_to_mfn(bsp_stack + i * PAGE_SIZE));
+    }
+
+    percpu_set_fixmap(PERCPU_STACK_IDX(0),
+                      _mfn(virt_to_mfn(bsp_stack)),
+                      PAGE_HYPERVISOR_SHSTK);
+    percpu_set_fixmap(PERCPU_STACK_IDX(0) + PRIMARY_SHSTK_SLOT,
+                      _mfn(virt_to_mfn(bsp_stack +
+                                       PRIMARY_SHSTK_SLOT * PAGE_SIZE)),
+                      PAGE_HYPERVISOR_SHSTK);
+
+    stack_base[0] = bsp_stack;
+
     /* Copy the cpu info block, and move onto the BSP stack. */
-    bsp_info = get_cpu_info_from_stack((unsigned long)bsp_stack);
+    bsp_info = get_cpu_info_from_stack((unsigned long)PERCPU_STACK_ADDR(0));
     *bsp_info = *info;
 
     asm volatile ("mov %[stk], %%rsp; jmp %c[fn]" ::

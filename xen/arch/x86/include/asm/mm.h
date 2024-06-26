@@ -521,7 +521,7 @@ extern struct rangeset *mmio_ro_ranges;
 #define compat_pfn_to_cr3(pfn) (((unsigned)(pfn) << 12) | ((unsigned)(pfn) >> 20))
 #define compat_cr3_to_pfn(cr3) (((unsigned)(cr3) >> 12) | ((unsigned)(cr3) << 20))
 
-void memguard_guard_stack(void *p);
+void memguard_guard_stack(void *p, unsigned int cpu);
 void memguard_unguard_stack(void *p);
 
 struct mmio_ro_emulate_ctxt {

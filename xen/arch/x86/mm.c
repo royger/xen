@@ -6287,31 +6287,38 @@ void free_perdomain_mappings(struct domain *d)
     d->arch.perdomain_l3_pg = NULL;
 }
 
-static void write_sss_token(unsigned long *ptr)
+static void write_sss_token(unsigned long *ptr, unsigned long va)
 {
     /*
      * A supervisor shadow stack token is its own linear address, with the
      * busy bit (0) clear.
      */
-    *ptr = (unsigned long)ptr;
+    *ptr = va;
 }
 
-void memguard_guard_stack(void *p)
+void memguard_guard_stack(void *p, unsigned int cpu)
 {
+    unsigned long va = (unsigned long)PERCPU_STACK_ADDR(cpu);
+
     /* IST Shadow stacks.  4x 1k in stack page 0. */
     if ( IS_ENABLED(CONFIG_XEN_SHSTK) )
     {
-        write_sss_token(p + (IST_MCE * IST_SHSTK_SIZE) - 8);
-        write_sss_token(p + (IST_NMI * IST_SHSTK_SIZE) - 8);
-        write_sss_token(p + (IST_DB  * IST_SHSTK_SIZE) - 8);
-        write_sss_token(p + (IST_DF  * IST_SHSTK_SIZE) - 8);
+        write_sss_token(p + (IST_MCE * IST_SHSTK_SIZE) - 8,
+                        va + (IST_MCE * IST_SHSTK_SIZE) - 8);
+        write_sss_token(p + (IST_NMI * IST_SHSTK_SIZE) - 8,
+                        va + (IST_NMI * IST_SHSTK_SIZE) - 8);
+        write_sss_token(p + (IST_DB  * IST_SHSTK_SIZE) - 8,
+                        va + (IST_DB  * IST_SHSTK_SIZE) - 8);
+        write_sss_token(p + (IST_DF  * IST_SHSTK_SIZE) - 8,
+                        va + (IST_DF  * IST_SHSTK_SIZE) - 8);
     }
     map_pages_to_xen((unsigned long)p, virt_to_mfn(p), 1, PAGE_HYPERVISOR_SHSTK);
 
     /* Primary Shadow Stack.  1x 4k in stack page 5. */
     p += PRIMARY_SHSTK_SLOT * PAGE_SIZE;
+    va += PRIMARY_SHSTK_SLOT * PAGE_SIZE;
     if ( IS_ENABLED(CONFIG_XEN_SHSTK) )
-        write_sss_token(p + PAGE_SIZE - 8);
+        write_sss_token(p + PAGE_SIZE - 8, va + PAGE_SIZE - 8);
 
     map_pages_to_xen((unsigned long)p, virt_to_mfn(p), 1, PAGE_HYPERVISOR_SHSTK);
 }
@@ -6400,8 +6407,8 @@ int allocate_perdomain_local_l3(unsigned int cpu)
 {
     l3_pgentry_t *l3 = NULL;
     l2_pgentry_t *l2 = NULL;
-    l1_pgentry_t *l1 = NULL;
     root_pgentry_t *root_pgt = maddr_to_virt(idle_vcpu[cpu]->arch.cr3);
+    size_t i;
 
     ASSERT(!per_cpu(local_l3, cpu));
 
@@ -6410,28 +6417,39 @@ int allocate_perdomain_local_l3(unsigned int cpu)
 
     l3 = alloc_xenheap_page();
     l2 = alloc_xenheap_page();
-    l1 = alloc_xenheap_page();
-    if ( !l3 || !l2 || !l1 )
+    if ( !l3 || !l2 )
     {
         free_xenheap_page(l3);
         free_xenheap_page(l2);
-        free_xenheap_page(l1);
         return -ENOMEM;
     }
 
     clear_page(l3);
     clear_page(l2);
-    clear_page(l1);
-
-    /* Ensure one L1 table is enough to cover for the per-CPU fixmap. */
-    BUILD_BUG_ON(PERCPU_FIXADDR_SIZE > (1U << L2_PAGETABLE_SHIFT));
 
     l3[l3_table_offset(PERCPU_VIRT_START)] =
         l3e_from_mfn(virt_to_mfn(l2), __PAGE_HYPERVISOR_RW);
-    l2[l2_table_offset(PERCPU_VIRT_START)] =
-        l2e_from_mfn(virt_to_mfn(l1), __PAGE_HYPERVISOR_RW);
 
     per_cpu(local_l3, cpu) = l3;
+
+    /* Assume the per-cpu fixmap doesn't need more than an L2. */
+    BUILD_BUG_ON(PERCPU_FIXADDR_SIZE > (1U << L3_PAGETABLE_SHIFT));
+    for ( i = 0; i < PERCPU_FIXADDR_SIZE; i += (1U << L2_PAGETABLE_SHIFT) )
+    {
+        l1_pgentry_t *l1 = alloc_xenheap_page();
+
+        ASSERT(!l2[l2_table_offset(PERCPU_VIRT_START + i)].l2);
+
+        if ( !l1 )
+        {
+            free_perdomain_local_l3(cpu);
+            return -ENOMEM;
+        }
+
+        clear_page(l1);
+        l2[l2_table_offset(PERCPU_VIRT_START + i)] =
+            l2e_from_mfn(virt_to_mfn(l1), __PAGE_HYPERVISOR_RW);
+    }
 
     /* Setup the slot in the idle page table. */
     root_pgt[root_table_offset(PERDOMAIN_VIRT_START)] =
@@ -6443,8 +6461,8 @@ int allocate_perdomain_local_l3(unsigned int cpu)
 void free_perdomain_local_l3(unsigned int cpu)
 {
     l3_pgentry_t *l3 = per_cpu(local_l3, cpu);
-    l2_pgentry_t *l2 = NULL;
-    l1_pgentry_t *l1 = NULL;
+    l2_pgentry_t *l2;
+    size_t i;
 
     if ( !l3 )
         return;
@@ -6452,9 +6470,20 @@ void free_perdomain_local_l3(unsigned int cpu)
     per_cpu(local_l3, cpu) = NULL;
 
     l2 = maddr_to_virt(l3e_get_paddr(l3[l3_table_offset(PERCPU_VIRT_START)]));
-    l1 = maddr_to_virt(l2e_get_paddr(l2[l2_table_offset(PERCPU_VIRT_START)]));
 
-    free_xenheap_page(l1);
+    for ( i = 0; i < PERCPU_FIXADDR_SIZE; i += (1U << L2_PAGETABLE_SHIFT) )
+    {
+        unsigned long pfn =
+            l2e_get_pfn(l2[l2_table_offset(PERCPU_VIRT_START + i)]);
+        l1_pgentry_t *l1;
+
+        if ( !pfn )
+            break;
+
+        l1 = mfn_to_virt(pfn);
+        free_xenheap_page(l1);
+    }
+
     free_xenheap_page(l2);
     free_xenheap_page(l3);
 }

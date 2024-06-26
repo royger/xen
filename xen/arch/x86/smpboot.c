@@ -559,6 +559,8 @@ static int do_boot_cpu(int apicid, int cpu)
 {
     int timeout, boot_error = 0, rc = 0;
     unsigned long start_eip;
+    unsigned int i;
+    const unsigned int stack_pages = 1U << STACK_ORDER;
 
     /*
      * Save current MTRR state in case it was changed since early boot
@@ -579,7 +581,28 @@ static int do_boot_cpu(int apicid, int cpu)
         printk("Booting processor %d/%d eip %lx\n",
                cpu, apicid, start_eip);
 
-    stack_start = stack_base[cpu] + STACK_SIZE - sizeof(struct cpu_info);
+    for ( i = 0; i < stack_pages; i++ )
+    {
+        percpu_set_fixmap_remote(cpu, PERCPU_STACK_IDX(cpu) + i,
+                                 _mfn(virt_to_mfn(stack_base[cpu] +
+                                                  i * PAGE_SIZE)),
+                                 PAGE_HYPERVISOR_RW);
+        printk("CPU%u populating %p -> %lx\n", cpu,
+               percpu_fix_to_virt(PERCPU_STACK_IDX(cpu) + i),
+               virt_to_mfn(stack_base[cpu] + i * PAGE_SIZE));
+    }
+
+    percpu_set_fixmap_remote(cpu, PERCPU_STACK_IDX(cpu),
+                             _mfn(virt_to_mfn(stack_base[cpu])),
+                             PAGE_HYPERVISOR_SHSTK);
+    percpu_set_fixmap_remote(cpu, PERCPU_STACK_IDX(cpu) + PRIMARY_SHSTK_SLOT,
+                             _mfn(virt_to_mfn(stack_base[cpu] +
+                                              PRIMARY_SHSTK_SLOT * PAGE_SIZE)),
+                             PAGE_HYPERVISOR_SHSTK);
+
+    ASSERT(IS_ALIGNED((unsigned long)PERCPU_STACK_ADDR(cpu), STACK_SIZE));
+
+    stack_start = PERCPU_STACK_ADDR(cpu) + STACK_SIZE - sizeof(struct cpu_info);
 
     /*
      * If per-CPU idle root page table has been allocated, switch to it as
@@ -1044,7 +1067,7 @@ void *cpu_alloc_stack(unsigned int cpu)
     stack = alloc_xenheap_pages(STACK_ORDER, memflags);
 
     if ( stack )
-        memguard_guard_stack(stack);
+        memguard_guard_stack(stack, cpu);
 
     return stack;
 }

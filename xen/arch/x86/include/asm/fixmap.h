@@ -120,20 +120,22 @@ extern void __set_fixmap_x(
 
 /* per-CPU fixmap area. */
 enum percpu_fixed_addresses {
-    /* Index 0 is reserved since fix_to_virt(0) == FIXADDR_TOP. */
-    PCPU_FIX_RESERVED,
+    /* For alignment reasons the per-CPU stacks must come first. */
+    PCPU_STACK_START,
+    PCPU_STACK_END = NR_CPUS * (PCPU_STACK_START + (1U << STACK_ORDER)) - 1,
+#define PERCPU_STACK_IDX(c) (PCPU_STACK_START + (c) * (1U << STACK_ORDER))
+#define PERCPU_STACK_ADDR(c) percpu_fix_to_virt(PERCPU_STACK_IDX(c))
     PCPU_FIX_PV_L4SHADOW,
     __end_of_percpu_fixed_addresses
 };
 
 #define PERCPU_FIXADDR_SIZE (__end_of_percpu_fixed_addresses << PAGE_SHIFT)
-#define PERCPU_FIXADDR_TOP (PERCPU_VIRT_SLOT(0) + PERCPU_FIXADDR_SIZE - \
-                            PAGE_SIZE)
+#define PERCPU_FIXADDR PERCPU_VIRT_SLOT(0)
 
 static inline void *percpu_fix_to_virt(enum percpu_fixed_addresses idx)
 {
-    BUG_ON(idx >=__end_of_percpu_fixed_addresses || idx <= PCPU_FIX_RESERVED);
-    return (void *)PERCPU_FIXADDR_TOP - (idx << PAGE_SHIFT);
+    BUG_ON(idx >=__end_of_percpu_fixed_addresses);
+    return (void *)PERCPU_FIXADDR + (idx << PAGE_SHIFT);
 }
 
 static inline void percpu_set_fixmap_remote(

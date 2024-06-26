@@ -433,3 +433,29 @@ long cf_check cpu_down_helper(void *data)
         ret = cpu_down(cpu);
     return ret;
 }
+
+void arch_smp_pre_callfunc(unsigned int cpu)
+{
+    unsigned int i;
+
+    if ( cpu == smp_processor_id() )
+        return;
+
+    for ( i = 0; i < (1U << STACK_ORDER); i++ )
+        percpu_set_fixmap(PERCPU_STACK_IDX(cpu) + i,
+                          _mfn(virt_to_mfn(stack_base[cpu] + i * PAGE_SIZE)),
+                          __PAGE_HYPERVISOR_RW);
+}
+
+void arch_smp_post_callfunc(unsigned int cpu)
+{
+    unsigned int i;
+
+    if ( cpu == smp_processor_id() )
+        return;
+
+    for ( i = 0; i < (1U << STACK_ORDER); i++ )
+        percpu_clear_fixmap(PERCPU_STACK_IDX(cpu) + i);
+
+    flush_area_local(PERCPU_STACK_ADDR(cpu), FLUSH_ORDER(STACK_ORDER));
+}
