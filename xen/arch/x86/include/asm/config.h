@@ -180,6 +180,11 @@
 #define PERDOMAIN_SLOTS         3
 #define PERDOMAIN_VIRT_SLOT(s)  (PERDOMAIN_VIRT_START + (s) * \
                                  (PERDOMAIN_SLOT_MBYTES << 20))
+/* per-CPU slots follow the per-domain ones. */
+#define PERCPU_VIRT_START       PERDOMAIN_VIRT_SLOT(PERDOMAIN_SLOTS)
+#define PERCPU_SLOTS            1
+#define PERCPU_VIRT_SLOT(s)     (PERCPU_VIRT_START + (s) * \
+                                 (PERDOMAIN_SLOT_MBYTES << 20))
 /* Slot 4: mirror of per-domain mappings (for compat xlat area accesses). */
 #define PERDOMAIN_ALT_VIRT_START PML4_ADDR(4)
 /* Slot 261: machine-to-phys conversion table (256GB). */

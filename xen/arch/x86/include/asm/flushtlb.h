@@ -146,7 +146,6 @@ void flush_area_mask(const cpumask_t *mask, const void *va,
 #define flush_mask(mask, flags) flush_area_mask(mask, NULL, flags)
 
 /* Flush all CPUs' TLBs/caches */
-#define flush_area_all(va, flags) flush_area_mask(&cpu_online_map, va, flags)
 #define flush_all(flags) flush_mask(&cpu_online_map, flags)
 
 /* Flush local TLBs */
