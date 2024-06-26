@@ -5021,9 +5021,8 @@ static DEFINE_SPINLOCK(map_pgdir_lock);
  * For virt_to_xen_lXe() functions, they take a linear address and return a
  * pointer to Xen's LX entry. Caller needs to unmap the pointer.
  */
-static l3_pgentry_t *virt_to_xen_l3e(unsigned long v)
+static l3_pgentry_t *virt_to_xen_l3e_cpu(unsigned long v, unsigned int cpu)
 {
-    unsigned int cpu = smp_processor_id();
     root_pgentry_t *root_pgt = idle_vcpu[cpu] ?
         maddr_to_virt(idle_vcpu[cpu]->arch.cr3) : idle_pg_table;
     l4_pgentry_t *pl4e;
@@ -5061,11 +5060,16 @@ static l3_pgentry_t *virt_to_xen_l3e(unsigned long v)
     return map_l3t_from_l4e(*pl4e) + l3_table_offset(v);
 }
 
-static l2_pgentry_t *virt_to_xen_l2e(unsigned long v)
+static l3_pgentry_t *virt_to_xen_l3e(unsigned long v)
+{
+    return virt_to_xen_l3e_cpu(v, smp_processor_id());
+}
+
+static l2_pgentry_t *virt_to_xen_l2e_cpu(unsigned long v, unsigned int cpu)
 {
     l3_pgentry_t *pl3e, l3e;
 
-    pl3e = virt_to_xen_l3e(v);
+    pl3e = virt_to_xen_l3e_cpu(v, cpu);
     if ( !pl3e )
         return NULL;
 
@@ -5099,11 +5103,11 @@ static l2_pgentry_t *virt_to_xen_l2e(unsigned long v)
     return map_l2t_from_l3e(l3e) + l2_table_offset(v);
 }
 
-static l1_pgentry_t *virt_to_xen_l1e(unsigned long v)
+static l1_pgentry_t *virt_to_xen_l1e_cpu(unsigned long v, unsigned int cpu)
 {
     l2_pgentry_t *pl2e, l2e;
 
-    pl2e = virt_to_xen_l2e(v);
+    pl2e = virt_to_xen_l2e_cpu(v, cpu);
     if ( !pl2e )
         return NULL;
 
@@ -5220,17 +5224,18 @@ mfn_t xen_map_to_mfn(unsigned long va)
     return ret;
 }
 
-int map_pages_to_xen(
+int map_pages_to_xen_cpu(
     unsigned long virt,
     mfn_t mfn,
     unsigned long nr_mfns,
-    unsigned int flags)
+    unsigned int flags,
+    unsigned int cpu)
 {
     bool global = virt < PERCPU_VIRT_START ||
                   virt >= PERCPU_VIRT_SLOT(PERCPU_SLOTS);
     bool locking = system_state > SYS_STATE_boot && global;
     const cpumask_t *flush_mask = global ? &cpu_online_map
-                                         : cpumask_of(smp_processor_id());
+                                         : cpumask_of(cpu);
     l3_pgentry_t *pl3e = NULL, ol3e;
     l2_pgentry_t *pl2e = NULL, ol2e;
     l1_pgentry_t *pl1e, ol1e;
@@ -5256,6 +5261,9 @@ int map_pages_to_xen(
            (virt + nr_mfns * PAGE_SIZE >= PERCPU_VIRT_START &&
             virt + nr_mfns * PAGE_SIZE <  PERCPU_VIRT_SLOT(PERCPU_SLOTS)));
 
+    /* Only allow modifying remote page-tables if the CPU is not online. */
+    ASSERT(cpu == smp_processor_id() || !cpu_online(cpu));
+
     L3T_INIT(current_l3page);
 
     while ( nr_mfns != 0 )
@@ -5265,7 +5273,7 @@ int map_pages_to_xen(
         UNMAP_DOMAIN_PAGE(pl3e);
         UNMAP_DOMAIN_PAGE(pl2e);
 
-        pl3e = virt_to_xen_l3e(virt);
+        pl3e = virt_to_xen_l3e_cpu(virt, cpu);
         if ( !pl3e )
             goto out;
 
@@ -5391,7 +5399,7 @@ int map_pages_to_xen(
             free_xen_pagetable(l2mfn);
         }
 
-        pl2e = virt_to_xen_l2e(virt);
+        pl2e = virt_to_xen_l2e_cpu(virt, cpu);
         if ( !pl2e )
             goto out;
 
@@ -5437,7 +5445,7 @@ int map_pages_to_xen(
             /* Normal page mapping. */
             if ( !(l2e_get_flags(*pl2e) & _PAGE_PRESENT) )
             {
-                pl1e = virt_to_xen_l1e(virt);
+                pl1e = virt_to_xen_l1e_cpu(virt, cpu);
                 if ( pl1e == NULL )
                     goto out;
             }
@@ -5626,6 +5634,16 @@ int map_pages_to_xen(
     return rc;
 }
 
+int map_pages_to_xen(
+    unsigned long virt,
+    mfn_t mfn,
+    unsigned long nr_mfns,
+    unsigned int flags)
+{
+    return map_pages_to_xen_cpu(virt, mfn, nr_mfns, flags, smp_processor_id());
+}
+
+
 int __init populate_pt_range(unsigned long virt, unsigned long nr_mfns)
 {
     return map_pages_to_xen(virt, INVALID_MFN, nr_mfns, MAP_SMALL_PAGES);
@@ -5643,7 +5661,8 @@ int __init populate_pt_range(unsigned long virt, unsigned long nr_mfns)
  *
  * It is an error to call with present flags over an unpopulated range.
  */
-int modify_xen_mappings(unsigned long s, unsigned long e, unsigned int nf)
+int modify_xen_mappings_cpu(unsigned long s, unsigned long e, unsigned int nf,
+                            unsigned int cpu)
 {
     bool global = s < PERCPU_VIRT_START ||
                   s >= PERCPU_VIRT_SLOT(PERCPU_SLOTS);
@@ -5661,6 +5680,9 @@ int modify_xen_mappings(unsigned long s, unsigned long e, unsigned int nf)
     ASSERT(global ||
            (e >= PERCPU_VIRT_START && e < PERCPU_VIRT_SLOT(PERCPU_SLOTS)));
 
+    /* Only allow modifying remote page-tables if the CPU is not online. */
+    ASSERT(cpu == smp_processor_id() || !cpu_online(cpu));
+
     /* Set of valid PTE bits which may be altered. */
 #define FLAGS_MASK (_PAGE_NX|_PAGE_DIRTY|_PAGE_ACCESSED|_PAGE_RW|_PAGE_PRESENT)
     nf &= FLAGS_MASK;
@@ -5677,7 +5699,7 @@ int modify_xen_mappings(unsigned long s, unsigned long e, unsigned int nf)
         UNMAP_DOMAIN_PAGE(pl2e);
         UNMAP_DOMAIN_PAGE(pl3e);
 
-        pl3e = virt_to_xen_l3e(v);
+        pl3e = virt_to_xen_l3e_cpu(v, cpu);
         if ( !pl3e )
             goto out;
 
@@ -5931,6 +5953,11 @@ int modify_xen_mappings(unsigned long s, unsigned long e, unsigned int nf)
 #undef L3T_UNLOCK
 
 #undef flush_area
+
+int modify_xen_mappings(unsigned long s, unsigned long e, unsigned int nf)
+{
+    return modify_xen_mappings_cpu(s, e, nf, smp_processor_id());
+}
 
 int destroy_xen_mappings(unsigned long s, unsigned long e)
 {
