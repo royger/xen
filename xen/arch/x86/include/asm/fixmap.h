@@ -118,6 +118,50 @@ extern void __set_fixmap_x(
 #define __fix_x_to_virt(x) (FIXADDR_X_TOP - ((x) << PAGE_SHIFT))
 #define fix_x_to_virt(x)   ((void *)__fix_x_to_virt(x))
 
+/* per-CPU fixmap area. */
+enum percpu_fixed_addresses {
+    __end_of_percpu_fixed_addresses
+};
+
+#define PERCPU_FIXADDR_SIZE (__end_of_percpu_fixed_addresses << PAGE_SHIFT)
+#define PERCPU_FIXADDR PERCPU_VIRT_SLOT(0)
+
+static inline void *percpu_fix_to_virt(enum percpu_fixed_addresses idx)
+{
+    BUG_ON(idx >=__end_of_percpu_fixed_addresses);
+    return (void *)PERCPU_FIXADDR + (idx << PAGE_SHIFT);
+}
+
+static inline void percpu_set_fixmap_remote(
+    unsigned int cpu, enum percpu_fixed_addresses idx, mfn_t mfn,
+    unsigned long flags)
+{
+    map_pages_to_xen_cpu((unsigned long)percpu_fix_to_virt(idx), mfn, 1, flags,
+                         cpu);
+}
+
+static inline void percpu_clear_fixmap_remote(
+    unsigned int cpu, enum percpu_fixed_addresses idx)
+{
+    /*
+     * Use map_pages_to_xen_cpu() instead of destroy_xen_mappings_cpu() to
+     * avoid tearing down the intermediate page-tables if empty.
+     */
+    map_pages_to_xen_cpu((unsigned long)percpu_fix_to_virt(idx), INVALID_MFN, 1,
+                         0, cpu);
+}
+
+static inline void percpu_set_fixmap(enum percpu_fixed_addresses idx, mfn_t mfn,
+                                     unsigned long flags)
+{
+    percpu_set_fixmap_remote(smp_processor_id(), idx, mfn, flags);
+}
+
+static inline void percpu_clear_fixmap(enum percpu_fixed_addresses idx)
+{
+    percpu_clear_fixmap_remote(smp_processor_id(), idx);
+}
+
 #endif /* __ASSEMBLY__ */
 
 #endif

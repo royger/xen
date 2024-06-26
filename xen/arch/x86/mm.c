@@ -6471,7 +6471,17 @@ int allocate_perdomain_local_l3(unsigned int cpu)
 
     per_cpu(local_l3, cpu) = l3;
 
-    return 0;
+    /*
+     * Pre-allocate the page-table structures for the per-cpu fixmap.  Some of
+     * the per-cpu fixmap calls might happen in contexts where memory
+     * allocation is not possible.
+     *
+     * Only one L3 slot is currently reserved for the per-CPU fixmap.
+     */
+    BUILD_BUG_ON(PERCPU_FIXADDR_SIZE > (1 << L3_PAGETABLE_SHIFT));
+    return map_pages_to_xen_cpu(PERCPU_VIRT_START, INVALID_MFN,
+                                PFN_DOWN(PERCPU_FIXADDR_SIZE), MAP_SMALL_PAGES,
+                                cpu);
 }
 
 void free_perdomain_local_l3(unsigned int cpu)
@@ -6482,6 +6492,10 @@ void free_perdomain_local_l3(unsigned int cpu)
         return;
 
     per_cpu(local_l3, cpu) = NULL;
+
+    destroy_xen_mappings_cpu(PERCPU_VIRT_START,
+                             PERCPU_VIRT_START + PERCPU_FIXADDR_SIZE, cpu);
+
     free_xenheap_page(l3);
 }
 
