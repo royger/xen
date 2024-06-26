@@ -5023,9 +5023,13 @@ static DEFINE_SPINLOCK(map_pgdir_lock);
  */
 static l3_pgentry_t *virt_to_xen_l3e(unsigned long v)
 {
+    unsigned int cpu = smp_processor_id();
+    /* Called before idle_vcpu is populated, fallback to idle_pg_table. */
+    root_pgentry_t *root_pgt = idle_vcpu[cpu] ?
+        maddr_to_virt(idle_vcpu[cpu]->arch.cr3) : idle_pg_table;
     l4_pgentry_t *pl4e;
 
-    pl4e = &idle_pg_table[l4_table_offset(v)];
+    pl4e = &root_pgt[l4_table_offset(v)];
     if ( !(l4e_get_flags(*pl4e) & _PAGE_PRESENT) )
     {
         bool locking = system_state > SYS_STATE_boot;
@@ -5138,8 +5142,8 @@ static l1_pgentry_t *virt_to_xen_l1e(unsigned long v)
 #define l1f_to_lNf(f) (((f) & _PAGE_PRESENT) ? ((f) |  _PAGE_PSE) : (f))
 #define lNf_to_l1f(f) (((f) & _PAGE_PRESENT) ? ((f) & ~_PAGE_PSE) : (f))
 
-/* flush_area_all() can be used prior to any other CPU being online.  */
-#define flush_area(v, f) flush_area_all((const void *)(v), f)
+/* flush_area_mask() can be used prior to any other CPU being online.  */
+#define flush_area_mask(m, v, f) flush_area_mask(m, (const void *)(v), f)
 
 #define L3T_INIT(page) (page) = ZERO_BLOCK_PTR
 
@@ -5222,7 +5226,11 @@ int map_pages_to_xen(
     unsigned long nr_mfns,
     unsigned int flags)
 {
-    bool locking = system_state > SYS_STATE_boot;
+    bool global = virt < PERCPU_VIRT_START ||
+                  virt >= PERCPU_VIRT_SLOT(PERCPU_SLOTS);
+    bool locking = system_state > SYS_STATE_boot && global;
+    const cpumask_t *flush_mask = global ? &cpu_online_map
+                                         : cpumask_of(smp_processor_id());
     l3_pgentry_t *pl3e = NULL, ol3e;
     l2_pgentry_t *pl2e = NULL, ol2e;
     l1_pgentry_t *pl1e, ol1e;
@@ -5243,6 +5251,11 @@ int map_pages_to_xen(
             flush_flags |= FLUSH_VA_VALID;     \
     }                                          \
 } while (0)
+
+    /* Ensure it's a global mapping or it's only modifying the per-CPU area. */
+    ASSERT(global ||
+           (virt + nr_mfns * PAGE_SIZE >= PERCPU_VIRT_START &&
+            virt + nr_mfns * PAGE_SIZE <  PERCPU_VIRT_SLOT(PERCPU_SLOTS)));
 
     L3T_INIT(current_l3page);
 
@@ -5278,7 +5291,7 @@ int map_pages_to_xen(
                 if ( l3e_get_flags(ol3e) & _PAGE_PSE )
                 {
                     flush_flags(lNf_to_l1f(l3e_get_flags(ol3e)));
-                    flush_area(virt, flush_flags);
+                    flush_area_mask(flush_mask, virt, flush_flags);
                 }
                 else
                 {
@@ -5301,7 +5314,7 @@ int map_pages_to_xen(
                             unmap_domain_page(l1t);
                         }
                     }
-                    flush_area(virt, flush_flags);
+                    flush_area_mask(flush_mask, virt, flush_flags);
                     for ( i = 0; i < L2_PAGETABLE_ENTRIES; i++ )
                     {
                         ol2e = l2t[i];
@@ -5373,7 +5386,7 @@ int map_pages_to_xen(
             }
             if ( locking )
                 spin_unlock(&map_pgdir_lock);
-            flush_area(virt, flush_flags);
+            flush_area_mask(flush_mask, virt, flush_flags);
 
             free_xen_pagetable(l2mfn);
         }
@@ -5399,7 +5412,7 @@ int map_pages_to_xen(
                 if ( l2e_get_flags(ol2e) & _PAGE_PSE )
                 {
                     flush_flags(lNf_to_l1f(l2e_get_flags(ol2e)));
-                    flush_area(virt, flush_flags);
+                    flush_area_mask(flush_mask, virt, flush_flags);
                 }
                 else
                 {
@@ -5407,7 +5420,7 @@ int map_pages_to_xen(
 
                     for ( i = 0; i < L1_PAGETABLE_ENTRIES; i++ )
                         flush_flags(l1e_get_flags(l1t[i]));
-                    flush_area(virt, flush_flags);
+                    flush_area_mask(flush_mask, virt, flush_flags);
                     unmap_domain_page(l1t);
                     free_xen_pagetable(l2e_get_mfn(ol2e));
                 }
@@ -5476,7 +5489,7 @@ int map_pages_to_xen(
                 }
                 if ( locking )
                     spin_unlock(&map_pgdir_lock);
-                flush_area(virt, flush_flags);
+                flush_area_mask(flush_mask, virt, flush_flags);
 
                 free_xen_pagetable(l1mfn);
             }
@@ -5491,7 +5504,7 @@ int map_pages_to_xen(
                 unsigned int flush_flags = FLUSH_TLB | FLUSH_ORDER(0);
 
                 flush_flags(l1e_get_flags(ol1e));
-                flush_area(virt, flush_flags);
+                flush_area_mask(flush_mask, virt, flush_flags);
             }
 
             virt    += 1UL << L1_PAGETABLE_SHIFT;
@@ -5540,9 +5553,9 @@ int map_pages_to_xen(
                     l2e_write(pl2e, l2e_from_pfn(base_mfn, l1f_to_lNf(flags)));
                     if ( locking )
                         spin_unlock(&map_pgdir_lock);
-                    flush_area(virt - PAGE_SIZE,
-                               FLUSH_TLB_GLOBAL |
-                               FLUSH_ORDER(PAGETABLE_ORDER));
+                    flush_area_mask(flush_mask, virt - PAGE_SIZE,
+                                    FLUSH_TLB_GLOBAL |
+                                    FLUSH_ORDER(PAGETABLE_ORDER));
                     free_xen_pagetable(l2e_get_mfn(ol2e));
                 }
                 else if ( locking )
@@ -5589,9 +5602,9 @@ int map_pages_to_xen(
                 l3e_write(pl3e, l3e_from_pfn(base_mfn, l1f_to_lNf(flags)));
                 if ( locking )
                     spin_unlock(&map_pgdir_lock);
-                flush_area(virt - PAGE_SIZE,
-                           FLUSH_TLB_GLOBAL |
-                           FLUSH_ORDER(2*PAGETABLE_ORDER));
+                flush_area_mask(flush_mask, virt - PAGE_SIZE,
+                                FLUSH_TLB_GLOBAL |
+                                FLUSH_ORDER(2*PAGETABLE_ORDER));
                 free_xen_pagetable(l3e_get_mfn(ol3e));
             }
             else if ( locking )
@@ -5629,7 +5642,11 @@ int __init populate_pt_range(unsigned long virt, unsigned long nr_mfns)
  */
 int modify_xen_mappings(unsigned long s, unsigned long e, unsigned int nf)
 {
-    bool locking = system_state > SYS_STATE_boot;
+    bool global = s < PERCPU_VIRT_START ||
+                  s >= PERCPU_VIRT_SLOT(PERCPU_SLOTS);
+    bool locking = system_state > SYS_STATE_boot && global;
+    const cpumask_t *flush_mask = global ? &cpu_online_map
+                                         : cpumask_of(smp_processor_id());
     l3_pgentry_t *pl3e = NULL;
     l2_pgentry_t *pl2e = NULL;
     l1_pgentry_t *pl1e;
@@ -5637,6 +5654,9 @@ int modify_xen_mappings(unsigned long s, unsigned long e, unsigned int nf)
     unsigned long v = s;
     int rc = -ENOMEM;
     struct page_info *current_l3page;
+
+    ASSERT(global ||
+           (e >= PERCPU_VIRT_START && e < PERCPU_VIRT_SLOT(PERCPU_SLOTS)));
 
     /* Set of valid PTE bits which may be altered. */
 #define FLAGS_MASK (_PAGE_NX|_PAGE_DIRTY|_PAGE_ACCESSED|_PAGE_RW|_PAGE_PRESENT)
@@ -5836,7 +5856,8 @@ int modify_xen_mappings(unsigned long s, unsigned long e, unsigned int nf)
                 l2e_write(pl2e, l2e_empty());
                 if ( locking )
                     spin_unlock(&map_pgdir_lock);
-                flush_area(NULL, FLUSH_TLB_GLOBAL); /* flush before free */
+                /* flush before free */
+                flush_area_mask(flush_mask, NULL, FLUSH_TLB_GLOBAL);
                 free_xen_pagetable(l1mfn);
             }
             else if ( locking )
@@ -5880,7 +5901,8 @@ int modify_xen_mappings(unsigned long s, unsigned long e, unsigned int nf)
                 l3e_write(pl3e, l3e_empty());
                 if ( locking )
                     spin_unlock(&map_pgdir_lock);
-                flush_area(NULL, FLUSH_TLB_GLOBAL); /* flush before free */
+                /* flush before free */
+                flush_area_mask(flush_mask, NULL, FLUSH_TLB_GLOBAL);
                 free_xen_pagetable(l2mfn);
             }
             else if ( locking )
@@ -5888,7 +5910,7 @@ int modify_xen_mappings(unsigned long s, unsigned long e, unsigned int nf)
         }
     }
 
-    flush_area(NULL, FLUSH_TLB_GLOBAL);
+    flush_area_mask(flush_mask, NULL, FLUSH_TLB_GLOBAL);
 
 #undef FLAGS_MASK
     rc = 0;
