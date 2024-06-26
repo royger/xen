@@ -300,12 +300,6 @@ void pv_vcpu_destroy(struct vcpu *v)
 
     pv_destroy_gdt_ldt_l1tab(v);
     XFREE(v->arch.pv.trap_ctxt);
-
-    if ( v->arch.pv.guest_l4 )
-    {
-        unmap_domain_page_global(v->arch.pv.guest_l4);
-        v->arch.pv.guest_l4 = NULL;
-    }
 }
 
 int pv_vcpu_initialise(struct vcpu *v)
@@ -314,6 +308,8 @@ int pv_vcpu_initialise(struct vcpu *v)
     int rc;
 
     ASSERT(!is_idle_domain(d));
+
+    v->arch.pv.guest_l4 = INVALID_MFN;
 
     rc = pv_create_gdt_ldt_l1tab(v);
     if ( rc )

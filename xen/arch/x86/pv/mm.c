@@ -108,12 +108,11 @@ void pv_maybe_update_shadow_l4(struct vcpu *v)
     if ( !is_pv_vcpu(v) || is_idle_vcpu(v) || !v->domain->arch.asi )
         return;
 
-    ASSERT(v->arch.pv.guest_l4);
     ASSERT(!v->domain->arch.pv.xpti);
     ASSERT(mfn_eq(maddr_to_mfn(v->arch.cr3),
                   _mfn(virt_to_mfn(this_cpu(root_pgt)))));
 
-    copy_page(this_cpu(root_pgt), v->arch.pv.guest_l4);
+    copy_page(this_cpu(root_pgt), (void *)PERCPU_VIRT_START);
 
     setup_perdomain_slot(v, this_cpu(root_pgt));
 }
@@ -125,11 +124,11 @@ mfn_t pv_maybe_shadow_l4(struct vcpu *v, mfn_t mfn)
 
     ASSERT(!v->domain->arch.pv.xpti);
 
-    if ( v->arch.pv.guest_l4 )
-        unmap_domain_page_global(v->arch.pv.guest_l4);
-    v->arch.pv.guest_l4 = map_domain_page_global(mfn);
+    v->arch.pv.guest_l4 = mfn;
 
-    ASSERT(v->arch.pv.guest_l4);
+    if ( this_cpu(root_pgt) )
+        map_pages_to_xen(PERCPU_VIRT_START, v->arch.pv.guest_l4, 1,
+                         __PAGE_HYPERVISOR_RO);
 
     /*
      * No need to copy the contents of the guest L4 to the per-CPU shadow.

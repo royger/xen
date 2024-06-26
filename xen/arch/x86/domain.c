@@ -1943,6 +1943,7 @@ void cf_check paravirt_ctxt_switch_to(struct vcpu *v)
         setup_perdomain_slot(v, root_pgt);
     else if ( v->domain->arch.asi )
     {
+        setup_perdomain_slot(v, root_pgt);
         v->arch.cr3 = virt_to_maddr(this_cpu(root_pgt));
         if ( v->domain->arch.pv.pcid )
             v->arch.cr3 |= get_pcid_bits(v, false);

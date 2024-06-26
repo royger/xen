@@ -596,7 +596,7 @@ struct pv_vcpu
     struct vcpu_time_info pending_system_time;
 
     /* If shadowing guest L4, keep the guest L4 mapped. */
-    const void *guest_l4;
+    mfn_t guest_l4;
 };
 
 struct arch_vcpu

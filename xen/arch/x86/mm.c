@@ -6398,7 +6398,9 @@ static DEFINE_PER_CPU(l3_pgentry_t *, local_l3);
 
 int allocate_perdomain_local_l3(unsigned int cpu)
 {
-    l3_pgentry_t *l3;
+    l3_pgentry_t *l3 = NULL;
+    l2_pgentry_t *l2 = NULL;
+    l1_pgentry_t *l1 = NULL;
     root_pgentry_t *root_pgt = maddr_to_virt(idle_vcpu[cpu]->arch.cr3);
 
     ASSERT(!per_cpu(local_l3, cpu));
@@ -6407,10 +6409,24 @@ int allocate_perdomain_local_l3(unsigned int cpu)
         return 0;
 
     l3 = alloc_xenheap_page();
-    if ( !l3 )
+    l2 = alloc_xenheap_page();
+    l1 = alloc_xenheap_page();
+    if ( !l3 || !l2 || !l1 )
+    {
+        free_xenheap_page(l3);
+        free_xenheap_page(l2);
+        free_xenheap_page(l1);
         return -ENOMEM;
+    }
 
     clear_page(l3);
+    clear_page(l2);
+    clear_page(l1);
+
+    l3[l3_table_offset(PERCPU_VIRT_START)] =
+        l3e_from_mfn(virt_to_mfn(l2), __PAGE_HYPERVISOR_RW);
+    l2[l2_table_offset(PERCPU_VIRT_START)] =
+        l2e_from_mfn(virt_to_mfn(l1), __PAGE_HYPERVISOR_RW);
 
     per_cpu(local_l3, cpu) = l3;
 
@@ -6424,11 +6440,19 @@ int allocate_perdomain_local_l3(unsigned int cpu)
 void free_perdomain_local_l3(unsigned int cpu)
 {
     l3_pgentry_t *l3 = per_cpu(local_l3, cpu);
+    l2_pgentry_t *l2 = NULL;
+    l1_pgentry_t *l1 = NULL;
 
     if ( !l3 )
         return;
 
     per_cpu(local_l3, cpu) = NULL;
+
+    l2 = maddr_to_virt(l3e_get_paddr(l3[l3_table_offset(PERCPU_VIRT_START)]));
+    l1 = maddr_to_virt(l2e_get_paddr(l2[l2_table_offset(PERCPU_VIRT_START)]));
+
+    free_xenheap_page(l1);
+    free_xenheap_page(l2);
     free_xenheap_page(l3);
 }
 
@@ -6453,6 +6477,13 @@ void setup_perdomain_slot(const struct vcpu *v, root_pgentry_t *root_pgt)
 
             l3[i] = pg ? l3e_from_page(pg, __PAGE_HYPERVISOR_RW) : l3e_empty();
         }
+
+        if ( is_pv_domain(d) )
+            map_pages_to_xen(PERCPU_VIRT_START, v->arch.pv.guest_l4, 1,
+                             __PAGE_HYPERVISOR_RO);
+        else
+            destroy_xen_mappings(PERCPU_VIRT_START,
+                                 PERCPU_VIRT_START + PAGE_SIZE);
 
         root_pgt[root_table_offset(PERDOMAIN_VIRT_START)] =
             l4e_from_mfn(virt_to_mfn(l3), __PAGE_HYPERVISOR_RW);
