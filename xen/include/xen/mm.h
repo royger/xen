@@ -107,11 +107,22 @@ int acquire_domstatic_pages(struct domain *d, mfn_t smfn, unsigned int nr_mfns,
                             unsigned int memflags);
 
 /* Map machine page range in Xen virtual address space. */
-int map_pages_to_xen(
+int map_pages_to_xen_cpu(
     unsigned long virt,
     mfn_t mfn,
     unsigned long nr_mfns,
-    unsigned int flags);
+    unsigned int flags,
+    unsigned int cpu);
+
+static inline int map_pages_to_xen(
+    unsigned long virt,
+    mfn_t mfn,
+    unsigned long nr_mfns,
+    unsigned int flags)
+{
+    return map_pages_to_xen_cpu(virt, mfn, nr_mfns, flags, smp_processor_id());
+}
+
 /* Alter the permissions of a range of Xen virtual address space. */
 int modify_xen_mappings(unsigned long s, unsigned long e, unsigned int nf);
 void modify_xen_mappings_lite(unsigned long s, unsigned long e,
