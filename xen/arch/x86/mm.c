@@ -6423,6 +6423,9 @@ int allocate_perdomain_local_l3(unsigned int cpu)
     clear_page(l2);
     clear_page(l1);
 
+    /* Ensure one L1 table is enough to cover for the per-CPU fixmap. */
+    BUILD_BUG_ON(PERCPU_FIXADDR_SIZE > (1U << L2_PAGETABLE_SHIFT));
+
     l3[l3_table_offset(PERCPU_VIRT_START)] =
         l3e_from_mfn(virt_to_mfn(l2), __PAGE_HYPERVISOR_RW);
     l2[l2_table_offset(PERCPU_VIRT_START)] =
@@ -6479,11 +6482,10 @@ void setup_perdomain_slot(const struct vcpu *v, root_pgentry_t *root_pgt)
         }
 
         if ( is_pv_domain(d) )
-            map_pages_to_xen(PERCPU_VIRT_START, v->arch.pv.guest_l4, 1,
-                             __PAGE_HYPERVISOR_RO);
+            percpu_set_fixmap(PCPU_FIX_PV_L4SHADOW, v->arch.pv.guest_l4,
+                              __PAGE_HYPERVISOR_RO);
         else
-            destroy_xen_mappings(PERCPU_VIRT_START,
-                                 PERCPU_VIRT_START + PAGE_SIZE);
+            percpu_clear_fixmap(PCPU_FIX_PV_L4SHADOW);
 
         root_pgt[root_table_offset(PERDOMAIN_VIRT_START)] =
             l4e_from_mfn(virt_to_mfn(l3), __PAGE_HYPERVISOR_RW);

@@ -11,6 +11,7 @@
 #include <xen/guest_access.h>
 
 #include <asm/current.h>
+#include <asm/fixmap.h>
 #include <asm/p2m.h>
 
 #include "mm.h"
@@ -112,7 +113,7 @@ void pv_maybe_update_shadow_l4(struct vcpu *v)
     ASSERT(mfn_eq(maddr_to_mfn(v->arch.cr3),
                   _mfn(virt_to_mfn(this_cpu(root_pgt)))));
 
-    copy_page(this_cpu(root_pgt), (void *)PERCPU_VIRT_START);
+    copy_page(this_cpu(root_pgt), percpu_fix_to_virt(PCPU_FIX_PV_L4SHADOW));
 
     setup_perdomain_slot(v, this_cpu(root_pgt));
 }
@@ -127,8 +128,8 @@ mfn_t pv_maybe_shadow_l4(struct vcpu *v, mfn_t mfn)
     v->arch.pv.guest_l4 = mfn;
 
     if ( this_cpu(root_pgt) )
-        map_pages_to_xen(PERCPU_VIRT_START, v->arch.pv.guest_l4, 1,
-                         __PAGE_HYPERVISOR_RO);
+        percpu_set_fixmap(PCPU_FIX_PV_L4SHADOW, v->arch.pv.guest_l4,
+                          __PAGE_HYPERVISOR_RO);
 
     /*
      * No need to copy the contents of the guest L4 to the per-CPU shadow.
