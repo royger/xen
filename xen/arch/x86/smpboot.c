@@ -829,7 +829,7 @@ int setup_cpu_root_pgt(unsigned int cpu)
     unsigned int off;
     int rc;
 
-    if ( !opt_xpti_hwdom && !opt_xpti_domu )
+    if ( !opt_xpti_hwdom && !opt_xpti_domu && !opt_asi_pv )
         return 0;
 
     rpt = alloc_xenheap_page();
@@ -838,6 +838,18 @@ int setup_cpu_root_pgt(unsigned int cpu)
 
     clear_page(rpt);
     per_cpu(root_pgt, cpu) = rpt;
+
+    if ( opt_asi_pv )
+    {
+        /*
+         * Populate the Xen slots, the guest ones will be copied from the guest
+         * root page-table.
+         */
+        init_xen_l4_slots(rpt, _mfn(virt_to_mfn(rpt)), INVALID_MFN, NULL,
+                          false, false, true);
+
+        return 0;
+    }
 
     rpt[root_table_offset(RO_MPT_VIRT_START)] =
         idle_pg_table[root_table_offset(RO_MPT_VIRT_START)];
@@ -891,6 +903,12 @@ static void cleanup_cpu_root_pgt(unsigned int cpu)
         return;
 
     per_cpu(root_pgt, cpu) = NULL;
+
+    if ( opt_asi_pv )
+    {
+        free_xenheap_page(rpt);
+        return;
+    }
 
     for ( r = root_table_offset(DIRECTMAP_VIRT_START);
           r < root_table_offset(HYPERVISOR_VIRT_END); ++r )

@@ -11,6 +11,7 @@
 #include <xen/guest_access.h>
 
 #include <asm/current.h>
+#include <asm/fixmap.h>
 #include <asm/p2m.h>
 
 #include "mm.h"
@@ -102,6 +103,36 @@ void init_xen_pae_l2_slots(l2_pgentry_t *l2t, const struct domain *d)
            COMPAT_L2_PAGETABLE_XEN_SLOTS(d) * sizeof(*l2t));
 }
 #endif
+
+void pv_update_shadow_l4(const struct vcpu *v)
+{
+    const root_pgentry_t *guest_pgt = percpu_fix_to_virt(PCPU_FIX_PV_L4SHADOW);
+    root_pgentry_t *shadow_pgt = this_cpu(root_pgt);
+
+    ASSERT(!v->domain->arch.pv.xpti);
+
+    if ( get_cpu_info()->new_cr3 )
+    {
+        percpu_set_fixmap(PCPU_FIX_PV_L4SHADOW, maddr_to_mfn(v->arch.cr3),
+                          __PAGE_HYPERVISOR_RO);
+        get_cpu_info()->new_cr3 = false;
+    }
+
+    if ( is_pv_32bit_vcpu(v) )
+        shadow_pgt[0] = guest_pgt[0];
+    else
+    {
+        memcpy(shadow_pgt, guest_pgt,
+               sizeof(root_pgentry_t) * ROOT_PAGETABLE_FIRST_XEN_SLOT);
+        memcpy(shadow_pgt + ROOT_PAGETABLE_LAST_XEN_SLOT + 1,
+               guest_pgt  + ROOT_PAGETABLE_LAST_XEN_SLOT + 1,
+               sizeof(root_pgentry_t) *
+               (L4_PAGETABLE_ENTRIES - ROOT_PAGETABLE_LAST_XEN_SLOT - 1));
+        /* The presence of this Xen slot is selected by the guest. */
+        shadow_pgt[l4_table_offset(RO_MPT_VIRT_START)] =
+            guest_pgt[l4_table_offset(RO_MPT_VIRT_START)];
+    }
+}
 
 /*
  * Local variables:
