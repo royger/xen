@@ -92,10 +92,14 @@ struct mce_callbacks __ro_after_init mce_callbacks = {
 static const typeof(mce_callbacks.handler) __initconst_cf_clobber __used
     default_handler = unexpected_machine_check;
 
+DEFINE_PER_CPU(unsigned int, slice_mce_count);
+
 /* Call the installed machine check handler for this CPU setup. */
 
 void do_machine_check(const struct cpu_user_regs *regs)
 {
+    this_cpu(slice_mce_count)++;
+
     mce_enter();
     alternative_vcall(mce_callbacks.handler, regs);
     mce_exit();
