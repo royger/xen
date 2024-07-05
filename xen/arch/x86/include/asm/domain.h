@@ -468,6 +468,9 @@ struct arch_domain
     /* Use per-CPU mapped stacks. */
     bool cpu_stack;
 
+    /* Zero CPU stack on non lazy context switch. */
+    bool zero_stack;
+
     /* Emulated devices enabled bitmap. */
     uint32_t emulation_flags;
 } __cacheline_aligned;

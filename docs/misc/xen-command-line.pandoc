@@ -204,7 +204,7 @@ to appropriate auditing by Xen.  Argo is disabled by default.
 
 ### asi (x86)
 > `= List of [ <bool>, {pv,hvm}=<bool>,
-               {vcpu-pt,cpu-stack}=<bool>|{pv,hvm}=<bool> ]`
+               {vcpu-pt,cpu-stack,zero-stack}=<bool>|{pv,hvm}=<bool> ]`
 
 Offers control over whether the hypervisor will engage in Address Space
 Isolation, by not having potentially sensitive information permanently mapped
@@ -223,6 +223,8 @@ meant to be used for debugging purposes only.**
 
 * `cpu-stack` prevent CPUs from having permanent mappings of stacks different
   than their own.  Depends on the `vcpu-pt` option.
+
+* `zero-stack` zero CPU stacks when context switching vCPUs.
 
 ### asid (x86)
 > `= <boolean>`

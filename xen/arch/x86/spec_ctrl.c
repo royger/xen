@@ -92,6 +92,10 @@ int8_t __ro_after_init opt_vcpu_pt_pv = -1;
 int8_t __ro_after_init opt_cpu_stack_hvm = -1;
 int8_t __ro_after_init opt_cpu_stack_hwdom = -1;
 int8_t __ro_after_init opt_cpu_stack_pv = -1;
+/* Zero CPU stacks. */
+int8_t __ro_after_init opt_zero_stack_hvm = -1;
+int8_t __ro_after_init opt_zero_stack_hwdom = -1;
+int8_t __ro_after_init opt_zero_stack_pv = -1;
 
 static int __init cf_check parse_spec_ctrl(const char *s)
 {
@@ -511,6 +515,7 @@ static int __init cf_check parse_asi(const char *s)
     {
         opt_vcpu_pt_pv = opt_vcpu_pt_hwdom = opt_vcpu_pt_hvm = 1;
         opt_cpu_stack_pv = opt_cpu_stack_hwdom = opt_cpu_stack_hvm = 1;
+        opt_zero_stack_pv = opt_zero_stack_hvm = opt_zero_stack_hwdom = 1;
     }
 
     do {
@@ -525,13 +530,14 @@ static int __init cf_check parse_asi(const char *s)
         case 1:
             opt_vcpu_pt_pv = opt_vcpu_pt_hwdom = opt_vcpu_pt_hvm = val;
             opt_cpu_stack_pv = opt_cpu_stack_hvm = opt_cpu_stack_hwdom = val;
+            opt_zero_stack_pv = opt_zero_stack_hvm = opt_zero_stack_hwdom = val;
             break;
 
         default:
             if ( (val = parse_boolean("pv", s, ss)) >= 0 )
-                opt_cpu_stack_pv = opt_vcpu_pt_pv = val;
+                opt_zero_stack_pv = opt_cpu_stack_pv = opt_vcpu_pt_pv = val;
             else if ( (val = parse_boolean("hvm", s, ss)) >= 0 )
-                opt_cpu_stack_hvm = opt_vcpu_pt_hvm = val;
+                opt_zero_stack_hvm = opt_cpu_stack_hvm = opt_vcpu_pt_hvm = val;
             else if ( (val = parse_boolean("vcpu-pt", s, ss)) != -1 )
             {
                 switch ( val )
@@ -569,6 +575,28 @@ static int __init cf_check parse_asi(const char *s)
                         opt_cpu_stack_pv = val;
                     else if ( (val = parse_boolean("hvm", s, ss)) >= 0 )
                         opt_cpu_stack_hvm = val;
+                    else
+                default:
+                        rc = -EINVAL;
+                    break;
+                }
+            }
+            else if ( (val = parse_boolean("zero-stack", s, ss)) != -1 )
+            {
+                switch ( val )
+                {
+                case 1:
+                case 0:
+                    opt_zero_stack_pv = opt_zero_stack_hvm =
+                        opt_zero_stack_hwdom = val;
+                    break;
+
+                case -2:
+                    s += strlen("zero-stack=");
+                    if ( (val = parse_boolean("pv", s, ss)) >= 0 )
+                        opt_zero_stack_pv = val;
+                    else if ( (val = parse_boolean("hvm", s, ss)) >= 0 )
+                        opt_zero_stack_hvm = val;
                     else
                 default:
                         rc = -EINVAL;
@@ -785,17 +813,21 @@ static void __init print_details(enum ind_thunk thunk)
 #endif
 
 #ifdef CONFIG_HVM
-    printk("  ASI features for HVM VMs:%s%s%s\n",
-           opt_vcpu_pt_hvm || opt_cpu_stack_hvm      ? ""               : " None",
+    printk("  ASI features for HVM VMs:%s%s%s%s\n",
+           opt_vcpu_pt_hvm || opt_cpu_stack_hvm ||
+           opt_zero_stack_hvm                        ? ""               : " None",
            opt_vcpu_pt_hvm                           ? " vCPU-PT"       : "",
-           opt_cpu_stack_hvm                         ? " CPU-STACK"     : "");
+           opt_cpu_stack_hvm                         ? " CPU-STACK"     : "",
+           opt_zero_stack_hvm                        ? " ZERO-STACK"    : "");
 
 #endif
 #ifdef CONFIG_PV
-    printk("  ASI features for PV VMs:%s%s%s\n",
-           opt_vcpu_pt_pv || opt_cpu_stack_pv        ? ""               : " None",
+    printk("  ASI features for PV VMs:%s%s%s%s\n",
+           opt_vcpu_pt_pv || opt_cpu_stack_pv ||
+           opt_zero_stack_pv                         ? ""               : " None",
            opt_vcpu_pt_pv                            ? " vCPU-PT"       : "",
-           opt_cpu_stack_pv                          ? " CPU-STACK"     : "");
+           opt_cpu_stack_pv                          ? " CPU-STACK"     : "",
+           opt_zero_stack_pv                         ? " ZERO-STACK"    : "");
 #endif
 }
 
@@ -1885,6 +1917,9 @@ void spec_ctrl_init_domain(struct domain *d)
     d->arch.cpu_stack = is_hardware_domain(d) ? opt_cpu_stack_hwdom
                                               : pv ? opt_cpu_stack_pv
                                                    : opt_cpu_stack_hvm;
+    d->arch.zero_stack = is_hardware_domain(d) ? opt_zero_stack_hwdom
+                                               : pv ? opt_zero_stack_pv
+                                                    : opt_zero_stack_hvm;
 }
 
 void __init init_speculation_mitigations(void)
@@ -2194,6 +2229,12 @@ void __init init_speculation_mitigations(void)
         opt_cpu_stack_hwdom = 0;
     if ( opt_cpu_stack_hvm == -1 )
         opt_cpu_stack_hvm = 0;
+    if ( opt_zero_stack_pv == -1 )
+        opt_zero_stack_pv = 0;
+    if ( opt_zero_stack_hwdom == -1 )
+        opt_zero_stack_hwdom = 0;
+    if ( opt_zero_stack_hvm == -1 )
+        opt_zero_stack_hvm = 0;
 
     if ( opt_vcpu_pt_pv || opt_vcpu_pt_hvm )
         warning_add(
