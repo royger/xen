@@ -1940,6 +1940,7 @@ static void unknown_nmi_error(const struct cpu_user_regs *regs,
 static nmi_callback_t *__read_mostly nmi_callback;
 
 DEFINE_PER_CPU(unsigned int, nmi_count);
+DEFINE_PER_CPU(unsigned int, slice_nmi_count);
 
 void do_nmi(const struct cpu_user_regs *regs)
 {
@@ -1949,6 +1950,7 @@ void do_nmi(const struct cpu_user_regs *regs)
     bool handle_unknown = false;
 
     this_cpu(nmi_count)++;
+    this_cpu(slice_nmi_count)++;
     nmi_enter();
 
     /*
@@ -2064,11 +2066,14 @@ void asmlinkage do_device_not_available(struct cpu_user_regs *regs)
 
 void nocall sysenter_eflags_saved(void);
 
+DEFINE_PER_CPU(unsigned int, slice_db_count);
+
 /* Handle #DB.  @dbg is PENDING_DBG, a.k.a. %dr6 with positive polarity. */
 static void handle_DB(struct cpu_user_regs *regs, unsigned long dbg)
 {
     struct vcpu *v = current;
 
+    this_cpu(slice_db_count)++;
     /*
      * At the time of writing (March 2018), on the subject of %dr6:
      *

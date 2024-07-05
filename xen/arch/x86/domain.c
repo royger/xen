@@ -2185,6 +2185,7 @@ void context_switch(struct vcpu *prev, struct vcpu *next)
     struct cpu_info *info = get_cpu_info();
     const struct domain *prevd = prev->domain, *nextd = next->domain;
     unsigned int dirty_cpu = read_atomic(&next->dirty_cpu);
+    bool lazy = false;
 
     ASSERT(prev != next);
     ASSERT(local_irq_is_enabled());
@@ -2217,6 +2218,7 @@ void context_switch(struct vcpu *prev, struct vcpu *next)
          */
         set_current(next);
         local_irq_enable();
+        lazy = true;
     }
     else
     {
@@ -2273,12 +2275,19 @@ void context_switch(struct vcpu *prev, struct vcpu *next)
     /* Ensure that the vcpu has an up-to-date time base. */
     update_vcpu_system_time(next);
 
-    reset_stack_and_call_ind(nextd->arch.ctxt_switch->tail);
+    /*
+     * Context switches to the idle vCPU (either lazy or full) will never
+     * trigger zeroing of the stack, because the idle domain doesn't have ASI
+     * enabled.  Switching back to the previously running vCPU after a lazy
+     * switch shouldn't zero the stack either.
+     */
+    reset_stack_and_call_ind(nextd->arch.ctxt_switch->tail,
+                             !lazy && nextd->arch.zero_stack);
 }
 
 void continue_running(struct vcpu *same)
 {
-    reset_stack_and_call_ind(same->domain->arch.ctxt_switch->tail);
+    reset_stack_and_call_ind(same->domain->arch.ctxt_switch->tail, false);
 }
 
 int __sync_local_execstate(void)
