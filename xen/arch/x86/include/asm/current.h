@@ -173,6 +173,14 @@ unsigned long get_stack_dump_bottom (unsigned long sp);
 # define SHADOW_STACK_WORK ""
 #endif
 
+#define ZERO_STACK                                              \
+    "test %[stk_size], %[stk_size];"                            \
+    "jz .L_skip_zeroing.%=;"                                    \
+    "std;"                                                      \
+    "rep stosb;"                                                \
+    "cld;"                                                      \
+    ".L_skip_zeroing.%=:"
+
 #if __GNUC__ >= 9
 # define ssaj_has_attr_noreturn(fn) __builtin_has_attribute(fn, __noreturn__)
 #else
@@ -183,10 +191,24 @@ unsigned long get_stack_dump_bottom (unsigned long sp);
 #define switch_stack_and_jump(fn, instr, constr)                        \
     ({                                                                  \
         unsigned int tmp;                                               \
+        bool zero_stack = current->domain->arch.asi;                    \
         BUILD_BUG_ON(!ssaj_has_attr_noreturn(fn));                      \
+        ASSERT(IS_ALIGNED((unsigned long)guest_cpu_user_regs() -        \
+                          PRIMARY_STACK_SIZE +                          \
+                          sizeof(struct cpu_info), PAGE_SIZE));         \
+        if ( zero_stack )                                               \
+        {                                                               \
+            unsigned long stack_top = get_stack_bottom() &              \
+                                      ~(STACK_SIZE - 1);                \
+                                                                        \
+            clear_page((void *)stack_top + IST_MCE * PAGE_SIZE);        \
+            clear_page((void *)stack_top + IST_NMI * PAGE_SIZE);        \
+            clear_page((void *)stack_top + IST_DB  * PAGE_SIZE);        \
+        }                                                               \
         __asm__ __volatile__ (                                          \
             SHADOW_STACK_WORK                                           \
             "mov %[stk], %%rsp;"                                        \
+            ZERO_STACK                                                  \
             CHECK_FOR_LIVEPATCH_WORK                                    \
             instr "[fun]"                                               \
             : [val] "=&r" (tmp),                                        \
@@ -197,7 +219,13 @@ unsigned long get_stack_dump_bottom (unsigned long sp);
               ((PRIMARY_SHSTK_SLOT + 1) * PAGE_SIZE - 8),               \
               [stack_mask] "i" (STACK_SIZE - 1),                        \
               _ASM_BUGFRAME_INFO(BUGFRAME_bug, __LINE__,                \
-                                 __FILE__, NULL)                        \
+                                 __FILE__, NULL),                       \
+              /* For stack zeroing. */                                  \
+              "D" ((void *)guest_cpu_user_regs() - 1),                  \
+              [stk_size] "c"                                            \
+              (zero_stack ? PRIMARY_STACK_SIZE - sizeof(struct cpu_info)\
+                          : 0),                                         \
+              "a" (0)                                                   \
             : "memory" );                                               \
         unreachable();                                                  \
     })
