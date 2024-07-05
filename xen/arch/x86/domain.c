@@ -2215,12 +2215,17 @@ void context_switch(struct vcpu *prev, struct vcpu *next)
     /* Ensure that the vcpu has an up-to-date time base. */
     update_vcpu_system_time(next);
 
-    reset_stack_and_call_ind(nextd->arch.ctxt_switch->tail);
+    /*
+     * Context switches to the idle vCPU (either lazy or full) will never
+     * trigger zeroing of the stack, because the idle domain doesn't have ASI
+     * enabled.
+     */
+    reset_stack_and_call_ind(nextd->arch.ctxt_switch->tail, nextd->arch.asi);
 }
 
 void continue_running(struct vcpu *same)
 {
-    reset_stack_and_call_ind(same->domain->arch.ctxt_switch->tail);
+    reset_stack_and_call_ind(same->domain->arch.ctxt_switch->tail, false);
 }
 
 int __sync_local_execstate(void)

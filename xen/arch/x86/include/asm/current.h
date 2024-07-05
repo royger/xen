@@ -173,6 +173,12 @@ unsigned long get_stack_dump_bottom (unsigned long sp);
 # define SHADOW_STACK_WORK ""
 #endif
 
+#define ZERO_STACK                                              \
+    "test %[stk_size], %[stk_size];"                            \
+    "jz .L_skip_zeroing.%=;"                                    \
+    "rep stosb;"                                                \
+    ".L_skip_zeroing.%=:"
+
 #if __GNUC__ >= 9
 # define ssaj_has_attr_noreturn(fn) __builtin_has_attribute(fn, __noreturn__)
 #else
@@ -180,13 +186,43 @@ unsigned long get_stack_dump_bottom (unsigned long sp);
 # define ssaj_has_attr_noreturn(fn) true
 #endif
 
-#define switch_stack_and_jump(fn, instr, constr)                        \
+DECLARE_PER_CPU(unsigned int, slice_mce_count);
+DECLARE_PER_CPU(unsigned int, slice_nmi_count);
+DECLARE_PER_CPU(unsigned int, slice_db_count);
+
+#define switch_stack_and_jump(fn, instr, constr, zero_stk)              \
     ({                                                                  \
         unsigned int tmp;                                               \
+                                                                        \
         BUILD_BUG_ON(!ssaj_has_attr_noreturn(fn));                      \
+        ASSERT(IS_ALIGNED((unsigned long)guest_cpu_user_regs() -        \
+                          PRIMARY_STACK_SIZE +                          \
+                          sizeof(struct cpu_info), PAGE_SIZE));         \
+        if ( zero_stk )                                                 \
+        {                                                               \
+            unsigned long stack_top = get_stack_bottom() &              \
+                                      ~(STACK_SIZE - 1);                \
+                                                                        \
+            if ( this_cpu(slice_mce_count) )                            \
+            {                                                           \
+                this_cpu(slice_mce_count) = 0;                          \
+                clear_page((void *)stack_top + IST_MCE * PAGE_SIZE);    \
+            }                                                           \
+            if ( this_cpu(slice_nmi_count) )                            \
+            {                                                           \
+                this_cpu(slice_nmi_count) = 0;                          \
+                clear_page((void *)stack_top + IST_NMI * PAGE_SIZE);    \
+            }                                                           \
+            if ( this_cpu(slice_db_count) )                             \
+            {                                                           \
+                this_cpu(slice_db_count) = 0;                           \
+                clear_page((void *)stack_top + IST_DB  * PAGE_SIZE);    \
+            }                                                           \
+        }                                                               \
         __asm__ __volatile__ (                                          \
             SHADOW_STACK_WORK                                           \
             "mov %[stk], %%rsp;"                                        \
+            ZERO_STACK                                                  \
             CHECK_FOR_LIVEPATCH_WORK                                    \
             instr "[fun]"                                               \
             : [val] "=&r" (tmp),                                        \
@@ -197,19 +233,26 @@ unsigned long get_stack_dump_bottom (unsigned long sp);
               ((PRIMARY_SHSTK_SLOT + 1) * PAGE_SIZE - 8),               \
               [stack_mask] "i" (STACK_SIZE - 1),                        \
               _ASM_BUGFRAME_INFO(BUGFRAME_bug, __LINE__,                \
-                                 __FILE__, NULL)                        \
+                                 __FILE__, NULL),                       \
+              /* For stack zeroing. */                                  \
+              "D" ((void *)guest_cpu_user_regs() -                      \
+                   PRIMARY_STACK_SIZE + sizeof(struct cpu_info)),       \
+              [stk_size] "c"                                            \
+              ((zero_stk) ? PRIMARY_STACK_SIZE - sizeof(struct cpu_info)\
+                          : 0),                                         \
+              "a" (0)                                                   \
             : "memory" );                                               \
         unreachable();                                                  \
     })
 
 #define reset_stack_and_jump(fn)                                        \
-    switch_stack_and_jump(fn, "jmp %c", "i")
+    switch_stack_and_jump(fn, "jmp %c", "i", false)
 
 /* The constraint may only specify non-call-clobbered registers. */
-#define reset_stack_and_call_ind(fn)                                    \
+#define reset_stack_and_call_ind(fn, zero_stk)                          \
     ({                                                                  \
         (void)((fn) == (void (*)(void))NULL);                           \
-        switch_stack_and_jump(fn, "INDIRECT_CALL %", "b");              \
+        switch_stack_and_jump(fn, "INDIRECT_CALL %", "b", zero_stk);    \
     })
 
 /*
