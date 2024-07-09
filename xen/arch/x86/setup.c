@@ -808,8 +808,6 @@ static void __init noreturn reinit_bsp_stack(void)
     /* Update SYSCALL trampolines */
     percpu_traps_init();
 
-    stack_base[0] = stack;
-
     rc = setup_cpu_root_pgt(0);
     if ( rc )
         panic("Error %d setting up PV root page table\n", rc);
@@ -1771,10 +1769,6 @@ void asmlinkage __init noreturn __start_xen(unsigned long mbi_p)
 
     system_state = SYS_STATE_boot;
 
-    bsp_stack = cpu_alloc_stack(0);
-    if ( !bsp_stack )
-        panic("No memory for BSP stack\n");
-
     console_init_ring();
     vesa_init();
 
@@ -1962,6 +1956,16 @@ void asmlinkage __init noreturn __start_xen(unsigned long mbi_p)
     alternative_branches();
 
     /*
+     * Alloc the BSP stack closer to the point where the AP ones also get
+     * allocated - and after the speculation mitigations have been initialized.
+     * In order to set up the shadow stack token correctly Xen needs to know
+     * whether per-CPU mapped stacks are being used.
+     */
+    bsp_stack = cpu_alloc_stack(0);
+    if ( !bsp_stack )
+        panic("No memory for BSP stack\n");
+
+    /*
      * Setup the local per-domain L3 for the BSP also, so it matches the state
      * of the APs.
      */
@@ -2065,8 +2069,17 @@ void asmlinkage __init noreturn __start_xen(unsigned long mbi_p)
         info->last_spec_ctrl = default_xen_spec_ctrl;
     }
 
+    stack_base[0] = bsp_stack;
+
     /* Copy the cpu info block, and move onto the BSP stack. */
-    bsp_info = get_cpu_info_from_stack((unsigned long)bsp_stack);
+    if ( opt_asi_hvm || opt_asi_pv )
+    {
+        cpu_set_stack_mappings(0, 0);
+        bsp_info = get_cpu_info_from_stack((unsigned long)PERCPU_STACK_ADDR(0));
+    }
+    else
+        bsp_info = get_cpu_info_from_stack((unsigned long)bsp_stack);
+
     *bsp_info = *info;
 
     asm volatile ("mov %[stk], %%rsp; jmp %c[fn]" ::

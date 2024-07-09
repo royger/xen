@@ -521,7 +521,7 @@ extern struct rangeset *mmio_ro_ranges;
 #define compat_pfn_to_cr3(pfn) (((unsigned)(pfn) << 12) | ((unsigned)(pfn) >> 20))
 #define compat_cr3_to_pfn(cr3) (((unsigned)(cr3) >> 12) | ((unsigned)(cr3) << 20))
 
-void memguard_guard_stack(void *p);
+void memguard_guard_stack(void *p, unsigned int cpu);
 void memguard_unguard_stack(void *p);
 
 struct mmio_ro_emulate_ctxt {
@@ -651,5 +651,9 @@ static inline int destroy_xen_mappings_cpu(unsigned long s, unsigned long e,
 {
     return modify_xen_mappings_cpu(s, e, _PAGE_NONE, cpu);
 }
+
+/* Setup a per-domain slot that maps all pCPU stacks. */
+int map_all_stacks(struct domain *d);
+int add_stack(const void *stack, unsigned int cpu);
 
 #endif /* __ASM_X86_MM_H__ */
