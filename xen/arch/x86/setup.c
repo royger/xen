@@ -402,6 +402,11 @@ static void __init init_idle_domain(void)
     scheduler_init();
     set_current(idle_vcpu[0]);
     this_cpu(curr_vcpu) = current;
+    if ( opt_cpu_stack_hvm || opt_cpu_stack_pv )
+        /* Set per-domain slot in the idle page-tables to access stack mappings. */
+        l4e_write(&idle_pg_table[l4_table_offset(PERDOMAIN_VIRT_START)],
+                  l4e_from_page(idle_vcpu[0]->domain->arch.perdomain_l3_pg,
+                                __PAGE_HYPERVISOR_RW));
 }
 
 void srat_detect_node(int cpu)
@@ -895,8 +900,6 @@ static void __init noreturn reinit_bsp_stack(void)
 
     /* Update SYSCALL trampolines */
     percpu_traps_init();
-
-    stack_base[0] = stack;
 
     rc = setup_cpu_root_pgt(0);
     if ( rc )
@@ -1868,10 +1871,6 @@ void asmlinkage __init noreturn __start_xen(void)
 
     system_state = SYS_STATE_boot;
 
-    bsp_stack = cpu_alloc_stack(0);
-    if ( !bsp_stack )
-        panic("No memory for BSP stack\n");
-
     console_init_ring();
     vesa_init();
 
@@ -2055,6 +2054,16 @@ void asmlinkage __init noreturn __start_xen(void)
     alternative_branches();
 
     /*
+     * Alloc the BSP stack closer to the point where the AP ones also get
+     * allocated - and after the speculation mitigations have been initialized.
+     * In order to set up the shadow stack token correctly Xen needs to know
+     * whether per-CPU mapped stacks are being used.
+     */
+    bsp_stack = cpu_alloc_stack(0);
+    if ( !bsp_stack )
+        panic("No memory for BSP stack\n");
+
+    /*
      * NB: when running as a PV shim VCPUOP_up/down is wired to the shim
      * physical cpu_add/remove functions, so launch the guest with only
      * the BSP online and let it bring up the other CPUs as required.
@@ -2159,8 +2168,17 @@ void asmlinkage __init noreturn __start_xen(void)
         info->last_spec_ctrl = default_xen_spec_ctrl;
     }
 
+    stack_base[0] = bsp_stack;
+
     /* Copy the cpu info block, and move onto the BSP stack. */
-    bsp_info = get_cpu_info_from_stack((unsigned long)bsp_stack);
+    if ( opt_cpu_stack_hvm || opt_cpu_stack_pv )
+    {
+        vcpu_set_stack_mappings(idle_vcpu[0], 0, true);
+        bsp_info = get_cpu_info_from_stack(PCPU_STACK_VIRT(0));
+    }
+    else
+        bsp_info = get_cpu_info_from_stack((unsigned long)bsp_stack);
+
     *bsp_info = *info;
 
     asm volatile ("mov %[stk], %%rsp; jmp %c[fn]" ::

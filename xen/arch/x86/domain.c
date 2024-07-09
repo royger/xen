@@ -563,6 +563,26 @@ int arch_vcpu_create(struct vcpu *v)
     if ( rc )
         return rc;
 
+    if ( opt_cpu_stack_hvm || opt_cpu_stack_pv )
+    {
+        if ( is_idle_vcpu(v) || d->arch.cpu_stack )
+            create_perdomain_mapping(v, PCPU_STACK_VIRT(0),
+                                     nr_cpu_ids << STACK_ORDER, false);
+        else if ( !v->vcpu_id )
+        {
+            l3_pgentry_t *idle_perdomain =
+                __map_domain_page(idle_vcpu[0]->domain->arch.perdomain_l3_pg);
+            l3_pgentry_t *guest_perdomain =
+                __map_domain_page(d->arch.perdomain_l3_pg);
+
+            l3e_write(&guest_perdomain[PCPU_STACK_SLOT],
+                      idle_perdomain[PCPU_STACK_SLOT]);
+
+            unmap_domain_page(guest_perdomain);
+            unmap_domain_page(idle_perdomain);
+        }
+    }
+
     rc = mapcache_vcpu_init(v);
     if ( rc )
         return rc;
@@ -2031,6 +2051,16 @@ static void __context_switch(struct vcpu *n)
         }
         vcpu_restore_fpu_nonlazy(n, false);
         nd->arch.ctxt_switch->to(n);
+        if ( nd->arch.cpu_stack )
+        {
+            /*
+             * Tear down previous stack mappings and map current pCPU stack.
+             * This is safe because not yet running on 'n' page-tables.
+             */
+            destroy_perdomain_mapping(n, PCPU_STACK_VIRT(0),
+                                      nr_cpu_ids << STACK_ORDER);
+            vcpu_set_stack_mappings(n, cpu, true);
+        }
     }
 
     psr_ctxt_switch_to(nd);
