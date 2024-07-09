@@ -40,6 +40,7 @@ enum stopmachine_state {
 
 struct stopmachine_data {
     unsigned int nr_cpus;
+    unsigned int caller;
 
     enum stopmachine_state state;
     atomic_t done;
@@ -104,6 +105,7 @@ int stop_machine_run(int (*fn)(void *data), void *data, unsigned int cpu)
     stopmachine_data.fn_result = 0;
     atomic_set(&stopmachine_data.done, 0);
     stopmachine_data.state = STOPMACHINE_START;
+    stopmachine_data.caller = this;
 
     smp_wmb();
 
@@ -148,6 +150,12 @@ static void cf_check stopmachine_action(void *data)
 
     BUG_ON(cpu != smp_processor_id());
 
+    /*
+     * TODO: use bounce buffers to pass callfunc data, so that when using ASI
+     * there's no need to map remote CPU stacks.
+     */
+    arch_smp_pre_callfunc(stopmachine_data.caller);
+
     smp_mb();
 
     while ( state != STOPMACHINE_EXIT )
@@ -180,6 +188,8 @@ static void cf_check stopmachine_action(void *data)
     }
 
     local_irq_enable();
+
+    arch_smp_post_callfunc(stopmachine_data.caller);
 }
 
 static int cf_check cpu_callback(
