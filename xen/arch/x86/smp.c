@@ -27,6 +27,8 @@
 #include <asm/hpet.h>
 #include <asm/setup.h>
 
+#include <asm/spec_ctrl.h>
+
 /* Helper functions to prepare APIC register values. */
 static unsigned int prepare_ICR(unsigned int shortcut, int vector)
 {
@@ -434,4 +436,29 @@ long cf_check cpu_down_helper(void *data)
     if ( ret == -EBUSY )
         ret = cpu_down(cpu);
     return ret;
+}
+
+void arch_smp_pre_callfunc(unsigned int cpu)
+{
+    if ( cpu == smp_processor_id() ||
+         /*
+          * Use curr_vcpu: logic here cares about which underlying page-tables
+          * are being used, and current might not reflect this if context is
+          * lazy switched to the idle vCPU.
+          */
+         !this_cpu(curr_vcpu)->domain->arch.asi )
+        return;
+
+    vcpu_set_stack_mappings(this_cpu(curr_vcpu), cpu, false);
+}
+
+void arch_smp_post_callfunc(unsigned int cpu)
+{
+    if ( cpu == smp_processor_id() || !this_cpu(curr_vcpu)->domain->arch.asi )
+        return;
+
+    destroy_perdomain_mapping(this_cpu(curr_vcpu), PCPU_STACK_VIRT(cpu),
+                              (1U << STACK_ORDER));
+
+    flush_area_local((void *)PCPU_STACK_VIRT(cpu), FLUSH_ORDER(STACK_ORDER));
 }
