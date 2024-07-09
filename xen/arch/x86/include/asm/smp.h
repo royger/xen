@@ -79,6 +79,19 @@ extern bool unaccounted_cpus;
 
 void *cpu_alloc_stack(unsigned int cpu);
 
+/*
+ * Setup the per-CPU area stack mappings.
+ *
+ * @dest_cpu:  CPU where the mappings are to appear.
+ * @stack_cpu: CPU whose stacks should be mapped.
+ */
+void vcpu_set_stack_mappings(const struct vcpu *v, unsigned int stack_cpu,
+                             bool local_stack);
+
+#define HAS_ARCH_SMP_CALLFUNC
+void arch_smp_pre_callfunc(unsigned int cpu);
+void arch_smp_post_callfunc(unsigned int cpu);
+
 #endif /* !__ASSEMBLY__ */
 
 #endif

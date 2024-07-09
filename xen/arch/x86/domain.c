@@ -563,6 +563,25 @@ int arch_vcpu_create(struct vcpu *v)
     if ( rc )
         return rc;
 
+    if ( opt_asi_hvm || opt_asi_pv )
+    {
+        if ( is_idle_vcpu(v) || d->arch.asi )
+           create_perdomain_mapping(v, PCPU_STACK_VIRT(0),
+                                     nr_cpu_ids << STACK_ORDER, false);
+        else if ( !v->vcpu_id )
+        {
+            l3_pgentry_t *idle_perdomain =
+                __map_domain_page(idle_vcpu[0]->domain->arch.perdomain_l3_pg);
+            l3_pgentry_t *guest_perdomain =
+                __map_domain_page(d->arch.perdomain_l3_pg);
+
+            l3e_write(&guest_perdomain[l3_table_offset(PCPU_STACK_VIRT_START)],
+                      idle_perdomain[l3_table_offset(PCPU_STACK_VIRT_START)]);
+            unmap_domain_page(guest_perdomain);
+            unmap_domain_page(idle_perdomain);
+        }
+    }
+
     rc = mapcache_vcpu_init(v);
     if ( rc )
         return rc;
@@ -2031,6 +2050,14 @@ static void __context_switch(struct vcpu *n)
         }
         vcpu_restore_fpu_nonlazy(n, false);
         nd->arch.ctxt_switch->to(n);
+        if ( nd->arch.asi )
+        {
+            /* Tear down previous stack mappings and map current pCPU stack. */
+            destroy_perdomain_mapping(n, PCPU_STACK_VIRT(0),
+                                      nr_cpu_ids << STACK_ORDER);
+            vcpu_set_stack_mappings(n, cpu, true);
+            /* Omit flush because not yet running on next vCPU page-tables. */
+        }
     }
 
     psr_ctxt_switch_to(nd);
