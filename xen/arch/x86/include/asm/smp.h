@@ -80,6 +80,18 @@ extern bool unaccounted_cpus;
 
 void *cpu_alloc_stack(unsigned int cpu);
 
+/*
+ * Setup the per-CPU area stack mappings.
+ *
+ * @v:         vCPU where the mappings are to appear.
+ * @stack_cpu: CPU whose stacks should be mapped.
+ * @map_shstk: create mappings for shadow stack regions.
+ */
+void vcpu_set_stack_mappings(const struct vcpu *v, unsigned int stack_cpu,
+                             bool map_shstk);
+
+#define HAS_ARCH_SMP_CALLFUNC_PREAMBLE
+
 #endif /* !__ASSEMBLER__ */
 
 #endif

@@ -155,7 +155,7 @@
 /* Slot 260: per-domain mappings (including map cache). */
 #define PERDOMAIN_VIRT_START    (PML4_ADDR(260))
 #define PERDOMAIN_SLOT_MBYTES   (PML4_ENTRY_BYTES >> (20 + PAGETABLE_ORDER))
-#define PERDOMAIN_SLOTS         4
+#define PERDOMAIN_SLOTS         5
 #define PERDOMAIN_VIRT_SLOT(s)  (PERDOMAIN_VIRT_START + (s) * \
                                  (PERDOMAIN_SLOT_MBYTES << 20))
 /* Slot 4: mirror of per-domain mappings (for compat xlat area accesses). */
@@ -282,6 +282,14 @@ extern unsigned long xen_phys_start;
 /* The address of a particular VCPU's PV_ROOT_PT */
 #define PV_ROOT_PT_MAPPING_VCPU_VIRT_START(v) \
     (PV_ROOT_PT_MAPPING_VIRT_START + ((v)->vcpu_id * PAGE_SIZE))
+
+/* Per-CPU stacks area when using ASI. */
+#define PCPU_STACK_SLOT         4
+#define PCPU_STACK_VIRT_START   PERDOMAIN_VIRT_SLOT(PCPU_STACK_SLOT)
+#define PCPU_STACK_VIRT_END     (PCPU_STACK_VIRT_START + \
+                                 (PERDOMAIN_SLOT_MBYTES << 20))
+#define PCPU_STACK_VIRT(cpu)    (PCPU_STACK_VIRT_START + \
+                                 (cpu << STACK_ORDER) * PAGE_SIZE)
 
 #define ELFSIZE 64
 

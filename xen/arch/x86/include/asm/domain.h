@@ -483,6 +483,9 @@ struct arch_domain
     /* Use a per-vCPU root pt, and switch per-domain slot to per-vCPU. */
     bool vcpu_pt;
 
+    /* Use per-CPU mapped stacks. */
+    bool cpu_stack;
+
     /* Emulated devices enabled bitmap. */
     uint32_t emulation_flags;
 } __cacheline_aligned;

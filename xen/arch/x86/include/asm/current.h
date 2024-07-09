@@ -28,6 +28,11 @@
  * are unused.
  */
 
+static inline bool is_shstk_slot(unsigned int i)
+{
+    return (i == 0 || i == PRIMARY_SHSTK_SLOT);
+}
+
 /*
  * Identify which stack page the stack pointer is on.  Returns an index
  * as per the comment above.

@@ -577,7 +577,21 @@ static int do_boot_cpu(int apicid, int cpu)
         printk("Booting processor %d/%d eip %lx\n",
                cpu, apicid, start_eip);
 
-    stack_start = stack_base[cpu] + STACK_SIZE - sizeof(struct cpu_info);
+    if ( opt_cpu_stack_hvm || opt_cpu_stack_pv )
+    {
+        /*
+         * Uniformly run with the stack mappings in the per-domain area if ASI
+         * is enabled for any domain type.
+         */
+        vcpu_set_stack_mappings(idle_vcpu[cpu], cpu, true);
+
+        ASSERT(IS_ALIGNED(PCPU_STACK_VIRT(cpu), STACK_SIZE));
+
+        stack_start = (void *)PCPU_STACK_VIRT(cpu) + STACK_SIZE -
+                      sizeof(struct cpu_info);
+    }
+    else
+        stack_start = stack_base[cpu] + STACK_SIZE - sizeof(struct cpu_info);
 
     /* This grunge runs the startup process for the targeted processor. */
 
@@ -1034,7 +1048,7 @@ void *cpu_alloc_stack(unsigned int cpu)
     stack = alloc_xenheap_pages(STACK_ORDER, memflags);
 
     if ( stack )
-        memguard_guard_stack(stack);
+        memguard_guard_stack(stack, cpu);
 
     return stack;
 }
@@ -1157,6 +1171,8 @@ static struct notifier_block cpu_smpboot_nfb = {
 
 void __init smp_prepare_cpus(void)
 {
+    BUILD_BUG_ON(PCPU_STACK_VIRT(CONFIG_NR_CPUS) > PCPU_STACK_VIRT_END);
+
     register_cpu_notifier(&cpu_smpboot_nfb);
 
     mtrr_aps_sync_begin();

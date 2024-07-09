@@ -47,6 +47,7 @@
 #include <asm/shared.h>
 #include <asm/shstk.h>
 #include <asm/smp.h>
+#include <asm/spec_ctrl.h>
 #include <asm/system.h>
 #include <asm/traps.h>
 #include <asm/uaccess.h>
@@ -865,10 +866,13 @@ static void show_stack_overflow(unsigned int cpu, const struct cpu_user_regs *re
     unsigned long esp = regs->rsp;
     unsigned long curr_stack_base = esp & ~(STACK_SIZE - 1);
     unsigned long esp_top, esp_bottom;
+    const void *stack =
+        (opt_cpu_stack_hvm || opt_cpu_stack_pv) ? (void *)PCPU_STACK_VIRT(cpu)
+                                                : stack_base[cpu];
 
-    if ( _p(curr_stack_base) != stack_base[cpu] )
+    if ( _p(curr_stack_base) != stack )
         printk("Current stack base %p differs from expected %p\n",
-               _p(curr_stack_base), stack_base[cpu]);
+               _p(curr_stack_base), stack);
 
     esp_bottom = (esp | (STACK_SIZE - 1)) + 1;
     esp_top    = esp_bottom - PRIMARY_STACK_SIZE;

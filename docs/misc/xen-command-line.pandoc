@@ -215,7 +215,7 @@ the directmap.
 
 ### asi (x86)
 > `= List of [ <bool>, {pv,hvm}=<bool>,
-               {vcpu-pt}=<bool>|{pv,hvm}=<bool> ]`
+               {vcpu-pt,cpu-stack}=<bool>|{pv,hvm}=<bool> ]`
 
 Offers control over whether the hypervisor will engage in Address Space
 Isolation, by not having potentially sensitive information permanently mapped
@@ -231,6 +231,9 @@ meant to be used for debugging purposes only.**
 
 * `vcpu-pt` ensure each vCPU uses a unique top-level page-table and setup a
   virtual address space region to map memory on a per-vCPU basis.
+
+* `cpu-stack` prevent CPUs from having permanent mappings of stacks different
+  than their own.  Depends on the `vcpu-pt` option.
 
 ### asid (x86)
 > `= <boolean>`

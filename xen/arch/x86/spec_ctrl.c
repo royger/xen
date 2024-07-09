@@ -95,6 +95,10 @@ bool __ro_after_init opt_ondemand_dmap;
 int8_t __ro_after_init opt_vcpu_pt_hvm = -1;
 int8_t __ro_after_init opt_vcpu_pt_hwdom = -1;
 int8_t __ro_after_init opt_vcpu_pt_pv = -1;
+/* Per-CPU stacks. */
+int8_t __ro_after_init opt_cpu_stack_hvm = -1;
+int8_t __ro_after_init opt_cpu_stack_hwdom = -1;
+int8_t __ro_after_init opt_cpu_stack_pv = -1;
 
 static int __init cf_check parse_spec_ctrl(const char *s)
 {
@@ -403,6 +407,7 @@ static __init void xpti_init_default(void)
         printk(XENLOG_ERR
                "XPTI incompatible with per-vCPU page-tables, disabling ASI\n");
         opt_vcpu_pt_pv = 0;
+        opt_cpu_stack_pv = 0;
     }
     if ( (boot_cpu_data.vendor & (X86_VENDOR_AMD | X86_VENDOR_HYGON)) ||
          cpu_has_rdcl_no )
@@ -520,6 +525,7 @@ static int __init cf_check parse_asi(const char *s)
         opt_ondemand_dmap = true;
 #endif
         opt_vcpu_pt_pv = opt_vcpu_pt_hwdom = opt_vcpu_pt_hvm = 1;
+        opt_cpu_stack_pv = opt_cpu_stack_hwdom = opt_cpu_stack_hvm = 1;
     }
 
     do {
@@ -536,13 +542,14 @@ static int __init cf_check parse_asi(const char *s)
             opt_ondemand_dmap = val;
 #endif
             opt_vcpu_pt_pv = opt_vcpu_pt_hwdom = opt_vcpu_pt_hvm = val;
+            opt_cpu_stack_pv = opt_cpu_stack_hvm = opt_cpu_stack_hwdom = val;
             break;
 
         default:
             if ( (val = parse_boolean("pv", s, ss)) >= 0 )
-                opt_vcpu_pt_pv = val;
+                opt_cpu_stack_pv = opt_vcpu_pt_pv = val;
             else if ( (val = parse_boolean("hvm", s, ss)) >= 0 )
-                opt_vcpu_pt_hvm = val;
+                opt_cpu_stack_hvm = opt_vcpu_pt_hvm = val;
             else if ( (val = parse_boolean("vcpu-pt", s, ss)) != -1 )
             {
                 switch ( val )
@@ -564,6 +571,28 @@ static int __init cf_check parse_asi(const char *s)
                     break;
                 }
             }
+            else if ( (val = parse_boolean("cpu-stack", s, ss)) != -1 )
+            {
+                switch ( val )
+                {
+                case 1:
+                case 0:
+                    opt_cpu_stack_pv = opt_cpu_stack_hvm =
+                        opt_cpu_stack_hwdom = val;
+                    break;
+
+                case -2:
+                    s += strlen("cpu-stack=");
+                    if ( (val = parse_boolean("pv", s, ss)) >= 0 )
+                        opt_cpu_stack_pv = val;
+                    else if ( (val = parse_boolean("hvm", s, ss)) >= 0 )
+                        opt_cpu_stack_hvm = val;
+                    else
+                default:
+                        rc = -EINVAL;
+                    break;
+                }
+            }
             else if ( *s )
                 rc = -EINVAL;
             break;
@@ -571,6 +600,14 @@ static int __init cf_check parse_asi(const char *s)
 
         s = ss + 1;
     } while ( *ss );
+
+    /* Per-CPU stacks depends on per-vCPU mappings. */
+    if ( opt_cpu_stack_pv == 1 )
+        opt_vcpu_pt_pv = 1;
+    if ( opt_cpu_stack_hvm == 1 )
+        opt_vcpu_pt_hvm = 1;
+    if ( opt_cpu_stack_hwdom == 1 )
+        opt_vcpu_pt_hwdom = 1;
 
     return rc;
 }
@@ -776,16 +813,17 @@ static void __init print_details(enum ind_thunk thunk)
 #endif
 
 #ifdef CONFIG_HVM
-    printk("  ASI features for HVM VMs:%s%s\n",
-           opt_vcpu_pt_hvm                           ? ""               : " None",
-           opt_vcpu_pt_hvm                           ? " vCPU-PT"       : "");
+    printk("  ASI features for HVM VMs:%s%s%s\n",
+           opt_vcpu_pt_hvm || opt_cpu_stack_hvm      ? ""               : " None",
+           opt_vcpu_pt_hvm                           ? " vCPU-PT"       : "",
+           opt_cpu_stack_hvm                         ? " CPU-STACK"     : "");
 
 #endif
 #ifdef CONFIG_PV
-    printk("  ASI features for PV VMs:%s%s\n",
-           opt_vcpu_pt_pv                            ? ""               : " None",
-           opt_vcpu_pt_pv                            ? " vCPU-PT"       : "");
-
+    printk("  ASI features for PV VMs:%s%s%s\n",
+           opt_vcpu_pt_pv || opt_cpu_stack_pv        ? ""               : " None",
+           opt_vcpu_pt_pv                            ? " vCPU-PT"       : "",
+           opt_cpu_stack_pv                          ? " CPU-STACK"     : "");
 #endif
 }
 
@@ -2046,6 +2084,9 @@ void spec_ctrl_init_domain(struct domain *d)
     d->arch.vcpu_pt = is_hardware_domain(d) ? opt_vcpu_pt_hwdom
                                             : pv ? opt_vcpu_pt_pv
                                                  : opt_vcpu_pt_hvm;
+    d->arch.cpu_stack = is_hardware_domain(d) ? opt_cpu_stack_hwdom
+                                              : pv ? opt_cpu_stack_pv
+                                                   : opt_cpu_stack_hvm;
 }
 
 void __init init_speculation_mitigations(void)
@@ -2349,6 +2390,12 @@ void __init init_speculation_mitigations(void)
         opt_vcpu_pt_hwdom = 0;
     if ( opt_vcpu_pt_hvm == -1 )
         opt_vcpu_pt_hvm = 0;
+    if ( opt_cpu_stack_pv == -1 )
+        opt_cpu_stack_pv = 0;
+    if ( opt_cpu_stack_hwdom == -1 )
+        opt_cpu_stack_hwdom = 0;
+    if ( opt_cpu_stack_hvm == -1 )
+        opt_cpu_stack_hvm = 0;
 
     if ( opt_vcpu_pt_pv || opt_vcpu_pt_hvm )
         warning_add(
