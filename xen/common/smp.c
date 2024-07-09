@@ -29,6 +29,7 @@ static struct call_data_struct {
     void (*func) (void *info);
     void *info;
     int wait;
+    unsigned int caller;
     cpumask_t selected;
 } call_data;
 
@@ -63,6 +64,7 @@ void on_selected_cpus(
     call_data.func = func;
     call_data.info = info;
     call_data.wait = wait;
+    call_data.caller = smp_processor_id();
 
     smp_send_call_function_mask(&call_data.selected);
 
@@ -81,6 +83,12 @@ void smp_call_function_interrupt(void)
 
     if ( !cpumask_test_cpu(cpu, &call_data.selected) )
         return;
+
+    /*
+     * TODO: use bounce buffers to pass callfunc data, so that when using ASI
+     * there's no need to map remote CPU stacks.
+     */
+    arch_smp_pre_callfunc(call_data.caller);
 
     irq_enter();
 
@@ -102,6 +110,8 @@ void smp_call_function_interrupt(void)
     }
 
     irq_exit();
+
+    arch_smp_post_callfunc(call_data.caller);
 }
 
 /*

@@ -87,6 +87,7 @@
  * doing the final put_page(), and remove it from the iommu if so.
  */
 
+#include <xen/cpu.h>
 #include <xen/init.h>
 #include <xen/ioreq.h>
 #include <xen/kernel.h>
@@ -6414,31 +6415,40 @@ void free_perdomain_mappings(struct domain *d)
     d->arch.perdomain_l3_pg = NULL;
 }
 
-static void write_sss_token(unsigned long *ptr)
+static void write_sss_token(unsigned long *ptr, unsigned long va)
 {
     /*
      * A supervisor shadow stack token is its own linear address, with the
      * busy bit (0) clear.
      */
-    *ptr = (unsigned long)ptr;
+    *ptr = va;
 }
 
-void memguard_guard_stack(void *p)
+void memguard_guard_stack(void *p, unsigned int cpu)
 {
+    unsigned long va =
+        (opt_asi_hvm || opt_asi_pv) ? (unsigned long)PERCPU_STACK_ADDR(cpu)
+                                    : (unsigned long)p;
+
     /* IST Shadow stacks.  4x 1k in stack page 0. */
     if ( IS_ENABLED(CONFIG_XEN_SHSTK) )
     {
-        write_sss_token(p + (IST_MCE * IST_SHSTK_SIZE) - 8);
-        write_sss_token(p + (IST_NMI * IST_SHSTK_SIZE) - 8);
-        write_sss_token(p + (IST_DB  * IST_SHSTK_SIZE) - 8);
-        write_sss_token(p + (IST_DF  * IST_SHSTK_SIZE) - 8);
+        write_sss_token(p + (IST_MCE * IST_SHSTK_SIZE) - 8,
+                        va + (IST_MCE * IST_SHSTK_SIZE) - 8);
+        write_sss_token(p + (IST_NMI * IST_SHSTK_SIZE) - 8,
+                        va + (IST_NMI * IST_SHSTK_SIZE) - 8);
+        write_sss_token(p + (IST_DB  * IST_SHSTK_SIZE) - 8,
+                        va + (IST_DB  * IST_SHSTK_SIZE) - 8);
+        write_sss_token(p + (IST_DF  * IST_SHSTK_SIZE) - 8,
+                        va + (IST_DF  * IST_SHSTK_SIZE) - 8);
     }
     map_pages_to_xen((unsigned long)p, virt_to_mfn(p), 1, PAGE_HYPERVISOR_SHSTK);
 
     /* Primary Shadow Stack.  1x 4k in stack page 5. */
     p += PRIMARY_SHSTK_SLOT * PAGE_SIZE;
+    va += PRIMARY_SHSTK_SLOT * PAGE_SIZE;
     if ( IS_ENABLED(CONFIG_XEN_SHSTK) )
-        write_sss_token(p + PAGE_SIZE - 8);
+        write_sss_token(p + PAGE_SIZE - 8, va + PAGE_SIZE - 8);
 
     map_pages_to_xen((unsigned long)p, virt_to_mfn(p), 1, PAGE_HYPERVISOR_SHSTK);
 }
@@ -6536,6 +6546,105 @@ void setup_perdomain_slot(const struct domain *d, root_pgentry_t *root_pgt)
     else if ( d->arch.pv.xpti )
         l4e_write(&root_pgt[root_table_offset(PERDOMAIN_VIRT_START)],
                   l4e_from_page(d->arch.perdomain_l3_pg, __PAGE_HYPERVISOR_RW));
+}
+
+static struct page_info *l2_all_stacks;
+
+int add_stack(const void *stack, unsigned int cpu)
+{
+    unsigned long va = (unsigned long)PERCPU_STACK_ADDR(cpu);
+    struct page_info *pg;
+    l2_pgentry_t *l2tab = NULL;
+    l1_pgentry_t *l1tab = NULL;
+    unsigned int nr;
+    int rc = 0;
+
+    /*
+     * Assume CPU stack allocation is always serialized, either because it's
+     * done on the BSP during boot, or in case of hotplug, in stop machine
+     * context.
+     */
+    ASSERT(system_state < SYS_STATE_active || cpu_in_hotplug_context());
+
+    if ( !opt_asi_hvm && !opt_asi_pv )
+        return 0;
+
+    if ( !l2_all_stacks )
+    {
+        l2_all_stacks = alloc_domheap_page(NULL, MEMF_no_owner);
+        if ( !l2_all_stacks )
+            return -ENOMEM;
+        l2tab = __map_domain_page(l2_all_stacks);
+        clear_page(l2tab);
+    }
+    else
+        l2tab = __map_domain_page(l2_all_stacks);
+
+    /* code assumes all the stacks can be mapped with a single l2. */
+    ASSERT(l3_table_offset((unsigned long)percpu_fix_to_virt(PCPU_STACK_END)) ==
+        l3_table_offset((unsigned long)percpu_fix_to_virt(PCPU_STACK_START)));
+    for ( nr = 0 ; nr < (1U << STACK_ORDER) ; nr++)
+    {
+        l2_pgentry_t *pl2e = l2tab + l2_table_offset(va);
+
+        if ( !(l2e_get_flags(*pl2e) & _PAGE_PRESENT) )
+        {
+            pg = alloc_domheap_page(NULL, MEMF_no_owner);
+            if ( !pg )
+            {
+                rc = -ENOMEM;
+                break;
+            }
+            l1tab = __map_domain_page(pg);
+            clear_page(l1tab);
+            l2e_write(pl2e, l2e_from_page(pg, __PAGE_HYPERVISOR_RW));
+        }
+        else if ( !l1tab )
+            l1tab = map_l1t_from_l2e(*pl2e);
+
+        l1e_write(&l1tab[l1_table_offset(va)],
+                  l1e_from_mfn(virt_to_mfn(stack),
+                               is_shstk_slot(nr) ? __PAGE_HYPERVISOR_SHSTK
+                                                 : __PAGE_HYPERVISOR_RW));
+
+        va += PAGE_SIZE;
+        stack += PAGE_SIZE;
+
+        if ( !l1_table_offset(va) )
+        {
+            unmap_domain_page(l1tab);
+            l1tab = NULL;
+        }
+    }
+
+    unmap_domain_page(l1tab);
+    unmap_domain_page(l2tab);
+    /*
+     * Don't care to free the intermediate page-tables on failure, can be used
+     * to map other stacks.
+     */
+
+    return rc;
+}
+
+int map_all_stacks(struct domain *d)
+{
+    /*
+     * Create the per-domain L3.  Pass a dummy PERDOMAIN_VIRT_START, but note
+     * only the per-domain L3 is allocated when nr == 0.
+     */
+    int rc = create_perdomain_mapping(d, PERDOMAIN_VIRT_START, 0, NULL, NULL);
+    l3_pgentry_t *l3tab;
+
+    if ( rc )
+        return rc;
+
+    l3tab = __map_domain_page(d->arch.perdomain_l3_pg);
+    l3tab[l3_table_offset((unsigned long)percpu_fix_to_virt(PCPU_STACK_START))]
+        = l3e_from_page(l2_all_stacks, __PAGE_HYPERVISOR_RW);
+    unmap_domain_page(l3tab);
+
+    return 0;
 }
 
 static void __init __maybe_unused build_assertions(void)

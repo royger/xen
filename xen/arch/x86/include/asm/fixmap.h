@@ -120,6 +120,12 @@ extern void __set_fixmap_x(
 
 /* per-CPU fixmap area. */
 enum percpu_fixed_addresses {
+    /* For alignment reasons the per-CPU stacks must come first. */
+    PCPU_STACK_START,
+    PCPU_STACK_END = PCPU_STACK_START + NR_CPUS * (1U << STACK_ORDER) - 1,
+#define PERCPU_STACK_IDX(c) (PCPU_STACK_START + (c) * (1U << STACK_ORDER))
+#define PERCPU_STACK_ADDR(c) percpu_fix_to_virt(PERCPU_STACK_IDX(c))
+
 #ifdef CONFIG_PV
     PCPU_PV_L4_SHADOW,
     PCPU_PV_L4_GUEST,
