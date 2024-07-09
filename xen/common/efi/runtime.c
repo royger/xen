@@ -33,6 +33,7 @@ void efi_rs_leave(struct efi_rs_state *state);
 
 #ifndef CONFIG_ARM
 # include <asm/i387.h>
+# include <asm/spec_ctrl.h>
 # include <asm/xstate.h>
 # include <public/platform.h>
 #endif
@@ -86,6 +87,7 @@ struct efi_rs_state efi_rs_enter(void)
     static const u16 fcw = FCW_DEFAULT;
     static const u32 mxcsr = MXCSR_DEFAULT;
     struct efi_rs_state state = { .cr3 = 0 };
+    root_pgentry_t *efi_pgt, *idle_pgt;
 
     if ( mfn_eq(efi_l4_mfn, INVALID_MFN) )
         return state;
@@ -98,6 +100,16 @@ struct efi_rs_state efi_rs_enter(void)
     spin_lock(&efi_rs_lock);
 
     efi_rs_on_cpu = smp_processor_id();
+
+    if ( opt_asi_pv || opt_asi_hvm )
+    {
+        /* Insert the idle per-domain slot for the stack mapping. */
+        efi_pgt = map_domain_page(efi_l4_mfn);
+        idle_pgt = maddr_to_virt(idle_vcpu[efi_rs_on_cpu]->arch.cr3);
+        efi_pgt[root_table_offset(PERDOMAIN_VIRT_START)].l4 =
+            idle_pgt[root_table_offset(PERDOMAIN_VIRT_START)].l4;
+        unmap_domain_page(efi_pgt);
+    }
 
     /* prevent fixup_page_fault() from doing anything */
     irq_enter();

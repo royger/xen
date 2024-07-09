@@ -22,6 +22,7 @@
 #include <asm/hardirq.h>
 #include <asm/hpet.h>
 #include <asm/setup.h>
+#include <asm/spec_ctrl.h>
 #include <irq_vectors.h>
 #include <mach_apic.h>
 
@@ -432,4 +433,32 @@ long cf_check cpu_down_helper(void *data)
     if ( ret == -EBUSY )
         ret = cpu_down(cpu);
     return ret;
+}
+
+void arch_smp_pre_callfunc(unsigned int cpu)
+{
+    if ( (!opt_asi_pv && !opt_asi_hvm) || cpu == smp_processor_id() ||
+         (!current->domain->arch.asi && !is_idle_vcpu(current)) ||
+        /*
+         * CPU#0 still runs on the .init stack when the APs are started, don't
+         * attempt to map such stack.
+         */
+         (!cpu && system_state < SYS_STATE_active) )
+        return;
+
+    cpu_set_stack_mappings(smp_processor_id(), cpu);
+}
+
+void arch_smp_post_callfunc(unsigned int cpu)
+{
+    unsigned int i;
+
+    if ( (!opt_asi_pv && !opt_asi_hvm) || cpu == smp_processor_id() ||
+         (!current->domain->arch.asi && !is_idle_vcpu(current)) )
+        return;
+
+    for ( i = 0; i < (1U << STACK_ORDER); i++ )
+        percpu_clear_fixmap(PERCPU_STACK_IDX(cpu) + i);
+
+    flush_area_local(PERCPU_STACK_ADDR(cpu), FLUSH_ORDER(STACK_ORDER));
 }

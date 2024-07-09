@@ -580,7 +580,20 @@ static int do_boot_cpu(int apicid, int cpu)
         printk("Booting processor %d/%d eip %lx\n",
                cpu, apicid, start_eip);
 
-    stack_start = stack_base[cpu] + STACK_SIZE - sizeof(struct cpu_info);
+    if ( opt_asi_hvm || opt_asi_pv )
+    {
+        /*
+         * Uniformly run with the stack mapping of the per-CPU area (including
+         * the idle vCPU) if ASI is enabled for any domain type.
+         */
+        cpu_set_stack_mappings(cpu, cpu);
+
+        ASSERT(IS_ALIGNED((unsigned long)PERCPU_STACK_ADDR(cpu), STACK_SIZE));
+
+        stack_start = PERCPU_STACK_ADDR(cpu) + STACK_SIZE - sizeof(struct cpu_info);
+    }
+    else
+        stack_start = stack_base[cpu] + STACK_SIZE - sizeof(struct cpu_info);
 
     /*
      * If per-CPU idle root page table has been allocated, switch to it as
@@ -1035,9 +1048,39 @@ void *cpu_alloc_stack(unsigned int cpu)
     stack = alloc_xenheap_pages(STACK_ORDER, memflags);
 
     if ( stack )
-        memguard_guard_stack(stack);
+    {
+        int rc = add_stack(stack, cpu);
+
+        if ( rc )
+        {
+            printk(XENLOG_ERR "unable to map stack for CPU %u: %d\n", cpu, rc);
+            free_xenheap_pages(stack, STACK_ORDER);
+            return NULL;
+        }
+        memguard_guard_stack(stack, cpu);
+    }
 
     return stack;
+}
+
+void cpu_set_stack_mappings(unsigned int dest_cpu, unsigned int stack_cpu)
+{
+    unsigned int i;
+
+    for ( i = 0; i < (1U << STACK_ORDER); i++ )
+    {
+        unsigned int flags = (is_shstk_slot(i) ? __PAGE_HYPERVISOR_SHSTK
+                                               : __PAGE_HYPERVISOR_RW) |
+                             (dest_cpu == stack_cpu ? _PAGE_GLOBAL : 0);
+
+        if ( is_shstk_slot(i) && dest_cpu != stack_cpu )
+            continue;
+
+        percpu_set_fixmap_remote(dest_cpu, PERCPU_STACK_IDX(stack_cpu) + i,
+                                 _mfn(virt_to_mfn(stack_base[stack_cpu] +
+                                                  i * PAGE_SIZE)),
+                                 flags);
+    }
 }
 
 static int cpu_smpboot_alloc(unsigned int cpu)

@@ -924,6 +924,18 @@ int arch_domain_create(struct domain *d,
 
     d->arch.msr_relaxed = config->arch.misc_flags & XEN_X86_MSR_RELAXED;
 
+    if ( !d->arch.asi && (opt_asi_hvm || opt_asi_pv ) )
+    {
+        /*
+         * This domain is not using ASI, but other domains on the system
+         * possibly are, hence the CPU stacks are on the per-CPU page-table
+         * region.  Add an L3 entry that has all the stacks mapped.
+         */
+        rc = map_all_stacks(d);
+        if ( rc )
+            goto fail;
+    }
+
     return 0;
 
  fail:
