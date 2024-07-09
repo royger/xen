@@ -9,6 +9,7 @@
  */
 
 #include <xen/cpu.h>
+#include <xen/efi.h>
 #include <xen/irq.h>
 #include <xen/sched.h>
 #include <xen/delay.h>
@@ -26,6 +27,8 @@
 #include <asm/hardirq.h>
 #include <asm/hpet.h>
 #include <asm/setup.h>
+
+#include <asm/spec_ctrl.h>
 
 /* Helper functions to prepare APIC register values. */
 static unsigned int prepare_ICR(unsigned int shortcut, int vector)
@@ -434,4 +437,40 @@ long cf_check cpu_down_helper(void *data)
     if ( ret == -EBUSY )
         ret = cpu_down(cpu);
     return ret;
+}
+
+void arch_smp_pre_callfunc(unsigned int cpu)
+{
+    if ( !opt_cpu_stack_hvm && !opt_cpu_stack_pv )
+        /*
+         * Avoid the unconditional sync_local_execstate() call below if ASI is
+         * not enabled for any domain.
+         */
+        return;
+
+    /*
+     * Sync execution state, so that the page-tables cannot change while
+     * creating or destroying the stack mappings.
+     */
+    sync_local_execstate();
+    if ( cpu == smp_processor_id() || !current->domain->arch.cpu_stack ||
+         /* EFI page-tables have all pCPU stacks mapped. */
+         efi_rs_using_pgtables() )
+        return;
+
+    vcpu_set_stack_mappings(current, cpu, false);
+}
+
+void arch_smp_post_callfunc(unsigned int cpu)
+{
+    if ( cpu == smp_processor_id() || !current->domain->arch.cpu_stack ||
+         /* EFI page-tables have all pCPU stacks mapped. */
+         efi_rs_using_pgtables() )
+        return;
+
+    ASSERT(current == this_cpu(curr_vcpu));
+    destroy_perdomain_mapping(current, PCPU_STACK_VIRT(cpu),
+                              (1U << STACK_ORDER));
+
+    flush_area_local((void *)PCPU_STACK_VIRT(cpu), FLUSH_ORDER(STACK_ORDER));
 }

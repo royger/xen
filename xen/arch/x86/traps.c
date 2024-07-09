@@ -74,6 +74,7 @@
 #include <asm/pv/trace.h>
 #include <asm/pv/mm.h>
 #include <asm/shstk.h>
+#include <asm/spec_ctrl.h>
 
 /*
  * opt_nmi: one of 'ignore', 'dom0', or 'fatal'.
@@ -609,10 +610,13 @@ void show_stack_overflow(unsigned int cpu, const struct cpu_user_regs *regs)
     unsigned long esp = regs->rsp;
     unsigned long curr_stack_base = esp & ~(STACK_SIZE - 1);
     unsigned long esp_top, esp_bottom;
+    const void *stack =
+        (opt_cpu_stack_hvm || opt_cpu_stack_pv) ? (void *)PCPU_STACK_VIRT(cpu)
+                                                : stack_base[cpu];
 
-    if ( _p(curr_stack_base) != stack_base[cpu] )
+    if ( _p(curr_stack_base) != stack )
         printk("Current stack base %p differs from expected %p\n",
-               _p(curr_stack_base), stack_base[cpu]);
+               _p(curr_stack_base), stack);
 
     esp_bottom = (esp | (STACK_SIZE - 1)) + 1;
     esp_top    = esp_bottom - PRIMARY_STACK_SIZE;

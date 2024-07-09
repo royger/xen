@@ -87,6 +87,7 @@
  * doing the final put_page(), and remove it from the iommu if so.
  */
 
+#include <xen/cpu.h>
 #include <xen/init.h>
 #include <xen/ioreq.h>
 #include <xen/kernel.h>
@@ -6424,8 +6425,10 @@ int create_perdomain_mapping(struct vcpu *v, unsigned long va,
     return rc;
 }
 
-void populate_perdomain_mapping(const struct vcpu *v, unsigned long va,
-                                mfn_t *mfn, unsigned long nr)
+static void populate_perdomain_mapping_flags(const struct vcpu *v,
+                                             unsigned long va, mfn_t *mfn,
+                                             unsigned long nr,
+                                             unsigned int flags)
 {
     l1_pgentry_t *l1tab = NULL, *pl1e;
     const l3_pgentry_t *l3tab;
@@ -6454,7 +6457,7 @@ void populate_perdomain_mapping(const struct vcpu *v, unsigned long va,
                 ASSERT_UNREACHABLE();
                 free_domheap_page(l1e_get_page(*pl1e));
             }
-            l1e_write(pl1e, l1e_from_mfn(mfn[i], __PAGE_HYPERVISOR_RW));
+            l1e_write(pl1e, l1e_from_mfn(mfn[i], flags));
         }
 
         return;
@@ -6505,12 +6508,37 @@ void populate_perdomain_mapping(const struct vcpu *v, unsigned long va,
             free_domheap_page(l1e_get_page(*pl1e));
         }
 
-        l1e_write(pl1e, l1e_from_mfn(*mfn, __PAGE_HYPERVISOR_RW));
+        l1e_write(pl1e, l1e_from_mfn(*mfn, flags));
     }
 
     unmap_domain_page(l1tab);
     unmap_domain_page(l2tab);
     unmap_domain_page(l3tab);
+}
+
+void populate_perdomain_mapping(const struct vcpu *v, unsigned long va,
+                                mfn_t *mfn, unsigned long nr)
+{
+    populate_perdomain_mapping_flags(v, va, mfn, nr, __PAGE_HYPERVISOR_RW);
+}
+
+void vcpu_set_stack_mappings(const struct vcpu *v, unsigned int stack_cpu,
+                             bool map_shstk)
+{
+    unsigned int i;
+
+    for ( i = 0; i < (1U << STACK_ORDER); i++ )
+    {
+        unsigned int flags = is_shstk_slot(i) ? __PAGE_HYPERVISOR_SHSTK
+                                              : __PAGE_HYPERVISOR_RW;
+        mfn_t mfn = virt_to_mfn(stack_base[stack_cpu] + i * PAGE_SIZE);
+
+        if ( is_shstk_slot(i) && !map_shstk )
+            continue;
+
+        populate_perdomain_mapping_flags(v,
+            PCPU_STACK_VIRT(stack_cpu) + i * PAGE_SIZE, &mfn, 1, flags);
+    }
 }
 
 void destroy_perdomain_mapping(const struct vcpu *v, unsigned long va,
@@ -6597,7 +6625,12 @@ void free_perdomain_mappings(struct vcpu *v)
     l3tab = __map_domain_page(d->arch.vcpu_pt ? v->arch.pervcpu_l3_pg
                                               : d->arch.perdomain_l3_pg);
 
-    for ( i = 0; i < PERDOMAIN_SLOTS; ++i)
+    for ( i = 0; i < PERDOMAIN_SLOTS; ++i )
+    {
+        if ( i == PCPU_STACK_SLOT && !d->arch.cpu_stack )
+            /* Without ASI the stack L3e is shared with the idle page-tables. */
+            continue;
+
         if ( l3e_get_flags(l3tab[i]) & _PAGE_PRESENT )
         {
             struct page_info *l2pg = l3e_get_page(l3tab[i]);
@@ -6627,6 +6660,7 @@ void free_perdomain_mappings(struct vcpu *v)
             unmap_domain_page(l2tab);
             free_domheap_page(l2pg);
         }
+    }
 
     unmap_domain_page(l3tab);
     free_domheap_page(d->arch.vcpu_pt ? v->arch.pervcpu_l3_pg
@@ -6635,31 +6669,40 @@ void free_perdomain_mappings(struct vcpu *v)
     v->arch.pervcpu_l3_pg = NULL;
 }
 
-static void write_sss_token(unsigned long *ptr)
+static void write_sss_token(unsigned long *ptr, unsigned long va)
 {
     /*
      * A supervisor shadow stack token is its own linear address, with the
      * busy bit (0) clear.
      */
-    *ptr = (unsigned long)ptr;
+    *ptr = va;
 }
 
-void memguard_guard_stack(void *p)
+void memguard_guard_stack(void *p, unsigned int cpu)
 {
+    unsigned long va =
+        (opt_cpu_stack_hvm || opt_cpu_stack_pv) ? PCPU_STACK_VIRT(cpu)
+                                                : (unsigned long)p;
+
     /* IST Shadow stacks.  4x 1k in stack page 0. */
     if ( IS_ENABLED(CONFIG_XEN_SHSTK) )
     {
-        write_sss_token(p + (IST_MCE * IST_SHSTK_SIZE) - 8);
-        write_sss_token(p + (IST_NMI * IST_SHSTK_SIZE) - 8);
-        write_sss_token(p + (IST_DB  * IST_SHSTK_SIZE) - 8);
-        write_sss_token(p + (IST_DF  * IST_SHSTK_SIZE) - 8);
+        write_sss_token(p + (IST_MCE * IST_SHSTK_SIZE) - 8,
+                        va + (IST_MCE * IST_SHSTK_SIZE) - 8);
+        write_sss_token(p + (IST_NMI * IST_SHSTK_SIZE) - 8,
+                        va + (IST_NMI * IST_SHSTK_SIZE) - 8);
+        write_sss_token(p + (IST_DB  * IST_SHSTK_SIZE) - 8,
+                        va + (IST_DB  * IST_SHSTK_SIZE) - 8);
+        write_sss_token(p + (IST_DF  * IST_SHSTK_SIZE) - 8,
+                        va + (IST_DF  * IST_SHSTK_SIZE) - 8);
     }
     map_pages_to_xen((unsigned long)p, virt_to_mfn(p), 1, PAGE_HYPERVISOR_SHSTK);
 
     /* Primary Shadow Stack.  1x 4k in stack page 5. */
     p += PRIMARY_SHSTK_SLOT * PAGE_SIZE;
+    va += PRIMARY_SHSTK_SLOT * PAGE_SIZE;
     if ( IS_ENABLED(CONFIG_XEN_SHSTK) )
-        write_sss_token(p + PAGE_SIZE - 8);
+        write_sss_token(p + PAGE_SIZE - 8, va + PAGE_SIZE - 8);
 
     map_pages_to_xen((unsigned long)p, virt_to_mfn(p), 1, PAGE_HYPERVISOR_SHSTK);
 }
