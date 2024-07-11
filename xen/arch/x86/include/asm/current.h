@@ -74,6 +74,9 @@ struct cpu_info {
      */
     bool         use_pv_cr3;
 
+    /* For ASI: per-CPU fixmap of guest L4 is possibly out of sync. */
+    bool new_cr3;
+
     /* get_stack_bottom() must be 16-byte aligned */
 };
 

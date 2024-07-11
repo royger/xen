@@ -11,6 +11,7 @@
 #include <xen/guest_access.h>
 
 #include <asm/current.h>
+#include <asm/fixmap.h>
 #include <asm/p2m.h>
 
 #include "mm.h"
@@ -102,6 +103,57 @@ void init_xen_pae_l2_slots(l2_pgentry_t *l2t, const struct domain *d)
            COMPAT_L2_PAGETABLE_XEN_SLOTS(d) * sizeof(*l2t));
 }
 #endif
+
+void pv_clear_l4_guest_entries(root_pgentry_t *root_pgt)
+{
+    unsigned int i;
+
+    for ( i = 0; i < ROOT_PAGETABLE_FIRST_XEN_SLOT; i++ )
+        l4e_write(&root_pgt[i], l4e_empty());
+    for ( i = ROOT_PAGETABLE_LAST_XEN_SLOT + 1; i < L4_PAGETABLE_ENTRIES; i++ )
+        l4e_write(&root_pgt[i], l4e_empty());
+}
+
+void pv_update_shadow_l4(const struct vcpu *v, bool flush)
+{
+    const root_pgentry_t *guest_pgt = percpu_fix_to_virt(PCPU_FIX_PV_L4SHADOW);
+    root_pgentry_t *shadow_pgt = this_cpu(root_pgt);
+
+    ASSERT(!v->domain->arch.pv.xpti);
+    ASSERT(is_pv_vcpu(v));
+    ASSERT(!is_idle_vcpu(v));
+
+    if ( get_cpu_info()->new_cr3 )
+    {
+        percpu_set_fixmap(PCPU_FIX_PV_L4SHADOW, maddr_to_mfn(v->arch.cr3),
+                          __PAGE_HYPERVISOR_RO);
+        get_cpu_info()->new_cr3 = false;
+    }
+
+    if ( is_pv_32bit_vcpu(v) )
+    {
+        l4e_write(&shadow_pgt[0], guest_pgt[0]);
+        l4e_write(&shadow_pgt[root_table_offset(PERDOMAIN_ALT_VIRT_START)],
+            shadow_pgt[root_table_offset(PERDOMAIN_VIRT_START)]);
+    }
+    else
+    {
+        unsigned int i;
+
+        for ( i = 0; i < ROOT_PAGETABLE_FIRST_XEN_SLOT; i++ )
+            l4e_write(&shadow_pgt[i], guest_pgt[i]);
+        for ( i = ROOT_PAGETABLE_LAST_XEN_SLOT + 1;
+              i < L4_PAGETABLE_ENTRIES; i++ )
+            l4e_write(&shadow_pgt[i], guest_pgt[i]);
+
+        /* The presence of this Xen slot is selected by the guest. */
+        l4e_write(&shadow_pgt[l4_table_offset(RO_MPT_VIRT_START)],
+            guest_pgt[l4_table_offset(RO_MPT_VIRT_START)]);
+    }
+
+    if ( flush )
+        flush_local(FLUSH_TLB_GLOBAL);
+}
 
 /*
  * Local variables:

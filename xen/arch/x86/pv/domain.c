@@ -15,6 +15,7 @@
 #include <asm/invpcid.h>
 #include <asm/spec_ctrl.h>
 #include <asm/pv/domain.h>
+#include <asm/pv/mm.h>
 #include <asm/shadow.h>
 
 #ifdef CONFIG_PV32
@@ -384,7 +385,7 @@ int pv_domain_initialise(struct domain *d)
 
     d->arch.ctxt_switch = &pv_csw;
 
-    d->arch.pv.flush_root_pt = d->arch.pv.xpti;
+    d->arch.pv.flush_root_pt = d->arch.pv.xpti || d->arch.asi;
 
     if ( !is_pv_32bit_domain(d) && use_invpcid && cpu_has_pcid )
         switch ( ACCESS_ONCE(opt_pcid) )
@@ -446,7 +447,27 @@ static void _toggle_guest_pt(struct vcpu *v)
      * to release). Switch to the idle page tables in such an event; the
      * guest will have been crashed already.
      */
-    cr3 = v->arch.cr3;
+    if ( v->domain->arch.asi )
+    {
+        /*
+         * _toggle_guest_pt() might switch between user and kernel page tables,
+         * but doesn't use write_ptbase(), and hence needs an explicit call to
+         * sync the shadow L4.
+         */
+        cr3 = __pa(this_cpu(root_pgt));
+        if ( v->domain->arch.pv.pcid )
+            cr3 |= get_pcid_bits(v, false);
+        /*
+         * Ensure the current root page table is already the shadow L4, as
+         * guest user/kernel switches can only happen once the guest is
+         * running.
+         */
+        ASSERT(read_cr3() == cr3);
+        pv_update_shadow_l4(v, false);
+    }
+    else
+        cr3 = v->arch.cr3;
+
     if ( shadow_mode_enabled(v->domain) )
     {
         cr3 &= ~X86_CR3_NOFLUSH;
