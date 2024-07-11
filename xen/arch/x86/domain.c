@@ -45,6 +45,7 @@
 #include <asm/io.h>
 #include <asm/processor.h>
 #include <asm/desc.h>
+#include <asm/fixmap.h>
 #include <asm/i387.h>
 #include <asm/xstate.h>
 #include <asm/cpuidle.h>
@@ -2110,11 +2111,47 @@ void context_switch(struct vcpu *prev, struct vcpu *next)
 
     local_irq_disable();
 
+    if ( is_pv_domain(prevd) && prevd->arch.asi )
+    {
+        /*
+         * Don't leak the L4 shadow mapping in the per-CPU area.  Can't be done
+         * in paravirt_ctxt_switch_from() because the lazy idle vCPU context
+         * switch would otherwise enter an infinite loop in
+         * mapcache_current_vcpu() with sync_local_execstate().
+         *
+         * Note clearing the fixmpa must strictly be done ahead of changing the
+         * current vCPU and with interrupts disabled, so there's no window
+         * where current->domain->arch.asi == true and PCPU_FIX_PV_L4SHADOW is
+         * not mapped.
+         */
+        percpu_clear_fixmap(PCPU_FIX_PV_L4SHADOW);
+        get_cpu_info()->root_pgt_changed = false;
+    }
+
     set_current(next);
 
     if ( (per_cpu(curr_vcpu, cpu) == next) ||
          (is_idle_domain(nextd) && cpu_online(cpu)) )
     {
+        if ( is_pv_domain(nextd) && nextd->arch.asi )
+        {
+            /* Signal the fixmap entry must be mapped. */
+            get_cpu_info()->new_cr3 = true;
+            if ( get_cpu_info()->root_pgt_changed )
+            {
+                /*
+                 * Map and update the shadow L4 in case we received any
+                 * FLUSH_ROOT_PGTBL request while running on the idle vCPU.
+                 *
+                 * Do it before enabling interrupts so that no flush IPI can be
+                 * delivered without having PCPU_FIX_PV_L4SHADOW correctly
+                 * mapped.
+                 */
+                pv_update_shadow_l4(next, true);
+                get_cpu_info()->root_pgt_changed = false;
+            }
+        }
+
         local_irq_enable();
     }
     else

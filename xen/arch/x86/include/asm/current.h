@@ -60,10 +60,14 @@ struct cpu_info {
     uint8_t      scf; /* SCF_* */
 
     /*
-     * The following field controls copying of the L4 page table of 64-bit
-     * PV guests to the per-cpu root page table on entering the guest context.
-     * If set the L4 page table is being copied to the root page table and
-     * the field will be reset.
+     * For XPTI the following field controls copying of the L4 page table of
+     * 64-bit PV guests to the per-cpu root page table on entering the guest
+     * context.  If set the L4 page table is being copied to the root page
+     * table and the field will be reset.
+     *
+     * For ASI the field is used to acknowledge whether a FLUSH_ROOT_PGTBL
+     * request has been received when running the idle vCPU on PV guest
+     * page-tables (a lazy context switch to the idle vCPU).
      */
     bool         root_pgt_changed;
 
@@ -73,6 +77,9 @@ struct cpu_info {
      * from a NMI or MCE to hypervisor code where pv_cr3 was active.
      */
     bool         use_pv_cr3;
+
+    /* For ASI: per-CPU fixmap of guest L4 is possibly out of sync. */
+    bool         new_cr3;
 
     /* get_stack_bottom() must be 16-byte aligned */
 };

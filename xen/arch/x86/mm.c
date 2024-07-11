@@ -513,6 +513,8 @@ void make_cr3(struct vcpu *v, mfn_t mfn)
     v->arch.cr3 = mfn_x(mfn) << PAGE_SHIFT;
     if ( is_pv_domain(d) && d->arch.pv.pcid )
         v->arch.cr3 |= get_pcid_bits(v, false);
+    if ( is_pv_domain(d) && d->arch.asi )
+        get_cpu_info()->new_cr3 = true;
 }
 
 void write_ptbase(struct vcpu *v)
@@ -531,6 +533,40 @@ void write_ptbase(struct vcpu *v)
         if ( new_cr4 & X86_CR4_PCIDE )
             cpu_info->pv_cr3 |= get_pcid_bits(v, true);
         switch_cr3_cr4(v->arch.cr3, new_cr4);
+    }
+    else if ( is_pv_domain(d) && d->arch.asi )
+    {
+        root_pgentry_t *root_pgt = this_cpu(root_pgt);
+        unsigned long cr3 = __pa(root_pgt);
+
+        /*
+         * XPTI and ASI cannot be simultaneously used even by different
+         * domains at runtime.
+         */
+        ASSERT(!cpu_info->use_pv_cr3 && !cpu_info->xen_cr3 &&
+               !cpu_info->pv_cr3);
+
+        if ( new_cr4 & X86_CR4_PCIDE )
+            cr3 |= get_pcid_bits(v, false);
+
+        /*
+         * Zap guest L4 entries ahead of flushing the TLB, so that the CPU
+         * cannot speculatively populate the TLB with stale mappings.
+         */
+        pv_clear_l4_guest_entries(root_pgt);
+
+        /*
+         * Switch to the shadow L4 with just the Xen slots populated, the guest
+         * slots will be populated by pv_update_shadow_l4() once running on the
+         * shadow L4.
+         *
+         * The reason for switching to the per-CPU shadow L4 before updating
+         * the guest slots is that pv_update_shadow_l4() uses per-CPU mappings,
+         * and the in-use page-table previous to the switch_cr3_cr4() call
+         * might not support per-CPU mappings.
+         */
+        switch_cr3_cr4(cr3, new_cr4);
+        pv_update_shadow_l4(v, false);
     }
     else
     {
@@ -6505,6 +6541,17 @@ void setup_perdomain_slot(const struct vcpu *v, root_pgentry_t *root_pgt)
 
         ASSERT(l3);
         populate_perdomain(d, root_pgt, l3);
+
+        if ( is_pv_domain(d) )
+        {
+            /*
+             * Abuse the fact that this function is called on vCPU context
+             * switch and clean previous guest controlled slots from the shadow
+             * L4.
+             */
+            pv_clear_l4_guest_entries(root_pgt);
+            get_cpu_info()->new_cr3 = true;
+        }
     }
     else if ( is_hvm_domain(d) || d->arch.pv.xpti )
         l4e_write(&root_pgt[root_table_offset(PERDOMAIN_VIRT_START)],
