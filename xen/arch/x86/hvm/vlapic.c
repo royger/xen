@@ -265,13 +265,18 @@ static void vlapic_init_sipi_one(struct vcpu *target, uint32_t icr)
         bool fpu_initialised;
         int rc;
 
+        printk("%pv: received INIT\n", target);
+
         /* No work on INIT de-assert for P4-type APIC. */
         if ( (icr & (APIC_INT_LEVELTRIG | APIC_INT_ASSERT)) ==
              APIC_INT_LEVELTRIG )
             break;
         /* Nothing to do if the VCPU is already reset. */
         if ( !target->is_initialised )
+        {
+            printk("%pv: INIT - nothing to do, vCPU already reset\n", target);
             break;
+        }
         hvm_vcpu_down(target);
         domain_lock(target->domain);
         /* Reset necessary VCPU state. This does not include FPU state. */
@@ -281,11 +286,14 @@ static void vlapic_init_sipi_one(struct vcpu *target, uint32_t icr)
         target->fpu_initialised = fpu_initialised;
         vlapic_do_init(vcpu_vlapic(target));
         domain_unlock(target->domain);
+        printk("%pv: INIT - vCPU reset\n", target);
         break;
     }
 
     case APIC_DM_STARTUP: {
         uint16_t reset_cs = (icr & 0xffu) << 8;
+
+        printk("%pv: STARTUP cs: %#x\n", target, reset_cs);
         hvm_vcpu_reset_state(target, reset_cs, 0);
         break;
     }
