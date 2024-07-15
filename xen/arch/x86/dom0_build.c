@@ -304,12 +304,14 @@ unsigned long __init dom0_paging_pages(const struct domain *d,
                                        unsigned long nr_pages)
 {
     /* Keep in sync with libxl__get_required_paging_memory(). */
-    unsigned long memkb = nr_pages * (PAGE_SIZE / 1024);
+    unsigned long memkb = max_page * (PAGE_SIZE / 1024);
 
     memkb = 4 * (256 * d->max_vcpus +
                  (is_pv_domain(d) ? opt_dom0_shadow || opt_pv_l1tf_hwdom
                                   : 1 + opt_dom0_shadow) *
                  (memkb / 1024));
+
+    memkb *= 4;
 
     return DIV_ROUND_UP(memkb, 1024) << (20 - PAGE_SHIFT);
 }
