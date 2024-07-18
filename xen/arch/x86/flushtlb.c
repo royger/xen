@@ -184,6 +184,9 @@ unsigned int flush_area_local(const void *va, unsigned int flags)
 {
     unsigned int order = (flags - 1) & FLUSH_ORDER_MASK;
 
+    if ( flags & FLUSH_ROOT_PGTBL )
+        get_cpu_info()->root_pgt_changed = true;
+
     if ( flags & (FLUSH_TLB|FLUSH_TLB_GLOBAL) )
     {
         if ( order == 0 )
@@ -248,9 +251,6 @@ unsigned int flush_area_local(const void *va, unsigned int flags)
         else
             wbnoinvd();
     }
-
-    if ( flags & FLUSH_ROOT_PGTBL )
-        get_cpu_info()->root_pgt_changed = true;
 
     return flags;
 }
