@@ -4136,7 +4136,8 @@ void asmlinkage vmx_vmexit_handler(struct cpu_user_regs *regs)
         break;
 
     case EXIT_REASON_INIT:
-        printk(XENLOG_ERR "Error: INIT received - ignoring\n");
+        printk(XENLOG_ERR "CPU%u %pv Error: INIT received - ignoring\n",
+               smp_processor_id(), v);
         break;
     }
 
