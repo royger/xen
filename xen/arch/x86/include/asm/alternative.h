@@ -183,13 +183,13 @@ extern void alternative_branches(void);
  * https://github.com/llvm/llvm-project/issues/12579
  * https://github.com/llvm/llvm-project/issues/82598
  */
-#define ALT_CALL_ARG(arg, n)                                            \
-    register union {                                                    \
-        typeof(arg) e[sizeof(long) / sizeof(arg)];                      \
-        unsigned long r;                                                \
-    } a ## n ## _ asm ( ALT_CALL_arg ## n ) = {                         \
-        .e[0] = ({ BUILD_BUG_ON(sizeof(arg) > sizeof(void *)); (arg); })\
-    }
+#define ALT_CALL_ARG(arg, n)                                             \
+     register unsigned long a ## n ## _ asm ( ALT_CALL_arg ## n ) = ({   \
+         unsigned long tmp = 0;                                          \
+         *(typeof(arg) *)&tmp = (arg);                                   \
+         BUILD_BUG_ON(sizeof(arg) > sizeof(void *));                     \
+         tmp;                                                            \
+     })
 #else
 #define ALT_CALL_ARG(arg, n) \
     register typeof(arg) a ## n ## _ asm ( ALT_CALL_arg ## n ) = \
