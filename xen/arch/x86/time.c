@@ -1291,14 +1291,23 @@ static bool __get_cmos_time(struct rtc_time *rtc)
     return t1 <= SECONDS(1) && t2 < MILLISECS(3);
 }
 
-static bool cmos_probe(struct rtc_time *rtc_p, bool cmos_rtc_probe)
+static bool __initdata cmos_rtc_probe;
+boolean_param("cmos-rtc-probe", cmos_rtc_probe);
+
+static bool __init cmos_probe(void)
 {
     unsigned int seconds = 60;
 
+    if ( !(acpi_gbl_FADT.boot_flags & ACPI_FADT_NO_CMOS_RTC) )
+        return true;
+
+    if ( !cmos_rtc_probe )
+        return false;
+
     for ( ; ; )
     {
-        bool success = __get_cmos_time(rtc_p);
-        struct rtc_time rtc = *rtc_p;
+        struct rtc_time rtc;
+        bool success = __get_cmos_time(&rtc);
 
         if ( likely(!cmos_rtc_probe) )
             return true;
@@ -1328,28 +1337,12 @@ static bool cmos_probe(struct rtc_time *rtc_p, bool cmos_rtc_probe)
     return false;
 }
 
-static unsigned long get_cmos_time(void)
+
+static unsigned long cmos_read(void)
 {
-    unsigned long res;
     struct rtc_time rtc;
-    static bool __read_mostly cmos_rtc_probe;
-    boolean_param("cmos-rtc-probe", cmos_rtc_probe);
 
-    if ( efi_enabled(EFI_RS) )
-    {
-        res = efi_get_time();
-        if ( res )
-            return res;
-    }
-
-    if ( likely(!(acpi_gbl_FADT.boot_flags & ACPI_FADT_NO_CMOS_RTC)) )
-        cmos_rtc_probe = false;
-    else if ( system_state < SYS_STATE_smp_boot && !cmos_rtc_probe )
-        panic("System with no CMOS RTC advertised must be booted from EFI"
-              " (or with command line option \"cmos-rtc-probe\")\n");
-
-    if ( !cmos_probe(&rtc, cmos_rtc_probe) )
-        panic("No CMOS RTC found - system must be booted from EFI\n");
+    __get_cmos_time(&rtc);
 
     return mktime(rtc.year, rtc.mon, rtc.day, rtc.hour, rtc.min, rtc.sec);
 }
@@ -1532,12 +1525,85 @@ void rtc_guest_write(unsigned int port, unsigned int data)
     }
 }
 
+static enum {
+    WALLCLOCK_UNSET,
+    WALLCLOCK_XEN,
+    WALLCLOCK_CMOS,
+    WALLCLOCK_EFI,
+} wallclock_source __ro_after_init;
+
+static const char *__init wallclock_type_to_string(void)
+{
+    switch ( wallclock_source )
+    {
+    case WALLCLOCK_XEN:
+        return "XEN";
+
+    case WALLCLOCK_CMOS:
+        return "CMOS RTC";
+
+    case WALLCLOCK_EFI:
+        return "EFI";
+
+    case WALLCLOCK_UNSET:
+        return "UNSET";
+    }
+
+    ASSERT_UNREACHABLE();
+    return "";
+}
+
+static void __init probe_wallclock(void)
+{
+    ASSERT(wallclock_source == WALLCLOCK_UNSET);
+
+    if ( xen_guest )
+    {
+        wallclock_source = WALLCLOCK_XEN;
+        return;
+    }
+    if ( efi_enabled(EFI_RS) && efi_get_time() )
+    {
+        wallclock_source = WALLCLOCK_EFI;
+        return;
+    }
+    if ( cmos_probe() )
+    {
+        wallclock_source = WALLCLOCK_CMOS;
+        return;
+    }
+
+    panic("No usable wallclock found, probed:%s%s%s\n%s",
+          !cmos_rtc_probe && !efi_enabled(EFI_RS) ? " None" : "",
+          cmos_rtc_probe ? " CMOS" : "",
+          efi_enabled(EFI_RS) ? " EFI" : "",
+          !cmos_rtc_probe
+              ? "Try with command line option \"cmos-rtc-probe\"\n"
+              : !efi_enabled(EFI_RS)
+                  ? "System must be booted from EFI\n"
+                  : "");
+}
+
 static unsigned long get_wallclock_time(void)
 {
-    if ( xen_guest )
+    switch ( wallclock_source )
+    {
+    case WALLCLOCK_XEN:
         return read_xen_wallclock();
 
-    return get_cmos_time();
+    case WALLCLOCK_CMOS:
+        return cmos_read();
+
+    case WALLCLOCK_EFI:
+        return efi_get_time();
+
+    case WALLCLOCK_UNSET:
+        /* Unexpected state - handled by the ASSERT_UNREACHABLE() below. */
+        break;
+    }
+
+    ASSERT_UNREACHABLE();
+    return 0;
 }
 
 /***************************************************************************
@@ -2461,6 +2527,10 @@ int __init init_xen_time(void)
     tsc_check_writability();
 
     open_softirq(TIME_CALIBRATE_SOFTIRQ, local_time_calibration);
+
+    probe_wallclock();
+
+    printk(XENLOG_INFO "Wallclock source: %s\n", wallclock_type_to_string());
 
     /* NB. get_wallclock_time() can take over one second to execute. */
     do_settime(get_wallclock_time(), 0, NOW());
