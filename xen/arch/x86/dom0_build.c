@@ -612,7 +612,24 @@ int __init construct_dom0(struct domain *d, const module_t *image,
     if ( is_hvm_domain(d) )
         rc = dom0_construct_pvh(d, image, image_headroom, initrd, cmdline);
     else if ( is_pv_domain(d) )
+    {
+        /*
+         * Temporarily clear SMAP in CR4 to allow user-accesses in
+         * construct_dom0().  This saves a large number of corner cases
+         * interactions with copy_from_user().
+         */
+        if ( boot_cpu_has(X86_FEATURE_XEN_SMAP) )
+        {
+            cr4_pv32_mask &= ~X86_CR4_SMAP;
+            write_cr4(read_cr4() & ~X86_CR4_SMAP);
+        }
         rc = dom0_construct_pv(d, image, image_headroom, initrd, cmdline);
+        if ( boot_cpu_has(X86_FEATURE_XEN_SMAP) )
+        {
+            write_cr4(read_cr4() | X86_CR4_SMAP);
+            cr4_pv32_mask |= X86_CR4_SMAP;
+        }
+    }
     else
         panic("Cannot construct Dom0. No guest interface available\n");
 
