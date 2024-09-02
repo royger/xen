@@ -785,6 +785,31 @@ static struct platform_timesource __initdata_cf_clobber plt_xen_timer =
     .resume = resume_xen_timer,
     .counter_bits = 63,
 };
+
+static unsigned long read_xen_wallclock(void)
+{
+    struct shared_info *sh_info = XEN_shared_info;
+    uint32_t wc_version;
+    uint64_t wc_sec;
+
+    ASSERT(xen_guest);
+
+    do {
+        wc_version = sh_info->wc_version & ~1;
+        smp_rmb();
+
+        wc_sec  = sh_info->wc_sec;
+        smp_rmb();
+    } while ( wc_version != sh_info->wc_version );
+
+    return wc_sec + read_xen_timer() / 1000000000;
+}
+#else
+static unsigned long read_xen_wallclock(void)
+{
+    ASSERT_UNREACHABLE();
+    return 0;
+}
 #endif
 
 #ifdef CONFIG_HYPERV_GUEST
@@ -1497,24 +1522,8 @@ void rtc_guest_write(unsigned int port, unsigned int data)
 
 static unsigned long get_wallclock_time(void)
 {
-#ifdef CONFIG_XEN_GUEST
     if ( xen_guest )
-    {
-        struct shared_info *sh_info = XEN_shared_info;
-        uint32_t wc_version;
-        uint64_t wc_sec;
-
-        do {
-            wc_version = sh_info->wc_version & ~1;
-            smp_rmb();
-
-            wc_sec  = sh_info->wc_sec;
-            smp_rmb();
-        } while ( wc_version != sh_info->wc_version );
-
-        return wc_sec + read_xen_timer() / 1000000000;
-    }
-#endif
+        return read_xen_wallclock();
 
     return get_cmos_time();
 }
