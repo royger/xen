@@ -240,10 +240,6 @@
  *      The logical block size, in bytes, of the underlying storage. This
  *      must be a power of two with a minimum value of 512.
  *
- *      NOTE: Because of implementation bugs in some frontends this must be
- *            set to 512, unless the frontend advertizes a non-zero value
- *            in its "feature-large-sector-size" xenbus node. (See below).
- *
  * physical-sector-size
  *      Values:         <uint32_t>
  *      Default Value:  <"sector-size">
@@ -254,8 +250,8 @@
  * sectors
  *      Values:         <uint64_t>
  *
- *      The size of the backend device, expressed in units of "sector-size".
- *      The product of "sector-size" and "sectors" must also be an integer
+ *      The size of the backend device, expressed in units of 512b.
+ *      The product of "sector-size" * 512 must also be an integer
  *      multiple of "physical-sector-size", if that node is present.
  *
  *****************************************************************************
@@ -338,6 +334,7 @@
  * feature-large-sector-size
  *      Values:         0/1 (boolean)
  *      Default Value:  0
+ *      Notes:          DEPRECATED, 12
  *
  *      A value of "1" indicates that the frontend will correctly supply and
  *      interpret all sector-based quantities in terms of the "sector-size"
@@ -411,6 +408,11 @@
  *(10) The discard-secure property may be present and will be set to 1 if the
  *     backing device supports secure discard.
  *(11) Only used by Linux and NetBSD.
+ *(12) Possibly only ever implemented by the QEMU Qdisk backend and the Windows
+ *     PV block frontend.  Other backends and frontends supported 'sector-size'
+ *     values greater than 512 before such feature was added.  Frontends should
+ *     not expose this node, neither should backends make any decisions based
+ *     on it being exposed by the frontend.
  */
 
 /*
@@ -621,9 +623,12 @@
 /*
  * NB. 'first_sect' and 'last_sect' in blkif_request_segment, as well as
  * 'sector_number' in blkif_request, blkif_request_discard and
- * blkif_request_indirect are sector-based quantities. See the description
- * of the "feature-large-sector-size" frontend xenbus node above for
- * more information.
+ * blkif_request_indirect are all in units of 512 bytes, regardless of whether the
+ * 'sector-size' xenstore node contains a value greater than 512.
+ *
+ * However the value in those fields must be properly aligned to the logical
+ * sector size reported by the 'sector-size' xenstore node, see 'Backend Device
+ * Properties' section.
  */
 struct blkif_request_segment {
     grant_ref_t gref;        /* reference to I/O buffer frame        */
