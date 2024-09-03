@@ -1292,7 +1292,7 @@ static bool __get_cmos_time(struct rtc_time *rtc)
     return t1 <= SECONDS(1) && t2 < MILLISECS(3);
 }
 
-static bool __initdata cmos_rtc_probe;
+static bool __initdata cmos_rtc_probe = true;
 boolean_param("cmos-rtc-probe", cmos_rtc_probe);
 
 static bool __init cmos_probe(void)
@@ -1560,6 +1560,8 @@ static int __init cf_check parse_wallclock(const char *arg)
     if ( !arg )
         return -EINVAL;
 
+    cmos_rtc_probe = true;
+
     if ( !strcmp("auto", arg) )
         wallclock_source = WALLCLOCK_UNSET;
     else if ( !strcmp("xen", arg) )
@@ -1571,6 +1573,8 @@ static int __init cf_check parse_wallclock(const char *arg)
     }
     else if ( !strcmp("cmos", arg) )
         wallclock_source = WALLCLOCK_CMOS;
+    else if ( !strcmp("no-cmos-probe", arg) )
+        cmos_rtc_probe = false;
     else if ( !strcmp("efi", arg) )
     {
         if ( !efi_enabled(EFI_RS) )
@@ -1609,8 +1613,7 @@ static void __init probe_wallclock(void)
           !cmos_rtc_probe && !efi_enabled(EFI_RS) ? " None" : "",
           cmos_rtc_probe ? " CMOS" : "",
           efi_enabled(EFI_RS) ? " EFI" : "",
-          !cmos_rtc_probe ? "Try with command line option \"cmos-rtc-probe\"\n"
-           : !efi_enabled(EFI_RS) ? "System must be booted from EFI\n" : "");
+          !efi_enabled(EFI_RS) ? "System must be booted from EFI\n" : "");
 }
 
 static unsigned long get_wallclock_time(void)

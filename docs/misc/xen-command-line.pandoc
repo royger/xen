@@ -326,10 +326,13 @@ Interrupts.  Specifying zero disables CMCI handling.
 ### cmos-rtc-probe (x86)
 > `= <boolean>`
 
-> Default: `false`
+> Default: `true`
 
 Flag to indicate whether to probe for a CMOS Real Time Clock irrespective of
 ACPI indicating none to be there.
+
+**WARNING: The `cmos-rtc-probe` option is deprecated and superseded by
+_wallclock=no-cmos-probe_ using both options in combination is undefined.**
 
 ### com1 (x86)
 ### com2 (x86)
@@ -2822,7 +2825,7 @@ suboptimal scheduling decisions, but only when the system is
 oversubscribed (i.e., in total there are more vCPUs than pCPUs).
 
 ### wallclock (x86)
-> `= auto | xen | cmos | efi`
+> `= auto | xen | cmos | no-cmos-probe | efi`
 
 > Default: `auto`
 
@@ -2835,6 +2838,11 @@ Allow forcing the usage of a specific wallclock source.
    guest.
 
  * `cmos` force usage of the CMOS RTC wallclock.
+
+ * `no-cmos-probe` do not probe for the CMOS RTC presence if the ACPI FADT
+   table signals there's no CMOS RTC.  Implies using the same heuristics as
+   the `auto` option.  By default Xen will probe for the CMOS RTC presence
+   even when ACPI FADT signals no CMOS RTC available.
 
  * `efi` force usage of the EFI_GFET_TIME run-time method when booted from EFI
    firmware.
