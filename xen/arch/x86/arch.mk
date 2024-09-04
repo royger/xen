@@ -124,6 +124,3 @@ endif # $(XEN_BUILD_PE)
 export XEN_BUILD_EFI XEN_BUILD_PE
 export EFI_LDFLAGS
 endif
-
-# Set up the assembler include path properly for older toolchains.
-CFLAGS += -Wa,-I$(objtree)/include -Wa,-I$(srctree)/include
