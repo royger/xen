@@ -348,6 +348,11 @@ static void cf_check stop_this_cpu(void *dummy)
         halt();
 }
 
+static void cf_check mask_lvterr(void *dummy)
+{
+    apic_write(APIC_LVTERR, ERROR_APIC_VECTOR | APIC_LVT_MASKED);
+}
+
 /*
  * Stop all CPUs and turn off local APICs and the IO-APIC, so other OSs see a 
  * clean IRQ state.
@@ -363,6 +368,18 @@ void smp_send_stop(void)
         local_irq_disable();
         fixup_irqs(cpumask_of(cpu), 0);
         local_irq_enable();
+
+        /*
+         * Mask the local APIC error vector ahead of stopping CPUs.
+         *
+         * On AMD the local APIC will report Receive Accept Errors if the
+         * destination APIC ID of an interrupt message is not online.  There's
+         * no guarantee that fixup_irqs() will evacuate all interrupts -
+         * possibly because the sole CPU remaining online doesn't have enough
+         * vectors to accommodate all.
+         */
+        smp_call_function(mask_lvterr, NULL, true);
+        mask_lvterr(NULL);
 
         smp_call_function(stop_this_cpu, NULL, 0);
 
