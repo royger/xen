@@ -765,6 +765,11 @@ static int prepare_payload(struct payload *payload,
     if ( rc )
         return rc;
 
+    /* Perform the Xen build-id check ahead of doing any more processing. */
+    rc = xen_build_id_dep(payload);
+    if ( rc )
+        return rc;
+
     /* Setup the virtual region with proper data. */
     region = &payload->region;
 
@@ -1094,10 +1099,6 @@ static int load_payload_data(struct payload *payload, void *raw, size_t len)
         goto out;
 
     rc = prepare_payload(payload, &elf);
-    if ( rc )
-        goto out;
-
-    rc = xen_build_id_dep(payload);
     if ( rc )
         goto out;
 
