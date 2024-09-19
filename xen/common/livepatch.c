@@ -477,7 +477,11 @@ static int parse_buildid(const struct livepatch_elf_sec *sec,
     /* Presence of the sections is ensured by check_special_sections(). */
     ASSERT(sec);
 
-    n = sec->load_addr;
+    /*
+     * This function gets called ahead of move_payload(), use the pointer to
+     * the section data section before it's relocated to load_addr.
+     */
+    n = sec->data;
 
     if ( sec->sec->sh_size <= sizeof(*n) )
         return -EINVAL;
@@ -492,30 +496,63 @@ static int parse_buildid(const struct livepatch_elf_sec *sec,
    return 0;
 }
 
-static int check_special_sections(const struct livepatch_elf *elf)
+static int check_special_sections(const struct livepatch_elf *elf,
+                                  struct payload *payload)
 {
     unsigned int i;
-    static const char *const names[] = { ELF_LIVEPATCH_DEPENDS,
-                                         ELF_LIVEPATCH_XEN_DEPENDS,
-                                         ELF_BUILD_ID_NOTE};
+    const struct {
+        const char *name;
+        struct livepatch_build_id *id;
+    } sections[] = {
+#define BUILDID_SEC(n, i) { .name = n, .id = i },
+        BUILDID_SEC(ELF_LIVEPATCH_DEPENDS,      &payload->dep)
+        BUILDID_SEC(ELF_LIVEPATCH_XEN_DEPENDS,  &payload->xen_dep)
+        BUILDID_SEC(ELF_BUILD_ID_NOTE,          &payload->id)
+#undef BUILDID_SEC
+    };
+    const struct payload *data;
+    int rc;
 
-    for ( i = 0; i < ARRAY_SIZE(names); i++ )
+    for ( i = 0; i < ARRAY_SIZE(sections); i++ )
     {
         const struct livepatch_elf_sec *sec;
 
-        sec = livepatch_elf_sec_by_name(elf, names[i]);
+        sec = livepatch_elf_sec_by_name(elf, sections[i].name);
         if ( !sec )
         {
             printk(XENLOG_ERR LIVEPATCH "%s: %s is missing\n",
-                   elf->name, names[i]);
+                   elf->name, sections[i].name);
             return -EINVAL;
         }
 
         if ( !sec->sec->sh_size )
         {
             printk(XENLOG_ERR LIVEPATCH "%s: %s is empty\n",
-                   elf->name, names[i]);
+                   elf->name, sections[i].name);
             return -EINVAL;
+        }
+
+        rc = parse_buildid(sec, sections[i].id);
+        if ( rc )
+            return rc;
+    }
+
+    /* Check running Xen buildid matches expectations. */
+    rc = xen_build_id_dep(payload);
+    if ( rc )
+        return rc;
+
+    /* Make sure it is not a duplicate. */
+    list_for_each_entry ( data, &payload_list, list )
+    {
+        /* No way _this_ payload is on the list. */
+        ASSERT(data != payload);
+        if ( data->id.len == payload->id.len &&
+             !memcmp(data->id.p, payload->id.p, data->id.len) )
+        {
+            dprintk(XENLOG_DEBUG, LIVEPATCH "%s: Already loaded as %s!\n",
+                    elf->name, data->name);
+            return -EEXIST;
         }
     }
 
@@ -663,7 +700,6 @@ static int prepare_payload(struct payload *payload,
                            struct livepatch_elf *elf)
 {
     const struct livepatch_elf_sec *sec;
-    const struct payload *data;
     unsigned int i;
     struct livepatch_func *funcs;
     struct livepatch_func *f;
@@ -727,36 +763,6 @@ static int prepare_payload(struct payload *payload,
     LIVEPATCH_ASSIGN_SINGLE_HOOK(elf, payload->hooks.revert.pre, ELF_LIVEPATCH_PREREVERT_HOOK);
     LIVEPATCH_ASSIGN_SINGLE_HOOK(elf, payload->hooks.revert.action, ELF_LIVEPATCH_REVERT_HOOK);
     LIVEPATCH_ASSIGN_SINGLE_HOOK(elf, payload->hooks.revert.post, ELF_LIVEPATCH_POSTREVERT_HOOK);
-
-    rc = parse_buildid(livepatch_elf_sec_by_name(elf, ELF_BUILD_ID_NOTE),
-                       &payload->id);
-    if ( rc )
-        return rc;
-
-    /* Make sure it is not a duplicate. */
-    list_for_each_entry ( data, &payload_list, list )
-    {
-        /* No way _this_ payload is on the list. */
-        ASSERT(data != payload);
-        if ( data->id.len == payload->id.len &&
-             !memcmp(data->id.p, payload->id.p, data->id.len) )
-        {
-            dprintk(XENLOG_DEBUG, LIVEPATCH "%s: Already loaded as %s!\n",
-                    elf->name, data->name);
-            return -EEXIST;
-        }
-    }
-
-    rc = parse_buildid(livepatch_elf_sec_by_name(elf, ELF_LIVEPATCH_DEPENDS),
-                       &payload->dep);
-    if ( rc )
-        return rc;
-
-    rc = parse_buildid(livepatch_elf_sec_by_name(elf,
-                                                 ELF_LIVEPATCH_XEN_DEPENDS),
-                       &payload->xen_dep);
-    if ( rc )
-        return rc;
 
     /* Setup the virtual region with proper data. */
     region = &payload->region;
@@ -1066,6 +1072,10 @@ static int load_payload_data(struct payload *payload, void *raw, size_t len)
     if ( rc )
         goto out;
 
+    rc = check_special_sections(&elf, payload);
+    if ( rc )
+        goto out;
+
     rc = move_payload(payload, &elf);
     if ( rc )
         goto out;
@@ -1078,19 +1088,11 @@ static int load_payload_data(struct payload *payload, void *raw, size_t len)
     if ( rc )
         goto out;
 
-    rc = check_special_sections(&elf);
-    if ( rc )
-        goto out;
-
     rc = check_patching_sections(&elf);
     if ( rc )
         goto out;
 
     rc = prepare_payload(payload, &elf);
-    if ( rc )
-        goto out;
-
-    rc = xen_build_id_dep(payload);
     if ( rc )
         goto out;
 
