@@ -174,10 +174,13 @@ extern void *const __initdata_cf_clobber_end[];
  * The caller will set the "force" argument to true for the final
  * invocation, such that no CALLs/JMPs to NULL pointers will be left
  * around. See also the further comment below.
+ *
+ * Note the function cannot fail if system_state < SYS_STATE_active, it would
+ * panic instead.  The return value is only meaningful for runtime usage.
  */
-static void init_or_livepatch _apply_alternatives(struct alt_instr *start,
-                                                  struct alt_instr *end,
-                                                  bool force)
+static int init_or_livepatch _apply_alternatives(struct alt_instr *start,
+                                                 struct alt_instr *end,
+                                                 bool force)
 {
     struct alt_instr *a, *base;
 
@@ -198,9 +201,17 @@ static void init_or_livepatch _apply_alternatives(struct alt_instr *start,
         uint8_t buf[MAX_PATCH_LEN];
         unsigned int total_len = a->orig_len + a->pad_len;
 
-        BUG_ON(a->repl_len > total_len);
-        BUG_ON(total_len > sizeof(buf));
-        BUG_ON(a->cpuid >= NCAPINTS * 32);
+#define BUG_ON_BOOT(cond)                                       \
+    if ( system_state < SYS_STATE_active )                      \
+        BUG_ON(cond);                                           \
+    else if ( cond )                                            \
+        return -EINVAL;
+
+        BUG_ON_BOOT(a->repl_len > total_len);
+        BUG_ON_BOOT(total_len > sizeof(buf));
+        BUG_ON_BOOT(a->cpuid >= NCAPINTS * 32);
+
+#undef BUG_ON_BOOT
 
         /*
          * Detect sequences of alt_instr's patching the same origin site, and
@@ -356,12 +367,14 @@ static void init_or_livepatch _apply_alternatives(struct alt_instr *start,
 
         printk("altcall: Optimised away %u endbr64 instructions\n", clobbered);
     }
+
+    return 0;
 }
 
 #ifdef CONFIG_LIVEPATCH
-void apply_alternatives(struct alt_instr *start, struct alt_instr *end)
+int apply_alternatives(struct alt_instr *start, struct alt_instr *end)
 {
-    _apply_alternatives(start, end, true);
+    return _apply_alternatives(start, end, true);
 }
 #endif
 

@@ -125,6 +125,11 @@ $(obj)/xen_action_hooks_norevert.o: $(obj)/config.h
 extra-y += xen_action_hooks_norevert.livepatch
 xen_action_hooks_norevert-objs := xen_action_hooks_norevert.o xen_hello_world_func.o note.o xen_note.o
 
+$(obj)/xen_alternatives_fail.o: $(obj)/config.h
+
+extra-y += xen_alternatives_fail.livepatch
+xen_alternatives_fail-objs := xen_alternatives_fail.o note.o xen_note.o
+
 EXPECT_BYTES_COUNT := 8
 CODE_GET_EXPECT=$(shell $(OBJDUMP) -d --insn-width=1 $(1) | sed -n -e '/<'$(2)'>:$$/,/^$$/ p' | tail -n +2 | head -n $(EXPECT_BYTES_COUNT) | awk '{$$0=$$2; printf "%s", substr($$0,length-1)}' | sed 's/.\{2\}/0x&,/g' | sed 's/^/{/;s/,$$/}/g')
 $(obj)/expect_config.h: $(objtree)/xen-syms
