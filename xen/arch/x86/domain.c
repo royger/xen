@@ -2005,16 +2005,16 @@ static void load_default_gdt(unsigned int cpu)
     per_cpu(full_gdt_loaded, cpu) = false;
 }
 
-static void __context_switch(void)
+static void __context_switch(struct vcpu *n)
 {
     struct cpu_user_regs *stack_regs = guest_cpu_user_regs();
     unsigned int          cpu = smp_processor_id();
     struct vcpu          *p = per_cpu(curr_vcpu, cpu);
-    struct vcpu          *n = current;
     struct domain        *pd = p->domain, *nd = n->domain;
 
     ASSERT(p != n);
     ASSERT(!vcpu_cpu_dirty(n));
+    ASSERT(per_cpu(curr_vcpu, cpu) == current);
 
     if ( !is_idle_domain(pd) )
     {
@@ -2059,6 +2059,18 @@ static void __context_switch(void)
 
     write_ptbase(n);
 
+    /*
+     * It's relevant to set both current and curr_vcpu back-to-back, to avoid a
+     * window where calls to mapcache_current_vcpu() during the context switch
+     * could trigger a recursive loop.
+     *
+     * Do the current switch immediately after switching to the new guest
+     * page-tables, so that current is (almost) always in sync with the
+     * currently loaded page-tables.
+     */
+    set_current(n);
+    per_cpu(curr_vcpu, cpu) = n;
+
 #ifdef CONFIG_PV
     /* Prefetch the VMCB if we expect to use it later in the context switch */
     if ( using_svm() && is_pv_64bit_domain(nd) && !is_idle_domain(nd) )
@@ -2071,8 +2083,6 @@ static void __context_switch(void)
     if ( pd != nd )
         cpumask_clear_cpu(cpu, pd->dirty_cpumask);
     write_atomic(&p->dirty_cpu, VCPU_CPU_CLEAN);
-
-    per_cpu(curr_vcpu, cpu) = n;
 }
 
 void context_switch(struct vcpu *prev, struct vcpu *next)
@@ -2104,16 +2114,36 @@ void context_switch(struct vcpu *prev, struct vcpu *next)
 
     local_irq_disable();
 
-    set_current(next);
-
     if ( (per_cpu(curr_vcpu, cpu) == next) ||
          (is_idle_domain(nextd) && cpu_online(cpu)) )
     {
+        /*
+         * Lazy context switch to the idle vCPU, set current == idle.  Full
+         * context switch happens if/when sync_local_execstate() is called.
+         */
+        set_current(next);
         local_irq_enable();
     }
     else
     {
-        __context_switch();
+        /*
+         * curr_vcpu will always point to the currently loaded vCPU context, as
+         * it's not updated when doing a lazy switch to the idle vCPU.
+         */
+        struct vcpu *prev_ctx = per_cpu(curr_vcpu, cpu);
+
+        if ( prev_ctx != current )
+        {
+            /*
+             * Doing a full context switch to a non-idle vCPU from a lazy
+             * context switched state.  Adjust current to point to the
+             * currently loaded vCPU context.
+             */
+            ASSERT(current == idle_vcpu[cpu]);
+            ASSERT(!is_idle_vcpu(next));
+            set_current(prev_ctx);
+        }
+        __context_switch(next);
 
         /* Re-enable interrupts before restoring state which may fault. */
         local_irq_enable();
@@ -2179,15 +2209,22 @@ int __sync_local_execstate(void)
 {
     unsigned long flags;
     int switch_required;
+    unsigned int cpu = smp_processor_id();
+    struct vcpu *p = per_cpu(curr_vcpu, cpu);
 
     local_irq_save(flags);
 
-    switch_required = (this_cpu(curr_vcpu) != current);
+    switch_required = (p != current);
 
     if ( switch_required )
     {
-        ASSERT(current == idle_vcpu[smp_processor_id()]);
-        __context_switch();
+        ASSERT(current == idle_vcpu[cpu]);
+        /*
+         * Restore current to the previously running vCPU, __context_switch()
+         * will update current together with curr_vcpu.
+         */
+        set_current(p);
+        __context_switch(idle_vcpu[cpu]);
     }
 
     local_irq_restore(flags);
