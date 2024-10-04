@@ -90,8 +90,6 @@ unsigned int x86_adj_dr7_rsvd(const struct cpu_policy *p, unsigned int dr7)
 
 void activate_debugregs(const struct vcpu *curr)
 {
-    ASSERT(curr == current);
-
     write_debugreg(0, curr->arch.dr[0]);
     write_debugreg(1, curr->arch.dr[1]);
     write_debugreg(2, curr->arch.dr[2]);
