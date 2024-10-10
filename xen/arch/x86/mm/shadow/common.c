@@ -2117,6 +2117,9 @@ static int sh_remove_shadow_via_pointer(struct domain *d, mfn_t smfn)
     pmfn = maddr_to_mfn(sp->up);
     ASSERT(mfn_valid(pmfn));
     vaddr = map_domain_page(pmfn) + (sp->up & (PAGE_SIZE - 1));
+    if ( !mfn_eq(l1e_get_mfn(*vaddr), smfn) )
+        printk("smfn: %lx l1e: %lx type: %u\n", mfn_x(smfn),
+               mfn_x(l1e_get_mfn(*vaddr)), sp->u.sh.type);
     ASSERT(mfn_eq(l1e_get_mfn(*vaddr), smfn));
 
     /* Is this the only reference to this shadow? */

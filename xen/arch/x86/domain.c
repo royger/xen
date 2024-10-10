@@ -1923,6 +1923,9 @@ void cf_check paravirt_ctxt_switch_from(struct vcpu *v)
      */
     if ( unlikely(v->arch.dr7 & DR7_ACTIVE_MASK) )
         write_debugreg(7, 0);
+
+    if ( v->domain->arch.asi )
+        pv_asi_vcpu_deschedule(v);
 }
 
 void cf_check paravirt_ctxt_switch_to(struct vcpu *v)
@@ -1937,6 +1940,9 @@ void cf_check paravirt_ctxt_switch_to(struct vcpu *v)
 
     if ( cpu_has_msr_tsc_aux )
         wrmsr_tsc_aux(v->arch.msrs->tsc_aux);
+
+    if ( d->arch.asi )
+        pv_asi_vcpu_schedule(v);
 }
 
 static void _update_runstate_area(struct vcpu *v)
@@ -2057,18 +2063,15 @@ static void __context_switch(struct vcpu *n)
          ((p->vcpu_id != n->vcpu_id) || !need_full_gdt(nd)) )
         load_default_gdt(cpu);
 
+    write_ptbase(n);
+
     /*
      * It's relevant to set both current and curr_vcpu back-to-back, to avoid a
      * window where calls to mapcache_current_vcpu() during the context switch
      * could trigger a recursive loop.
-     *
-     * Do the current switch ahead of switching to the new guest page-tables,
-     * so that current is (almost) always in sync with the currently loaded
-     * page-tables.
      */
     set_current(n);
     per_cpu(curr_vcpu, cpu) = n;
-    write_ptbase(n);
 
 #ifdef CONFIG_PV
     /* Prefetch the VMCB if we expect to use it later in the context switch */

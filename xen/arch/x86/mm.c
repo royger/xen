@@ -514,7 +514,11 @@ void make_cr3(struct vcpu *v, mfn_t mfn)
     v->arch.cr3 = mfn_x(mfn) << PAGE_SHIFT;
     if ( is_pv_domain(d) && d->arch.pv.pcid )
         v->arch.cr3 |= get_pcid_bits(v, false);
+    if ( is_pv_domain(d) && d->arch.asi )
+        get_cpu_info()->new_cr3 = true;
 }
+
+DECLARE_PER_CPU(l3_pgentry_t *, local_l3);
 
 void write_ptbase(struct vcpu *v)
 {
@@ -535,11 +539,44 @@ void write_ptbase(struct vcpu *v)
     }
     else
     {
+        unsigned long cr3 = v->arch.cr3;
+
+        if ( d->arch.asi )
+        {
+            if ( is_pv_domain(d) )
+                cr3 = page_to_maddr(v->arch.pv.root_pgt);
+
+            if ( v != current )
+            {
+                l3_pgentry_t *l3 = this_cpu(local_l3);
+                unsigned int i;
+
+                ASSERT(l3);
+
+                BUILD_BUG_ON(ARRAY_SIZE(d->arch.perdomain_l2_pgs) >
+                             L3_PAGETABLE_ENTRIES);
+
+                /* Populate the per-CPU L3 with the per-domain entries. */
+                for ( i = 0; i < ARRAY_SIZE(d->arch.perdomain_l2_pgs); i++ )
+                {
+                    const struct page_info *pg = d->arch.perdomain_l2_pgs[i];
+
+                    l3e_write(&l3[i], pg ? l3e_from_page(pg, __PAGE_HYPERVISOR_RW)
+                                         : l3e_empty());
+                }
+            }
+            else if ( is_pv_domain(d) )
+                /*
+                 * Otherwise assume the shadowed L4 has been populated by the
+                 * caller.
+                 */
+                pv_asi_update_shadow_l4(v);
+        }
         /* Make sure to clear use_pv_cr3 and xen_cr3 before pv_cr3. */
         cpu_info->use_pv_cr3 = false;
         cpu_info->xen_cr3 = 0;
         /* switch_cr3_cr4() serializes. */
-        switch_cr3_cr4(v->arch.cr3, new_cr4);
+        switch_cr3_cr4(cr3, new_cr4);
         cpu_info->pv_cr3 = 0;
     }
 }
@@ -6417,7 +6454,7 @@ unsigned long get_upper_mfn_bound(void)
     return min(max_mfn, 1UL << (paddr_bits - PAGE_SHIFT)) - 1;
 }
 
-static DEFINE_PER_CPU(l3_pgentry_t *, local_l3);
+DEFINE_PER_CPU(l3_pgentry_t *, local_l3);
 
 int allocate_perdomain_local_l3(unsigned int cpu)
 {
@@ -6444,6 +6481,8 @@ int allocate_perdomain_local_l3(unsigned int cpu)
               l4e_from_mfn(virt_to_mfn(l3), __PAGE_HYPERVISOR_RW));
 
     per_cpu(local_l3, cpu) = l3;
+
+    printk("CPU%u local L3: %lx\n", cpu, virt_to_maddr(l3));
 
     /*
      * Pre-allocate the page-table structures for the per-cpu fixmap.  Some of
@@ -6477,7 +6516,9 @@ void setup_perdomain_slot(const struct domain *d, root_pgentry_t *root_pgt)
 {
     if ( d->arch.asi )
     {
+
         l3_pgentry_t *l3 = this_cpu(local_l3);
+#if 0
         unsigned int i;
 
         ASSERT(l3);
@@ -6492,7 +6533,7 @@ void setup_perdomain_slot(const struct domain *d, root_pgentry_t *root_pgt)
             l3e_write(&l3[i], pg ? l3e_from_page(pg, __PAGE_HYPERVISOR_RW)
                                  : l3e_empty());
         }
-
+#endif
         l4e_write(&root_pgt[root_table_offset(PERDOMAIN_VIRT_START)],
                   l4e_from_mfn(virt_to_mfn(l3), __PAGE_HYPERVISOR_RW));
     }
