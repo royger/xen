@@ -17,6 +17,7 @@
 #include <asm/nops.h>
 #include <asm/page.h>
 #include <asm/pv/domain.h>
+#include <asm/pv/mm.h>
 #include <asm/spec_ctrl.h>
 
 /* Debug builds: Wrap frequently to stress-test the wrap logic. */
@@ -192,7 +193,23 @@ unsigned int flush_area_local(const void *va, unsigned int flags)
     unsigned int order = (flags - 1) & FLUSH_ORDER_MASK;
 
     if ( flags & FLUSH_ROOT_PGTBL )
+    {
         get_cpu_info()->root_pgt_changed = true;
+        if ( opt_asi_pv )
+        {
+            const struct vcpu *curr;
+            const struct domain *curr_d;
+
+            sync_local_execstate();
+
+            curr = current;
+            curr_d = curr->domain;
+
+            if ( is_pv_domain(curr_d) && curr_d->arch.asi )
+                /* Update shadow root page-table ahead of doing TLB flush. */
+                pv_asi_update_shadow_l4(curr);
+        }
+    }
 
     if ( flags & (FLUSH_TLB|FLUSH_TLB_GLOBAL) )
     {
