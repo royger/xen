@@ -11,7 +11,9 @@
 #include <xen/guest_access.h>
 
 #include <asm/current.h>
+#include <asm/fixmap.h>
 #include <asm/p2m.h>
+#include <asm/pv/domain.h>
 
 #include "mm.h"
 
@@ -102,6 +104,108 @@ void init_xen_pae_l2_slots(l2_pgentry_t *l2t, const struct domain *d)
            COMPAT_L2_PAGETABLE_XEN_SLOTS(d) * sizeof(*l2t));
 }
 #endif
+
+static void asi_copy_l4(root_pgentry_t *dst, const root_pgentry_t *src,
+                        bool is_64bit)
+{
+    if ( is_64bit )
+    {
+        unsigned int i;
+
+        for ( i = 0; i < ROOT_PAGETABLE_FIRST_XEN_SLOT; i++ )
+            l4e_write(&dst[i], src[i]);
+        for ( i = ROOT_PAGETABLE_LAST_XEN_SLOT + 1;
+              i < L4_PAGETABLE_ENTRIES; i++ )
+            l4e_write(&dst[i], src[i]);
+
+        l4e_write(&dst[l4_table_offset(RO_MPT_VIRT_START)],
+                  src[l4_table_offset(RO_MPT_VIRT_START)]);
+    }
+    else
+        l4e_write(&dst[0], src[0]);
+}
+
+void pv_asi_update_shadow_l4(const struct vcpu *v, bool new_cr3)
+{
+    const root_pgentry_t *guest_pgt = percpu_fix_to_virt(PCPU_PV_L4_GUEST);
+    root_pgentry_t *root_pgt = percpu_fix_to_virt(PCPU_PV_L4_SHADOW);
+    const struct domain *d = v->domain;
+
+    ASSERT(!d->arch.pv.xpti);
+    ASSERT(is_pv_domain(d));
+    ASSERT(!is_idle_domain(d));
+
+    if ( new_cr3 )
+    {
+        percpu_set_fixmap(PCPU_PV_L4_GUEST, maddr_to_mfn(cr3_pa(v->arch.cr3)),
+                          __PAGE_HYPERVISOR_RO);
+
+#ifdef CONFIG_SHADOW_PAGING
+        if ( paging_mode_enabled(d) )
+        {
+            l4e_write(&root_pgt[l4_table_offset(LINEAR_PT_VIRT_START)],
+                      guest_pgt[l4_table_offset(LINEAR_PT_VIRT_START)]);
+            l4e_write(&root_pgt[l4_table_offset(SH_LINEAR_PT_VIRT_START)],
+                      guest_pgt[l4_table_offset(SH_LINEAR_PT_VIRT_START)]);
+        }
+#endif
+    }
+
+    asi_copy_l4(root_pgt, guest_pgt, is_pv_64bit_domain(d));
+}
+
+void pv_asi_vcpu_deschedule(const struct vcpu *v)
+{
+    /*
+     * De-scheduling a PV vCPU with ASI enabled.
+     *
+     * Don't leak the L4 shadow mapping in the per-CPU area.  Can't be done
+     * in paravirt_ctxt_switch_from() because the lazy idle vCPU context
+     * switch would otherwise enter an infinite loop in
+     * mapcache_current_vcpu() with sync_local_execstate().
+     *
+     * Note clearing the fixmap must strictly be done ahead of changing the
+     * current vCPU and with interrupts disabled, so there's no window
+     * where current->domain->arch.asi == true and PCPU_FIX_PV_L4SHADOW is
+     * not mapped.
+     */
+    percpu_clear_fixmap(PCPU_PV_L4_SHADOW);
+    percpu_clear_fixmap(PCPU_PV_L4_GUEST);
+}
+
+void pv_asi_vcpu_schedule(const struct vcpu *v)
+{
+    const struct domain *d = v->domain;
+    const root_pgentry_t *guest_pgt =
+        map_domain_page(maddr_to_mfn(cr3_pa(v->arch.cr3)));
+    root_pgentry_t *root_pgt =
+        map_domain_page(page_to_mfn(v->arch.pv.root_pgt));
+
+    setup_perdomain_slot(d, root_pgt);
+    asi_copy_l4(root_pgt, guest_pgt, is_pv_64bit_domain(d));
+
+#ifdef CONFIG_SHADOW_PAGING
+    if ( paging_mode_enabled(d) )
+    {
+        l4e_write(&root_pgt[l4_table_offset(LINEAR_PT_VIRT_START)],
+                  guest_pgt[l4_table_offset(LINEAR_PT_VIRT_START)]);
+        l4e_write(&root_pgt[l4_table_offset(SH_LINEAR_PT_VIRT_START)],
+                  guest_pgt[l4_table_offset(SH_LINEAR_PT_VIRT_START)]);
+    }
+#endif
+
+    unmap_domain_page(guest_pgt);
+    unmap_domain_page(root_pgt);
+
+    /*
+     * Setup the pCPU fixmap entries, they however might not be reachable at
+     * this point by not running on a page-table with the per-CPU slot setup.
+     */
+    percpu_set_fixmap(PCPU_PV_L4_GUEST, maddr_to_mfn(cr3_pa(v->arch.cr3)),
+                      __PAGE_HYPERVISOR_RO);
+    percpu_set_fixmap(PCPU_PV_L4_SHADOW, page_to_mfn(v->arch.pv.root_pgt),
+                      __PAGE_HYPERVISOR_RW);
+}
 
 /*
  * Local variables:

@@ -597,6 +597,9 @@ struct pv_vcpu
     /* Deferred VA-based update state. */
     bool need_update_runstate_area;
     struct vcpu_time_info pending_system_time;
+
+    /* For ASI: page to use as L4 shadow of the guest selected L4. */
+    struct page_info *root_pgt;
 };
 
 struct arch_vcpu

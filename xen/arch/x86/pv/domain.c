@@ -15,6 +15,7 @@
 #include <asm/invpcid.h>
 #include <asm/spec_ctrl.h>
 #include <asm/pv/domain.h>
+#include <asm/pv/mm.h>
 #include <asm/shadow.h>
 
 #ifdef CONFIG_PV32
@@ -299,6 +300,7 @@ void pv_vcpu_destroy(struct vcpu *v)
 
     pv_destroy_gdt_ldt_l1tab(v);
     XFREE(v->arch.pv.trap_ctxt);
+    FREE_DOMHEAP_PAGE(v->arch.pv.root_pgt);
 }
 
 int pv_vcpu_initialise(struct vcpu *v)
@@ -333,6 +335,28 @@ int pv_vcpu_initialise(struct vcpu *v)
 
         if ( (rc = setup_compat_l4(v)) )
             goto done;
+    }
+
+    if ( d->arch.asi )
+    {
+        root_pgentry_t *rpt;
+
+        v->arch.pv.root_pgt = alloc_domheap_page(d, MEMF_no_owner);
+        if ( !v->arch.pv.root_pgt )
+        {
+            rc = -ENOMEM;
+            goto done;
+        }
+
+        rpt = map_domain_page(page_to_mfn(v->arch.pv.root_pgt));
+
+        /*
+         * VM assists are not yet known, RO machine-to-phys slot will be copied
+         * from the guest L4.
+         */
+        init_xen_l4_slots(rpt, page_to_mfn(v->arch.pv.root_pgt), d, INVALID_MFN,
+                          false);
+        unmap_domain_page(rpt);
     }
 
  done:
@@ -384,7 +408,7 @@ int pv_domain_initialise(struct domain *d)
 
     d->arch.ctxt_switch = &pv_csw;
 
-    d->arch.pv.flush_root_pt = d->arch.pv.xpti;
+    d->arch.pv.flush_root_pt = d->arch.pv.xpti || d->arch.asi;
 
     if ( !is_pv_32bit_domain(d) && use_invpcid && cpu_has_pcid )
         switch ( ACCESS_ONCE(opt_pcid) )
@@ -425,6 +449,7 @@ bool __init xpti_pcid_enabled(void)
 
 static void _toggle_guest_pt(struct vcpu *v)
 {
+    const struct domain *d = v->domain;
     bool guest_update;
     pagetable_t old_shadow;
     unsigned long cr3;
@@ -432,6 +457,28 @@ static void _toggle_guest_pt(struct vcpu *v)
     v->arch.flags ^= TF_kernel_mode;
     guest_update = v->arch.flags & TF_kernel_mode;
     old_shadow = update_cr3(v);
+
+    if ( d->arch.asi )
+    {
+        /*
+         * _toggle_guest_pt() might switch between user and kernel page tables,
+         * but doesn't use write_ptbase(), and hence needs an explicit call to
+         * sync the shadow L4.
+         */
+        cr3 = page_to_maddr(v->arch.pv.root_pgt);
+        ASSERT(cr3_pa(read_cr3()) == cr3);
+
+        if ( d->arch.pv.pcid )
+            cr3 |= get_pcid_bits(v, false);
+        /*
+         * Ensure the current root page table is already the shadow L4, as
+         * guest user/kernel switches can only happen once the guest is
+         * running.
+         */
+        pv_asi_update_shadow_l4(v, true);
+    }
+    else
+        cr3 = v->arch.cr3;
 
     /*
      * Don't flush user global mappings from the TLB. Don't tick TLB clock.
@@ -446,7 +493,6 @@ static void _toggle_guest_pt(struct vcpu *v)
      * to release). Switch to the idle page tables in such an event; the
      * guest will have been crashed already.
      */
-    cr3 = v->arch.cr3;
     if ( shadow_mode_enabled(v->domain) )
     {
         cr3 &= ~X86_CR3_NOFLUSH;

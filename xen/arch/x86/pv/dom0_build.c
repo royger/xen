@@ -711,6 +711,16 @@ static int __init dom0_construct(struct domain *d,
         clear_page(l4tab);
         init_xen_l4_slots(l4tab, _mfn(virt_to_mfn(l4start)),
                           d, INVALID_MFN, true);
+        if ( d->arch.asi )
+            /*
+             * When using ASI the context switch code is expected to populate
+             * the per-domain slot, but for PV dom0 creation the domain
+             * page-tables are loaded without a proper context switch, hence
+             * temporary populate the per-domain slot.
+             */
+            l4start[l4_table_offset(PERDOMAIN_VIRT_START)] =
+                l4e_from_page(d->arch.perdomain_l3_pg, __PAGE_HYPERVISOR_RW);
+
         v->arch.guest_table = pagetable_from_paddr(__pa(l4start));
     }
     else
@@ -981,6 +991,9 @@ static int __init dom0_construct(struct domain *d,
     /* Return to idle domain's page tables. */
     mapcache_override_current(NULL);
     switch_cr3_cr4(current->arch.cr3, read_cr4());
+
+    if ( d->arch.asi )
+        l4start[l4_table_offset(PERDOMAIN_VIRT_START)] = l4e_empty();
 
     update_domain_wallclock_time(d);
 
