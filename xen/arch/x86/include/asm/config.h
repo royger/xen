@@ -252,6 +252,12 @@ extern unsigned long xen_phys_start;
 /* The address of a particular VCPU's GDT or LDT. */
 #define GDT_VIRT_START(v)    \
     (PERDOMAIN_VIRT_START + ((v)->vcpu_id << GDT_LDT_VCPU_VA_SHIFT))
+/*
+ * There are 2 GDT pages reserved for Xen, but only one is used.  Use the
+ * remaining one to map the guest L4 when running with ASI enabled.
+ */
+#define L4_SHADOW(v) \
+    (GDT_VIRT_START(v) + ((FIRST_RESERVED_GDT_PAGE + 1) << PAGE_SHIFT))
 #define LDT_VIRT_START(v)    \
     (GDT_VIRT_START(v) + (64*1024))
 

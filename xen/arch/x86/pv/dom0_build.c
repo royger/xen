@@ -859,8 +859,11 @@ static int __init dom0_construct(const struct boot_domain *bd)
 
     d->arch.paging.mode = 0;
 
-    /* Set up CR3 value for switch_cr3_cr4(). */
-    update_cr3(v);
+    /*
+     * Set up CR3 value for switch_cr3_cr4().  Use make_cr3() instead of
+     * update_cr3() to avoid using an ASI page-table for dom0 building.
+     */
+    make_cr3(v, pagetable_get_mfn(v->arch.guest_table));
 
     /* We run on dom0's page tables for the final part of the build process. */
     switch_cr3_cr4(cr3_pa(v->arch.cr3), read_cr4());
@@ -1094,6 +1097,9 @@ static int __init dom0_construct(const struct boot_domain *bd)
         tasklet_schedule(&d->arch.paging.shadow.pv_l1tf_tasklet);
     }
 #endif
+
+    /* Must be called in case ASI is enabled. */
+    update_cr3(v);
 
     v->is_initialised = 1;
     clear_bit(_VPF_down, &v->pause_flags);

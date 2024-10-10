@@ -16,6 +16,7 @@
 #include <asm/invpcid.h>
 #include <asm/spec_ctrl.h>
 #include <asm/pv/domain.h>
+#include <asm/pv/mm.h>
 #include <asm/shadow.h>
 
 #ifdef CONFIG_PV32
@@ -345,6 +346,7 @@ void pv_vcpu_destroy(struct vcpu *v)
     pv_destroy_gdt_ldt_l1tab(v);
     pv_destroy_root_pt_l1tab(v);
     XFREE(v->arch.pv.trap_ctxt);
+    FREE_XENHEAP_PAGE(v->arch.pv.root_pgt);
 }
 
 int pv_vcpu_initialise(struct vcpu *v)
@@ -392,6 +394,24 @@ int pv_vcpu_initialise(struct vcpu *v)
             goto done;
     }
 
+    if ( d->arch.vcpu_pt )
+    {
+        v->arch.pv.root_pgt = alloc_xenheap_page();
+        if ( !v->arch.pv.root_pgt )
+        {
+            rc = -ENOMEM;
+            goto done;
+        }
+
+        /*
+         * VM assists are not yet known, RO machine-to-phys slot will be copied
+         * from the guest L4.
+         */
+        init_xen_l4_slots(v->arch.pv.root_pgt,
+                          _mfn(virt_to_mfn(v->arch.pv.root_pgt)),
+                          v, INVALID_MFN, false);
+    }
+
  done:
     if ( rc )
         pv_vcpu_destroy(v);
@@ -424,7 +444,7 @@ int pv_domain_initialise(struct domain *d)
 
     d->arch.ctxt_switch = &pv_csw;
 
-    d->arch.pv.flush_root_pt = d->arch.pv.xpti;
+    d->arch.pv.flush_root_pt = d->arch.pv.xpti || d->arch.vcpu_pt;
 
     if ( !is_pv_32bit_domain(d) && use_invpcid && cpu_has_pcid )
         switch ( ACCESS_ONCE(opt_pcid) )
@@ -465,6 +485,7 @@ bool __init xpti_pcid_enabled(void)
 
 static void _toggle_guest_pt(struct vcpu *v)
 {
+    const struct domain *d = v->domain;
     bool guest_update;
     pagetable_t old_shadow;
     unsigned long cr3;
@@ -472,6 +493,21 @@ static void _toggle_guest_pt(struct vcpu *v)
     v->arch.flags ^= TF_kernel_mode;
     guest_update = v->arch.flags & TF_kernel_mode;
     old_shadow = update_cr3(v);
+
+    if ( d->arch.vcpu_pt )
+        /*
+         * _toggle_guest_pt() might switch between user and kernel page tables,
+         * but doesn't use write_ptbase(), and hence needs an explicit call to
+         * sync the shadow L4.
+         */
+        pv_asi_update_shadow_l4(v);
+    else if ( d->arch.pv.xpti )
+    {
+        mfn_t guest_root_pt = _mfn(MASK_EXTR(v->arch.cr3, X86_CR3_ADDR_MASK));
+
+        populate_perdomain_mapping(v, PV_ROOT_PT_MAPPING_VCPU_VIRT_START(v),
+                                   &guest_root_pt, 1);
+    }
 
     /*
      * Don't flush user global mappings from the TLB. Don't tick TLB clock.
@@ -500,10 +536,14 @@ static void _toggle_guest_pt(struct vcpu *v)
         }
     }
 
+#if 0
     if ( v->domain->arch.pv.xpti )
         write_ptbase(v);
     else
         write_cr3(cr3);
+#endif
+    write_cr3(cr3);
+    /* write_ptbase(v); */
 
     if ( !pagetable_is_null(old_shadow) )
         shadow_put_top_level(v->domain, old_shadow);
@@ -542,6 +582,10 @@ void toggle_guest_mode(struct vcpu *v)
     if ( d->arch.pv.xpti )
     {
         struct cpu_info *cpu_info = get_cpu_info();
+
+        cpu_info->root_pgt_changed = true;
+        cpu_info->pv_cr3 = __pa(this_cpu(root_pgt)) |
+                           (d->arch.pv.pcid ? get_pcid_bits(v, true) : 0);
 
         /*
          * As in _toggle_guest_pt() the XPTI CR3 write needs to be a TLB-

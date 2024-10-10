@@ -543,6 +543,8 @@ void write_ptbase(struct vcpu *v)
     }
     else
     {
+        if ( is_pv_domain(d) && d->arch.vcpu_pt )
+            pv_asi_update_shadow_l4(v);
         /* Make sure to clear use_pv_cr3 and xen_cr3 before pv_cr3. */
         cpu_info->use_pv_cr3 = false;
         cpu_info->xen_cr3 = 0;
@@ -562,6 +564,7 @@ void write_ptbase(struct vcpu *v)
  */
 pagetable_t update_cr3(struct vcpu *v)
 {
+    const struct domain *d = v->domain;
     mfn_t cr3_mfn;
 
     if ( paging_mode_enabled(v->domain) )
@@ -572,7 +575,13 @@ pagetable_t update_cr3(struct vcpu *v)
     else
         cr3_mfn = pagetable_get_mfn(v->arch.guest_table);
 
-    make_cr3(v, cr3_mfn);
+    make_cr3(v, d->arch.vcpu_pt ? virt_to_mfn(v->arch.pv.root_pgt) : cr3_mfn);
+
+    if ( d->arch.vcpu_pt )
+    {
+        populate_perdomain_mapping(v, L4_SHADOW(v), &cr3_mfn, 1);
+        flush_tlb_one_local(L4_SHADOW(v));
+    }
 
     return pagetable_null();
 }

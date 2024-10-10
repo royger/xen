@@ -12,6 +12,7 @@
 
 #include <asm/current.h>
 #include <asm/p2m.h>
+#include <asm/pv/domain.h>
 #include <asm/pv/mm.h>
 
 #include "mm.h"
@@ -104,6 +105,45 @@ void init_xen_pae_l2_slots(l2_pgentry_t *l2t, const struct domain *d)
            COMPAT_L2_PAGETABLE_XEN_SLOTS(d) * sizeof(*l2t));
 }
 #endif
+
+void pv_asi_update_shadow_l4(const struct vcpu *v)
+{
+    const root_pgentry_t *guest_pgt;
+    root_pgentry_t *root_pgt = v->arch.pv.root_pgt;
+    const struct domain *d = v->domain;
+
+    ASSERT(!d->arch.pv.xpti);
+    ASSERT(is_pv_domain(d));
+    ASSERT(!is_idle_domain(d));
+    ASSERT(current == this_cpu(curr_vcpu));
+
+    if ( likely(v == current) )
+        guest_pgt = (void *)L4_SHADOW(v);
+    else if ( !(v->arch.flags & TF_kernel_mode) )
+        guest_pgt =
+            map_domain_page(pagetable_get_mfn(v->arch.guest_table_user));
+    else
+        guest_pgt = map_domain_page(pagetable_get_mfn(v->arch.guest_table));
+
+    if ( is_pv_64bit_domain(d) )
+    {
+        unsigned int i;
+
+        for ( i = 0; i < ROOT_PAGETABLE_FIRST_XEN_SLOT; i++ )
+            l4e_write(&root_pgt[i], guest_pgt[i]);
+        for ( i = ROOT_PAGETABLE_LAST_XEN_SLOT + 1;
+              i < L4_PAGETABLE_ENTRIES; i++ )
+            l4e_write(&root_pgt[i], guest_pgt[i]);
+
+        l4e_write(&root_pgt[l4_table_offset(RO_MPT_VIRT_START)],
+                  guest_pgt[l4_table_offset(RO_MPT_VIRT_START)]);
+    }
+    else
+        l4e_write(&root_pgt[0], guest_pgt[0]);
+
+    if ( v != current )
+        unmap_domain_page(guest_pgt);
+}
 
 /*
  * Local variables:

@@ -675,6 +675,12 @@ int paging_domctl(struct domain *d, struct xen_domctl_shadow_op *sc,
         return -EINVAL;
     }
 
+    if ( is_pv_domain(d) && d->arch.vcpu_pt )
+    {
+        gprintk(XENLOG_ERR, "Paging not supported on PV domains with ASI\n");
+        return -EOPNOTSUPP;
+    }
+
     if ( resuming
          ? (d->arch.paging.preempt.dom != current->domain ||
             d->arch.paging.preempt.op != sc->op)

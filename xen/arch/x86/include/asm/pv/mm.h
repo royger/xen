@@ -29,6 +29,8 @@ bool pv_destroy_ldt(struct vcpu *v);
 
 int validate_segdesc_page(struct page_info *page);
 
+void pv_asi_update_shadow_l4(const struct vcpu *v);
+
 #else
 
 #include <xen/errno.h>
@@ -49,6 +51,9 @@ static inline void pv_destroy_gdt(struct vcpu *v) { ASSERT_UNREACHABLE(); }
 static inline bool pv_map_ldt_shadow_page(unsigned int offset) { return false; }
 static inline bool pv_destroy_ldt(struct vcpu *v)
 { ASSERT_UNREACHABLE(); return false; }
+
+static inline void pv_asi_update_shadow_l4(const struct vcpu *v)
+{ ASSERT_UNREACHABLE(); }
 
 #endif
 
