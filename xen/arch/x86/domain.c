@@ -1923,6 +1923,9 @@ void cf_check paravirt_ctxt_switch_from(struct vcpu *v)
      */
     if ( unlikely(v->arch.dr7 & DR7_ACTIVE_MASK) )
         write_debugreg(7, 0);
+
+    if ( v->domain->arch.asi )
+        pv_asi_vcpu_deschedule(v);
 }
 
 void cf_check paravirt_ctxt_switch_to(struct vcpu *v)
@@ -1937,6 +1940,9 @@ void cf_check paravirt_ctxt_switch_to(struct vcpu *v)
 
     if ( cpu_has_msr_tsc_aux )
         wrmsr_tsc_aux(v->arch.msrs->tsc_aux);
+
+    if ( d->arch.asi )
+        pv_asi_vcpu_schedule(v);
 }
 
 static void _update_runstate_area(struct vcpu *v)

@@ -514,6 +514,8 @@ void make_cr3(struct vcpu *v, mfn_t mfn)
     v->arch.cr3 = mfn_x(mfn) << PAGE_SHIFT;
     if ( is_pv_domain(d) && d->arch.pv.pcid )
         v->arch.cr3 |= get_pcid_bits(v, false);
+    if ( is_pv_domain(d) && d->arch.asi )
+        get_cpu_info()->new_cr3 = true;
 }
 
 static DEFINE_PER_CPU(l3_pgentry_t *, local_l3);
@@ -560,7 +562,7 @@ int allocate_perdomain_local_l3(unsigned int cpu)
     return 0;
 }
 
-static void asi_adjust_pt(const struct vcpu *v)
+static unsigned long asi_adjust_pt(const struct vcpu *v)
 {
     const struct domain *d = v->domain;
 
@@ -593,6 +595,17 @@ static void asi_adjust_pt(const struct vcpu *v)
                                  : l3e_empty());
         }
     }
+    else if ( is_pv_domain(d) )
+        /*
+         * On vCPU context switch the shadow L4 is already updated by the PV
+         * context switch hooks, as the fixmap entries might not be reachable at
+         * this point yet.
+         */
+        pv_asi_update_shadow_l4(v);
+
+    return is_hvm_domain(d) ? v->arch.cr3
+                            : (page_to_maddr(v->arch.pv.root_pgt) |
+                               (d->arch.pv.pcid ? get_pcid_bits(v, false) : 0));
 }
 
 void write_ptbase(struct vcpu *v)
@@ -614,14 +627,18 @@ void write_ptbase(struct vcpu *v)
     }
     else
     {
+        unsigned long cr3;
+
         if ( d->arch.asi )
-            asi_adjust_pt(v);
+            cr3 = asi_adjust_pt(v);
+        else
+            cr3 = v->arch.cr3;
 
         /* Make sure to clear use_pv_cr3 and xen_cr3 before pv_cr3. */
         cpu_info->use_pv_cr3 = false;
         cpu_info->xen_cr3 = 0;
         /* switch_cr3_cr4() serializes. */
-        switch_cr3_cr4(v->arch.cr3, new_cr4);
+        switch_cr3_cr4(cr3, new_cr4);
         cpu_info->pv_cr3 = 0;
     }
 }

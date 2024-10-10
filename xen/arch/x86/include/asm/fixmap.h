@@ -120,6 +120,10 @@ extern void __set_fixmap_x(
 
 /* per-CPU fixmap area. */
 enum percpu_fixed_addresses {
+#ifdef CONFIG_PV
+    PCPU_PV_L4_SHADOW,
+    PCPU_PV_L4_GUEST,
+#endif
     __end_of_percpu_fixed_addresses
 };
 
