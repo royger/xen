@@ -1615,7 +1615,7 @@ static __init void copy_mapping(unsigned long mfn, unsigned long end,
         {
             mfn_t l3mfn;
 
-            l3dst = alloc_mapped_pagetable(&l3mfn);
+            l3dst = alloc_xen_mapped_pagetable(&l3mfn);
             BUG_ON(!l3dst);
             efi_l4t[l4_table_offset(mfn << PAGE_SHIFT)] =
                 l4e_from_mfn(l3mfn, __PAGE_HYPERVISOR);
@@ -1794,7 +1794,7 @@ void __init efi_init_memory(void)
      * Set up 1:1 page tables for runtime calls. See SetVirtualAddressMap() in
      * efi_exit_boot().
      */
-    efi_l4t = alloc_mapped_pagetable(&efi_l4_mfn);
+    efi_l4t = alloc_xen_mapped_pagetable(&efi_l4_mfn);
     BUG_ON(!efi_l4t);
 
     copy_mapping(0, max_page, ram_range_valid, efi_l4t);
@@ -1829,7 +1829,7 @@ void __init efi_init_memory(void)
         {
             mfn_t l3mfn;
 
-            pl3e = alloc_mapped_pagetable(&l3mfn);
+            pl3e = alloc_xen_mapped_pagetable(&l3mfn);
             BUG_ON(!pl3e);
             efi_l4t[l4_table_offset(addr)] =
                 l4e_from_mfn(l3mfn, __PAGE_HYPERVISOR);
@@ -1841,7 +1841,7 @@ void __init efi_init_memory(void)
         {
             mfn_t l2mfn;
 
-            pl2e = alloc_mapped_pagetable(&l2mfn);
+            pl2e = alloc_xen_mapped_pagetable(&l2mfn);
             BUG_ON(!pl2e);
             *pl3e = l3e_from_mfn(l2mfn, __PAGE_HYPERVISOR);
         }
@@ -1856,7 +1856,7 @@ void __init efi_init_memory(void)
         {
             mfn_t l1mfn;
 
-            l1t = alloc_mapped_pagetable(&l1mfn);
+            l1t = alloc_xen_mapped_pagetable(&l1mfn);
             BUG_ON(!l1t);
             *pl2e = l2e_from_mfn(l1mfn, __PAGE_HYPERVISOR);
         }

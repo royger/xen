@@ -748,7 +748,7 @@ static int clone_mapping(const void *ptr, root_pgentry_t *rpt)
     {
         mfn_t l3mfn;
 
-        pl3e = alloc_mapped_pagetable(&l3mfn);
+        pl3e = alloc_xen_mapped_pagetable(&l3mfn);
         rc = -ENOMEM;
         if ( !pl3e )
             goto out;
@@ -764,7 +764,7 @@ static int clone_mapping(const void *ptr, root_pgentry_t *rpt)
     {
         mfn_t l2mfn;
 
-        pl2e = alloc_mapped_pagetable(&l2mfn);
+        pl2e = alloc_xen_mapped_pagetable(&l2mfn);
         rc = -ENOMEM;
         if ( !pl2e )
             goto out;
@@ -782,7 +782,7 @@ static int clone_mapping(const void *ptr, root_pgentry_t *rpt)
     {
         mfn_t l1mfn;
 
-        pl1e = alloc_mapped_pagetable(&l1mfn);
+        pl1e = alloc_xen_mapped_pagetable(&l1mfn);
         rc = -ENOMEM;
         if ( !pl1e )
             goto out;
