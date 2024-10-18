@@ -5276,16 +5276,24 @@ static DEFINE_SPINLOCK(map_pgdir_lock);
  * For virt_to_xen_lXe() functions, they take a linear address and return a
  * pointer to Xen's LX entry. Caller needs to unmap the pointer.
  */
-static l3_pgentry_t *virt_to_xen_l3e(unsigned long v)
+static l3_pgentry_t *virt_to_l3e(unsigned long v, l4_pgentry_t *l4)
 {
     l4_pgentry_t *pl4e;
 
-    pl4e = &idle_pg_table[l4_table_offset(v)];
+    ASSERT(l4 != NULL);
+
+    pl4e = &l4[l4_table_offset(v)];
     if ( !(l4e_get_flags(*pl4e) & _PAGE_PRESENT) )
     {
         bool locking = system_state > SYS_STATE_boot;
         mfn_t l3mfn;
         l3_pgentry_t *l3t = alloc_mapped_pagetable(&l3mfn);
+
+        /*
+         * Only allow populating L4 entries on the idle page tables, as all
+         * page-tables used in Xen clone L4 slots from it.
+         */
+        BUG_ON(l4 != idle_pg_table);
 
         if ( !l3t )
             return NULL;
@@ -5307,11 +5315,11 @@ static l3_pgentry_t *virt_to_xen_l3e(unsigned long v)
     return map_l3t_from_l4e(*pl4e) + l3_table_offset(v);
 }
 
-static l2_pgentry_t *virt_to_xen_l2e(unsigned long v)
+static l2_pgentry_t *virt_to_l2e(unsigned long v, l4_pgentry_t *pl4e)
 {
     l3_pgentry_t *pl3e, l3e;
 
-    pl3e = virt_to_xen_l3e(v);
+    pl3e = virt_to_l3e(v, pl4e);
     if ( !pl3e )
         return NULL;
 
@@ -5345,11 +5353,11 @@ static l2_pgentry_t *virt_to_xen_l2e(unsigned long v)
     return map_l2t_from_l3e(l3e) + l2_table_offset(v);
 }
 
-static l1_pgentry_t *virt_to_xen_l1e(unsigned long v)
+static l1_pgentry_t *virt_to_l1e(unsigned long v, l4_pgentry_t *pl4e)
 {
     l2_pgentry_t *pl2e, l2e;
 
-    pl2e = virt_to_xen_l2e(v);
+    pl2e = virt_to_l2e(v, pl4e);
     if ( !pl2e )
         return NULL;
 
@@ -5425,7 +5433,7 @@ mfn_t xen_map_to_mfn(unsigned long va)
     bool locking = system_state > SYS_STATE_boot;
     unsigned int l2_offset = l2_table_offset(va);
     unsigned int l1_offset = l1_table_offset(va);
-    const l3_pgentry_t *pl3e = virt_to_xen_l3e(va);
+    const l3_pgentry_t *pl3e = virt_to_l3e(va, idle_pg_table);
     const l2_pgentry_t *pl2e = NULL;
     const l1_pgentry_t *pl1e = NULL;
     struct page_info *l3page;
@@ -5465,11 +5473,12 @@ mfn_t xen_map_to_mfn(unsigned long va)
     return ret;
 }
 
-int map_pages_to_xen(
+int map_pages(
     unsigned long virt,
     mfn_t mfn,
     unsigned long nr_mfns,
-    unsigned int flags)
+    unsigned int flags,
+    root_pgentry_t *root_pgt)
 {
     bool locking = system_state > SYS_STATE_boot;
     l3_pgentry_t *pl3e = NULL, ol3e;
@@ -5516,7 +5525,7 @@ int map_pages_to_xen(
         UNMAP_DOMAIN_PAGE(pl3e);
         UNMAP_DOMAIN_PAGE(pl2e);
 
-        pl3e = virt_to_xen_l3e(virt);
+        pl3e = virt_to_l3e(virt, root_pgt);
         if ( !pl3e )
             goto out;
 
@@ -5640,7 +5649,7 @@ int map_pages_to_xen(
             free_xen_pagetable(l2mfn);
         }
 
-        pl2e = virt_to_xen_l2e(virt);
+        pl2e = virt_to_l2e(virt, root_pgt);
         if ( !pl2e )
             goto out;
 
@@ -5685,7 +5694,7 @@ int map_pages_to_xen(
             /* Normal page mapping. */
             if ( !(l2e_get_flags(*pl2e) & _PAGE_PRESENT) )
             {
-                pl1e = virt_to_xen_l1e(virt);
+                pl1e = virt_to_l1e(virt, root_pgt);
                 if ( pl1e == NULL )
                     goto out;
             }
@@ -5870,6 +5879,15 @@ int map_pages_to_xen(
     return rc;
 }
 
+int map_pages_to_xen(
+    unsigned long virt,
+    mfn_t mfn,
+    unsigned long nr_mfns,
+    unsigned int flags)
+{
+    return map_pages(virt, mfn, nr_mfns, flags, idle_pg_table);
+}
+
 int __init populate_pt_range(unsigned long virt, unsigned long nr_mfns)
 {
     return map_pages_to_xen(virt, INVALID_MFN, nr_mfns, MAP_SMALL_PAGES);
@@ -5887,7 +5905,8 @@ int __init populate_pt_range(unsigned long virt, unsigned long nr_mfns)
  *
  * It is an error to call with present flags over an unpopulated range.
  */
-int modify_xen_mappings(unsigned long s, unsigned long e, unsigned int nf)
+int modify_mappings(unsigned long s, unsigned long e, unsigned int nf,
+                    root_pgentry_t *root_pgt)
 {
     bool locking = system_state > SYS_STATE_boot;
     l3_pgentry_t *pl3e = NULL;
@@ -5914,7 +5933,7 @@ int modify_xen_mappings(unsigned long s, unsigned long e, unsigned int nf)
         UNMAP_DOMAIN_PAGE(pl2e);
         UNMAP_DOMAIN_PAGE(pl3e);
 
-        pl3e = virt_to_xen_l3e(v);
+        pl3e = virt_to_l3e(v, root_pgt);
         if ( !pl3e )
             goto out;
 
@@ -6165,9 +6184,19 @@ int modify_xen_mappings(unsigned long s, unsigned long e, unsigned int nf)
 
 #undef flush_area
 
+int modify_xen_mappings(unsigned long s, unsigned long e, unsigned int nf)
+{
+    return modify_mappings(s, e, nf, idle_pg_table);
+}
+
+int destroy_mappings(unsigned long s, unsigned long e, root_pgentry_t *root_pgt)
+{
+    return modify_mappings(s, e, _PAGE_NONE, root_pgt);
+}
+
 int destroy_xen_mappings(unsigned long s, unsigned long e)
 {
-    return modify_xen_mappings(s, e, _PAGE_NONE);
+    return modify_mappings(s, e, _PAGE_NONE, idle_pg_table);
 }
 
 /*
