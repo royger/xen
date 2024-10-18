@@ -6412,13 +6412,42 @@ static void perdomain_free_region(root_pgentry_t *root_pgt, unsigned long va,
     unmap_domain_page(l1tab);
 }
 
+/*
+ * Return a root page-table with only the per-domain slot populated.  Caller
+ * must unmap the returned pointer when done using unmap_domain_page().
+ */
+static root_pgentry_t *perdomain_root_pgt(const struct domain *d)
+{
+    static DEFINE_PER_CPU(struct page_info *, scratch_rpt);
+    root_pgentry_t *root_pgt;
+
+    ASSERT(d->arch.perdomain_l3_pg);
+
+    if ( unlikely(!this_cpu(scratch_rpt)) )
+    {
+        this_cpu(scratch_rpt) = alloc_domheap_page(NULL, 0);
+        if ( !this_cpu(scratch_rpt) )
+            return NULL;
+    }
+
+    root_pgt = __map_domain_page(this_cpu(scratch_rpt));
+
+    /*
+     * Only populate the per-domain slot, as that's the only region callers
+     * should modify.
+     */
+    root_pgt[l4_table_offset(PERDOMAIN_VIRT_START)] =
+        l4e_from_page(d->arch.perdomain_l3_pg, __PAGE_HYPERVISOR_RW);
+
+    return root_pgt;
+}
+
 int create_perdomain_mapping(struct domain *d, unsigned long va,
                              unsigned int nr, bool populate)
 {
+    root_pgentry_t *root_pgt;
     struct page_info *pg;
-    l3_pgentry_t *l3tab;
-    l2_pgentry_t *l2tab;
-    l1_pgentry_t *l1tab;
+    l1_pgentry_t *l1tab = NULL;
     int rc = 0;
 
     ASSERT(va >= PERDOMAIN_VIRT_START &&
@@ -6426,87 +6455,75 @@ int create_perdomain_mapping(struct domain *d, unsigned long va,
 
     if ( !d->arch.perdomain_l3_pg )
     {
+        l3_pgentry_t *l3tab;
+
         pg = alloc_domheap_page(d, MEMF_no_owner);
         if ( !pg )
             return -ENOMEM;
         l3tab = __map_domain_page(pg);
         clear_page(l3tab);
+        unmap_domain_page(l3tab);
         d->arch.perdomain_l3_pg = pg;
-        if ( !nr )
-        {
-            unmap_domain_page(l3tab);
-            return 0;
-        }
     }
-    else if ( !nr )
+
+    if ( !nr )
         return 0;
-    else
-        l3tab = __map_domain_page(d->arch.perdomain_l3_pg);
 
     ASSERT(!l3_table_offset(va ^ (va + nr * PAGE_SIZE - 1)));
 
-    if ( !(l3e_get_flags(l3tab[l3_table_offset(va)]) & _PAGE_PRESENT) )
+    root_pgt = perdomain_root_pgt(d);
+    if ( !root_pgt )
+        return -ENOMEM;
+
+    /*
+     * Ensure the region doesn't have previously allocated pages, or else those
+     * would be leaked.
+     */
+    perdomain_free_region(root_pgt, va, nr);
+
+    /* Create the page-table structures. */
+    rc = map_pages(va, INVALID_MFN, nr, MAP_SMALL_PAGES, root_pgt, d);
+    if ( !populate || rc )
     {
+        unmap_domain_page(root_pgt);
+        return rc;
+    }
+
+    /*
+     * Since the L1 is already allocated, fetch it and populate the slots.
+     *
+     * map_pages() could be used here, but that would require either doing a
+     * separate call for each 4K entry to populate, or allocating a physically
+     * contiguous region of size nr.
+     */
+    for ( ; nr--;  va += PAGE_SIZE )
+    {
+        if ( !l1tab || !l1_table_offset(va) )
+        {
+            unmap_domain_page(l1tab);
+            l1tab = virt_to_l1e(va & ~((1UL << L2_PAGETABLE_SHIFT) - 1),
+                                root_pgt, d, false);
+            if ( !l1tab )
+            {
+                ASSERT_UNREACHABLE();
+                rc = -EILSEQ;
+                break;
+            }
+        }
+
         pg = alloc_domheap_page(d, MEMF_no_owner);
         if ( !pg )
         {
-            unmap_domain_page(l3tab);
-            return -ENOMEM;
+            rc = -ENOMEM;
+            break;
         }
-        l2tab = __map_domain_page(pg);
-        clear_page(l2tab);
-        l3tab[l3_table_offset(va)] = l3e_from_page(pg, __PAGE_HYPERVISOR_RW);
-    }
-    else
-        l2tab = map_l2t_from_l3e(l3tab[l3_table_offset(va)]);
-
-    unmap_domain_page(l3tab);
-
-    for ( l1tab = NULL; !rc && nr--; )
-    {
-        l2_pgentry_t *pl2e = l2tab + l2_table_offset(va);
-
-        if ( !(l2e_get_flags(*pl2e) & _PAGE_PRESENT) )
-        {
-            pg = alloc_domheap_page(d, MEMF_no_owner);
-            if ( !pg )
-            {
-                rc = -ENOMEM;
-                break;
-            }
-            l1tab = __map_domain_page(pg);
-            clear_page(l1tab);
-            *pl2e = l2e_from_page(pg, __PAGE_HYPERVISOR_RW);
-        }
-        else if ( !l1tab )
-            l1tab = map_l1t_from_l2e(*pl2e);
-
-        if ( populate &&
-             !(l1e_get_flags(l1tab[l1_table_offset(va)]) & _PAGE_PRESENT) )
-        {
-            pg = alloc_domheap_page(d, MEMF_no_owner);
-            if ( pg )
-            {
-                clear_domain_page(page_to_mfn(pg));
-                l1tab[l1_table_offset(va)] =
-                    l1e_from_page(pg, __PAGE_HYPERVISOR_RW | _PAGE_AVAIL0);
-                l2e_add_flags(*pl2e, _PAGE_AVAIL0);
-            }
-            else
-                rc = -ENOMEM;
-        }
-
-        va += PAGE_SIZE;
-        if ( rc || !nr || !l1_table_offset(va) )
-        {
-            /* Note that this is a no-op for the alloc_xenheap_page() case. */
-            unmap_domain_page(l1tab);
-            l1tab = NULL;
-        }
+        clear_domain_page(page_to_mfn(pg));
+        l1tab[l1_table_offset(va)] = l1e_from_page(pg, __PAGE_HYPERVISOR_RW |
+                                                       _PAGE_AVAIL0);
     }
 
-    ASSERT(!l1tab);
-    unmap_domain_page(l2tab);
+    unmap_domain_page(l1tab);
+    unmap_domain_page(root_pgt);
 
     return rc;
 }
@@ -6615,49 +6632,54 @@ void destroy_perdomain_mapping(const struct vcpu *v, unsigned long va,
 
 void free_perdomain_mappings(struct domain *d)
 {
-    l3_pgentry_t *l3tab;
-    unsigned int i;
+    root_pgentry_t *root_pgt;
+    int rc;
 
     if ( !d->arch.perdomain_l3_pg )
         return;
 
-    l3tab = __map_domain_page(d->arch.perdomain_l3_pg);
+    root_pgt = perdomain_root_pgt(d);
+    if ( !root_pgt )
+    {
+        domain_crash(d);
+        return;
+    }
 
-    for ( i = 0; i < PERDOMAIN_SLOTS; ++i)
-        if ( l3e_get_flags(l3tab[i]) & _PAGE_PRESENT )
-        {
-            struct page_info *l2pg = l3e_get_page(l3tab[i]);
-            l2_pgentry_t *l2tab = __map_domain_page(l2pg);
-            unsigned int j;
+    perdomain_free_region(root_pgt, PERDOMAIN_VIRT_START,
+                          (PERDOMAIN_SLOT_MBYTES << (20 - PAGE_SHIFT)) *
+                          PERDOMAIN_SLOTS);
 
-            for ( j = 0; j < L2_PAGETABLE_ENTRIES; ++j )
-                if ( l2e_get_flags(l2tab[j]) & _PAGE_PRESENT )
-                {
-                    struct page_info *l1pg = l2e_get_page(l2tab[j]);
+    rc = destroy_mappings(PERDOMAIN_VIRT_START,
+                          PERDOMAIN_VIRT_SLOT(PERDOMAIN_SLOTS),
+                          root_pgt, d);
+    if ( rc )
+    {
+        gprintk(XENLOG_ERR, "%pd: failed to free per domain mappings: %d\n",
+                d, rc);
+        domain_crash(d);
+        unmap_domain_page(root_pgt);
+        return;
+    }
 
-                    if ( l2e_get_flags(l2tab[j]) & _PAGE_AVAIL0 )
-                    {
-                        l1_pgentry_t *l1tab = __map_domain_page(l1pg);
-                        unsigned int k;
+    /* destroy_mappings() shouldn't zap L4 entries. */
+    ASSERT(l4e_get_page(root_pgt[l4_table_offset(PERDOMAIN_VIRT_START)]) ==
+           d->arch.perdomain_l3_pg);
+    unmap_domain_page(root_pgt);
 
-                        for ( k = 0; k < L1_PAGETABLE_ENTRIES; ++k )
-                            if ( perdomain_free_page(l1tab[k]) )
-                                free_domheap_page(l1e_get_page(l1tab[k]));
+#ifdef CONFIG_DEBUG
+{
+    l3_pgentry_t *l3 = __map_domain_page(d->arch.perdomain_l3_pg);
+    unsigned int i;
 
-                        unmap_domain_page(l1tab);
-                    }
+    /* In debug builds ensure the L3 is empty before freeing it. */
+    for ( i = 0; i < L3_PAGETABLE_ENTRIES; i++ )
+        if ( l3e_get_flags(l3[i]) & _PAGE_PRESENT )
+            panic("%pd per-domain L3[%u] still present after destroy: %lx\n",
+                  d, i, l3e_get_intpte(l3[i]));
+    unmap_domain_page(l3);
+}
+#endif
 
-                    if ( is_xen_heap_page(l1pg) )
-                        free_xenheap_page(page_to_virt(l1pg));
-                    else
-                        free_domheap_page(l1pg);
-                }
-
-            unmap_domain_page(l2tab);
-            free_domheap_page(l2pg);
-        }
-
-    unmap_domain_page(l3tab);
     free_domheap_page(d->arch.perdomain_l3_pg);
     d->arch.perdomain_l3_pg = NULL;
 }
