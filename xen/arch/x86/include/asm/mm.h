@@ -565,7 +565,7 @@ void *do_page_walk(struct vcpu *v, unsigned long addr);
 /* Allocator functions for Xen pagetables. */
 mfn_t alloc_xen_pagetable(void);
 void free_xen_pagetable(mfn_t mfn);
-void *alloc_mapped_pagetable(mfn_t *pmfn);
+void *alloc_xen_mapped_pagetable(mfn_t *pmfn);
 
 int __sync_local_execstate(void);
 
@@ -630,5 +630,14 @@ static inline bool arch_mfns_in_directmap(unsigned long mfn, unsigned long nr)
 
 /* Setup the per-domain slot in the root page table pointer. */
 void setup_perdomain_slot(const struct domain *d, root_pgentry_t *root_pgt);
+
+/* Manipulation of page-tables given a root pointer. */
+int map_pages(unsigned long virt, mfn_t mfn, unsigned long nr_mfns,
+              unsigned int flags, root_pgentry_t *root_pgt);
+/* Alter the permissions of a range of Xen virtual address space. */
+int modify_mappings(unsigned long s, unsigned long e, unsigned int nf,
+                    root_pgentry_t *root_pgt);
+int destroy_mappings(unsigned long s, unsigned long e,
+                     root_pgentry_t *root_pgt);
 
 #endif /* __ASM_X86_MM_H__ */
