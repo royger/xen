@@ -311,6 +311,9 @@ struct arch_domain
 {
     struct page_info *perdomain_l3_pg;
 
+    /* List of pages that populate L1 slots in the per-domain region. */
+    struct page_list_head perdomain_pg;
+
 #ifdef CONFIG_PV32
     unsigned int hv_compat_vstart;
 #endif
