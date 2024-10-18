@@ -788,6 +788,7 @@ int arch_domain_create(struct domain *d,
     int rc;
 
     INIT_PAGE_LIST_HEAD(&d->arch.relmem_list);
+    INIT_PAGE_LIST_HEAD(&d->arch.perdomain_pg);
 
     spin_lock_init(&d->arch.e820_lock);
 
