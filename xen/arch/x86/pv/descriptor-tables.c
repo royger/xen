@@ -49,24 +49,36 @@ bool pv_destroy_ldt(struct vcpu *v)
 
 void pv_destroy_gdt(struct vcpu *v)
 {
-    l1_pgentry_t *pl1e = pv_gdt_ptes(v);
-    mfn_t zero_mfn = _mfn(virt_to_mfn(zero_page));
-    l1_pgentry_t zero_l1e = l1e_from_mfn(zero_mfn, __PAGE_HYPERVISOR_RO);
     unsigned int i;
 
     ASSERT(v == current || !vcpu_cpu_dirty(v));
 
-    v->arch.pv.gdt_ents = 0;
-    for ( i = 0; i < FIRST_RESERVED_GDT_PAGE; i++ )
+    for ( i = 0; i < ARRAY_SIZE(v->arch.pv.gdt_frames); i++)
     {
-        mfn_t mfn = l1e_get_mfn(pl1e[i]);
+        if ( !v->arch.pv.gdt_frames[i] )
+            break;
 
-        if ( (l1e_get_flags(pl1e[i]) & _PAGE_PRESENT) &&
-             !mfn_eq(mfn, zero_mfn) )
-            put_page_and_type(mfn_to_page(mfn));
-
-        l1e_write(&pl1e[i], zero_l1e);
+        put_page_and_type(mfn_to_page(_mfn(v->arch.pv.gdt_frames[i])));
         v->arch.pv.gdt_frames[i] = 0;
+
+        if ( likely(v == current) )
+        {
+            l1_pgentry_t *pl1e =
+                &__linear_l1_table[l1_linear_offset(GDT_VIRT_START(v) +
+                                                    pfn_to_paddr(i))];
+
+            l1e_write(pl1e, l1e_empty());
+        }
+    }
+
+    if ( unlikely(v != current && v->arch.cr3) )
+    {
+        root_pgentry_t *guest_pgt = map_domain_page(maddr_to_mfn(v->arch.cr3));
+
+        destroy_mappings(GDT_VIRT_START(v),
+                         GDT_VIRT_START(v) + (i << PAGE_SHIFT),
+                         guest_pgt, v->domain);
+        unmap_domain_page(guest_pgt);
     }
 }
 
@@ -74,7 +86,6 @@ int pv_set_gdt(struct vcpu *v, const unsigned long frames[],
                unsigned int entries)
 {
     struct domain *d = v->domain;
-    l1_pgentry_t *pl1e;
     unsigned int i, nr_frames = DIV_ROUND_UP(entries, 512);
 
     ASSERT(v == current || !vcpu_cpu_dirty(v));
@@ -97,11 +108,28 @@ int pv_set_gdt(struct vcpu *v, const unsigned long frames[],
 
     /* Install the new GDT. */
     v->arch.pv.gdt_ents = entries;
-    pl1e = pv_gdt_ptes(v);
-    for ( i = 0; i < nr_frames; i++ )
+    if ( likely(v == current) )
     {
-        v->arch.pv.gdt_frames[i] = frames[i];
-        l1e_write(&pl1e[i], l1e_from_pfn(frames[i], __PAGE_HYPERVISOR_RW));
+        l1_pgentry_t *pl1e =
+                &__linear_l1_table[l1_linear_offset(GDT_VIRT_START(v))];
+
+        for ( i = 0; i < nr_frames; i++ )
+        {
+            v->arch.pv.gdt_frames[i] = frames[i];
+            l1e_write(&pl1e[i], l1e_from_pfn(frames[i], __PAGE_HYPERVISOR_RW));
+        }
+    }
+    else
+    {
+        root_pgentry_t *guest_pgt = map_domain_page(maddr_to_mfn(v->arch.cr3));
+
+        for ( i = 0; i < nr_frames; i++ )
+        {
+            v->arch.pv.gdt_frames[i] = frames[i];
+            map_pages(GDT_VIRT_START(v) + (i << PAGE_SHIFT), _mfn(frames[i]),
+                      1, __PAGE_HYPERVISOR_RW, guest_pgt, d);
+        }
+        unmap_domain_page(guest_pgt);
     }
 
     return 0;
