@@ -6423,6 +6423,94 @@ int create_perdomain_mapping(struct domain *d, unsigned long va,
     return rc;
 }
 
+void populate_perdomain_mapping(const struct vcpu *v, unsigned long va,
+                                mfn_t *mfn, unsigned long nr)
+{
+    l1_pgentry_t *l1tab = NULL, *pl1e;
+    const l3_pgentry_t *l3tab;
+    const l2_pgentry_t *l2tab;
+    struct domain *d = v->domain;
+
+    ASSERT(va >= PERDOMAIN_VIRT_START &&
+           va < PERDOMAIN_VIRT_SLOT(PERDOMAIN_SLOTS));
+    ASSERT(!nr || !l3_table_offset(va ^ (va + nr * PAGE_SIZE - 1)));
+
+    /* Ensure loaded page-tables are from current (if current != curr_vcpu). */
+    sync_local_execstate();
+
+    /* Use likely to force the optimization for the fast path. */
+    if ( likely(v == current) )
+    {
+        unsigned int i;
+
+        /* Fast path: get L1 entries using the recursive linear mappings. */
+        pl1e = &__linear_l1_table[l1_linear_offset(va)];
+
+        for ( i = 0; i < nr; i++, pl1e++ )
+        {
+            if ( unlikely(perdomain_l1e_needs_freeing(*pl1e)) )
+            {
+                ASSERT_UNREACHABLE();
+                free_domheap_page(l1e_get_page(*pl1e));
+            }
+            l1e_write(pl1e, l1e_from_mfn(mfn[i], __PAGE_HYPERVISOR_RW));
+        }
+
+        return;
+    }
+
+    ASSERT(d->arch.perdomain_l3_pg);
+    l3tab = __map_domain_page(d->arch.perdomain_l3_pg);
+
+    if ( unlikely(!(l3e_get_flags(l3tab[l3_table_offset(va)]) &
+                    _PAGE_PRESENT)) )
+    {
+        unmap_domain_page(l3tab);
+        gprintk(XENLOG_ERR, "unable to map at VA %lx: L3e not present\n", va);
+        ASSERT_UNREACHABLE();
+        domain_crash(d);
+
+        return;
+    }
+
+    l2tab = map_l2t_from_l3e(l3tab[l3_table_offset(va)]);
+
+    for ( ; nr--; va += PAGE_SIZE, mfn++ )
+    {
+        if ( !l1tab || !l1_table_offset(va) )
+        {
+            const l2_pgentry_t *pl2e = l2tab + l2_table_offset(va);
+
+            if ( unlikely(!(l2e_get_flags(*pl2e) & _PAGE_PRESENT)) )
+            {
+                gprintk(XENLOG_ERR, "unable to map at VA %lx: L2e not present\n",
+                        va);
+                ASSERT_UNREACHABLE();
+                domain_crash(d);
+
+                break;
+            }
+
+            unmap_domain_page(l1tab);
+            l1tab = map_l1t_from_l2e(*pl2e);
+        }
+
+        pl1e = &l1tab[l1_table_offset(va)];
+
+        if ( unlikely(perdomain_l1e_needs_freeing(*pl1e)) )
+        {
+            ASSERT_UNREACHABLE();
+            free_domheap_page(l1e_get_page(*pl1e));
+        }
+
+        l1e_write(pl1e, l1e_from_mfn(*mfn, __PAGE_HYPERVISOR_RW));
+    }
+
+    unmap_domain_page(l1tab);
+    unmap_domain_page(l2tab);
+    unmap_domain_page(l3tab);
+}
+
 void destroy_perdomain_mapping(struct domain *d, unsigned long va,
                                unsigned int nr)
 {
