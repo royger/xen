@@ -5416,7 +5416,11 @@ static l1_pgentry_t *virt_to_l1e(unsigned long v, l4_pgentry_t *pl4e,
 #define lNf_to_l1f(f) (((f) & _PAGE_PRESENT) ? ((f) & ~_PAGE_PSE) : (f))
 
 /* flush_area_all() can be used prior to any other CPU being online.  */
-#define flush_area(v, f) flush_area_all((const void *)(v), f)
+#define flush_area(v, f)                                        \
+    do {                                                        \
+        if ( root_pgt == idle_pg_table )                        \
+            flush_area_all((const void *)(v), f);               \
+    } while ( false )
 
 #define L3T_INIT(page) (page) = ZERO_BLOCK_PTR
 
