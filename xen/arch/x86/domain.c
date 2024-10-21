@@ -1376,22 +1376,6 @@ int arch_set_info_guest(
     if ( rc )
         return rc;
 
-    if ( !compat )
-        rc = pv_set_gdt(v, c.nat->gdt_frames, c.nat->gdt_ents);
-#ifdef CONFIG_COMPAT
-    else
-    {
-        unsigned long gdt_frames[ARRAY_SIZE(v->arch.pv.gdt_frames)];
-
-        for ( i = 0; i < nr_gdt_frames; ++i )
-            gdt_frames[i] = c.cmp->gdt_frames[i];
-
-        rc = pv_set_gdt(v, gdt_frames, c.cmp->gdt_ents);
-    }
-#endif
-    if ( rc != 0 )
-        return rc;
-
     set_bit(_VPF_in_reset, &v->pause_flags);
 
 #ifdef CONFIG_COMPAT
@@ -1492,7 +1476,6 @@ int arch_set_info_guest(
     {
         if ( cr3_page )
             put_page(cr3_page);
-        pv_destroy_gdt(v);
         return rc;
     }
 
@@ -1508,6 +1491,22 @@ int arch_set_info_guest(
         paging_update_paging_modes(v);
     else
         update_cr3(v);
+
+    if ( !compat )
+        rc = pv_set_gdt(v, c.nat->gdt_frames, c.nat->gdt_ents);
+#ifdef CONFIG_COMPAT
+    else
+    {
+        unsigned long gdt_frames[ARRAY_SIZE(v->arch.pv.gdt_frames)];
+
+        for ( i = 0; i < nr_gdt_frames; ++i )
+            gdt_frames[i] = c.cmp->gdt_frames[i];
+
+        rc = pv_set_gdt(v, gdt_frames, c.cmp->gdt_ents);
+    }
+#endif
+    if ( rc != 0 )
+        return rc;
 #endif /* CONFIG_PV */
 
  out:
