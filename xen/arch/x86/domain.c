@@ -1953,9 +1953,14 @@ static always_inline bool need_full_gdt(const struct domain *d)
 
 static void update_xen_slot_in_full_gdt(const struct vcpu *v, unsigned int cpu)
 {
-    l1e_write(pv_gdt_ptes(v) + FIRST_RESERVED_GDT_PAGE,
-              !is_pv_32bit_vcpu(v) ? per_cpu(gdt_l1e, cpu)
-                                   : per_cpu(compat_gdt_l1e, cpu));
+    ASSERT(v != current);
+
+    populate_perdomain_mapping(v,
+                               GDT_VIRT_START(v) +
+                               (FIRST_RESERVED_GDT_PAGE << PAGE_SHIFT),
+                               !is_pv_32bit_vcpu(v) ? &per_cpu(gdt_mfn, cpu)
+                                                    : &per_cpu(compat_gdt_mfn,
+                                                               cpu), 1);
 }
 
 static void load_full_gdt(const struct vcpu *v, unsigned int cpu)

@@ -5366,7 +5366,7 @@ static l2_pgentry_t *virt_to_l2e(unsigned long v, l4_pgentry_t *pl4e,
 }
 
 static l1_pgentry_t *virt_to_l1e(unsigned long v, l4_pgentry_t *pl4e,
-                                 struct domain *d)
+                                 struct domain *d, bool alloc)
 {
     l2_pgentry_t *pl2e, l2e;
 
@@ -5378,7 +5378,7 @@ static l1_pgentry_t *virt_to_l1e(unsigned long v, l4_pgentry_t *pl4e,
     {
         bool locking = system_state > SYS_STATE_boot && pl4e == idle_pg_table;
         mfn_t l1mfn;
-        l1_pgentry_t *l1t = alloc_mapped_pagetable(d, &l1mfn);
+        l1_pgentry_t *l1t = alloc ? alloc_mapped_pagetable(d, &l1mfn) : NULL;
 
         if ( !l1t )
         {
@@ -5729,7 +5729,7 @@ int map_pages(
             /* Normal page mapping. */
             if ( !(l2e_get_flags(*pl2e) & _PAGE_PRESENT) )
             {
-                pl1e = virt_to_l1e(virt, root_pgt, d);
+                pl1e = virt_to_l1e(virt, root_pgt, d, true);
                 if ( pl1e == NULL )
                     goto out;
             }
@@ -6499,6 +6499,75 @@ int create_perdomain_mapping(struct domain *d, unsigned long va,
     unmap_domain_page(l2tab);
 
     return rc;
+}
+
+void populate_perdomain_mapping(const struct vcpu *v, unsigned long va,
+                                mfn_t *mfn, unsigned long nr)
+{
+    l1_pgentry_t *l1tab = NULL, *pl1e, old_l1e;
+    root_pgentry_t *root_pgt;
+
+    ASSERT(va >= PERDOMAIN_VIRT_START &&
+           va < PERDOMAIN_VIRT_SLOT(PERDOMAIN_SLOTS));
+    ASSERT(!nr || !l3_table_offset(va ^ (va + nr * PAGE_SIZE - 1)));
+
+    /*
+     * Use likely to force the optimization for the fast path.  Explicitly use
+     * curr_vcpu instead of current, context here only cares about what
+     * page-tables are currently loaded on the CPU
+     */
+    if ( likely(v == this_cpu(curr_vcpu)) )
+    {
+        unsigned int i;
+
+        /* Fast path: get L1 entries using the recursive linear mappings. */
+        pl1e = &__linear_l1_table[l1_linear_offset(va)];
+
+        for ( i = 0; i < nr; i++, pl1e++ )
+        {
+            old_l1e = *pl1e;
+
+            l1e_write(pl1e, l1e_from_mfn(mfn[i], __PAGE_HYPERVISOR_RW));
+
+            if ( perdomain_free_page(old_l1e) )
+            {
+                ASSERT_UNREACHABLE();
+                free_domheap_page(l1e_get_page(old_l1e));
+            }
+
+        }
+
+        return;
+    }
+
+    ASSERT(v->arch.cr3);
+    root_pgt = map_domain_page(cr3_mfn(v->arch.cr3));
+
+    for ( ; nr--; va += PAGE_SIZE, mfn++ )
+    {
+        if ( !l1tab || !l1_table_offset(va) )
+        {
+            unmap_domain_page(l1tab);
+            l1tab = virt_to_l1e(va & ~((1UL << L2_PAGETABLE_SHIFT) - 1),
+                                root_pgt, v->domain, false);
+            /* The paging structures should always be present. */
+            BUG_ON(!l1tab);
+        }
+
+        pl1e = &l1tab[l1_table_offset(va)];
+        old_l1e = *pl1e;
+
+        if ( perdomain_free_page(old_l1e) )
+        {
+            ASSERT_UNREACHABLE();
+            free_domheap_page(l1e_get_page(old_l1e));
+        }
+
+        l1e_write(pl1e, l1e_from_mfn(*mfn, __PAGE_HYPERVISOR_RW));
+    }
+
+    unmap_domain_page(l1tab);
+    unmap_domain_page(root_pgt);
 }
 
 void destroy_perdomain_mapping(struct domain *d, unsigned long va,
