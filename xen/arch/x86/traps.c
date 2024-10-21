@@ -68,10 +68,10 @@ DEFINE_PER_CPU(uint64_t, efer);
 static DEFINE_PER_CPU(unsigned long, last_extable_addr);
 
 DEFINE_PER_CPU_READ_MOSTLY(seg_desc_t *, gdt);
-DEFINE_PER_CPU_READ_MOSTLY(l1_pgentry_t, gdt_l1e);
+DEFINE_PER_CPU_READ_MOSTLY(mfn_t, gdt_mfn);
 #ifdef CONFIG_PV32
 DEFINE_PER_CPU_READ_MOSTLY(seg_desc_t *, compat_gdt);
-DEFINE_PER_CPU_READ_MOSTLY(l1_pgentry_t, compat_gdt_l1e);
+DEFINE_PER_CPU_READ_MOSTLY(mfn_t, compat_gdt_mfn);
 #endif
 
 /*

@@ -44,6 +44,8 @@
 
 #ifndef __ASSEMBLER__
 
+#include <xen/mm-frame.h>
+
 #define GUEST_KERNEL_RPL(d) (is_pv_32bit_domain(d) ? 1 : 3)
 
 /* Fix up the RPL of a guest segment selector. */
@@ -136,10 +138,10 @@ struct __packed desc_ptr {
 
 extern seg_desc_t boot_gdt[];
 DECLARE_PER_CPU(seg_desc_t *, gdt);
-DECLARE_PER_CPU(l1_pgentry_t, gdt_l1e);
+DECLARE_PER_CPU(mfn_t, gdt_mfn);
 extern seg_desc_t boot_compat_gdt[];
 DECLARE_PER_CPU(seg_desc_t *, compat_gdt);
-DECLARE_PER_CPU(l1_pgentry_t, compat_gdt_l1e);
+DECLARE_PER_CPU(mfn_t, compat_gdt_mfn);
 DECLARE_PER_CPU(bool, full_gdt_loaded);
 
 static inline void lgdt(const struct desc_ptr *gdtr)

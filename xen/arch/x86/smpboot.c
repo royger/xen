@@ -1069,8 +1069,7 @@ static int cpu_smpboot_alloc(unsigned int cpu)
     if ( gdt == NULL )
         goto out;
     per_cpu(gdt, cpu) = gdt;
-    per_cpu(gdt_l1e, cpu) =
-        l1e_from_pfn(virt_to_mfn(gdt), __PAGE_HYPERVISOR_RW);
+    per_cpu(gdt_mfn, cpu) = _mfn(virt_to_mfn(gdt));
     memcpy(gdt, boot_gdt, NR_RESERVED_GDT_PAGES * PAGE_SIZE);
     BUILD_BUG_ON(NR_CPUS > 0x10000);
     gdt[PER_CPU_GDT_ENTRY - FIRST_RESERVED_GDT_ENTRY].a = cpu;
@@ -1079,8 +1078,7 @@ static int cpu_smpboot_alloc(unsigned int cpu)
     per_cpu(compat_gdt, cpu) = gdt = alloc_xenheap_pages(0, memflags);
     if ( gdt == NULL )
         goto out;
-    per_cpu(compat_gdt_l1e, cpu) =
-        l1e_from_pfn(virt_to_mfn(gdt), __PAGE_HYPERVISOR_RW);
+    per_cpu(compat_gdt_mfn, cpu) = _mfn(virt_to_mfn(gdt));
     memcpy(gdt, boot_compat_gdt, NR_RESERVED_GDT_PAGES * PAGE_SIZE);
     gdt[PER_CPU_GDT_ENTRY - FIRST_RESERVED_GDT_ENTRY].a = cpu;
 #endif
@@ -1168,15 +1166,13 @@ void __init smp_prepare_cpus(void)
     print_cpu_info(0);
 
     /*
-     * Cache {,compat_}gdt_l1e for the BSP now that physically relocation is
+     * Cache {,compat_}gdt_mfn for the BSP now that physically relocation is
      * done.  It must be after physical relocation of Xen, and before the
      * first context_switch().
      */
-    this_cpu(gdt_l1e) =
-        l1e_from_pfn(virt_to_mfn(boot_gdt), __PAGE_HYPERVISOR_RW);
+    this_cpu(gdt_mfn) = _mfn(virt_to_mfn(boot_gdt));
     if ( IS_ENABLED(CONFIG_PV32) )
-        this_cpu(compat_gdt_l1e) =
-            l1e_from_pfn(virt_to_mfn(boot_compat_gdt), __PAGE_HYPERVISOR_RW);
+        this_cpu(compat_gdt_mfn) = _mfn(virt_to_mfn(boot_compat_gdt));
 
     boot_cpu_physical_apicid = get_apic_id();
     x86_cpu_to_apicid[0] = boot_cpu_physical_apicid;
