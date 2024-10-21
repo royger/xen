@@ -1951,9 +1951,23 @@ static always_inline bool need_full_gdt(const struct domain *d)
 
 static void update_xen_slot_in_full_gdt(const struct vcpu *v, unsigned int cpu)
 {
-    l1e_write(pv_gdt_ptes(v) + FIRST_RESERVED_GDT_PAGE,
-              !is_pv_32bit_vcpu(v) ? per_cpu(gdt_l1e, cpu)
-                                   : per_cpu(compat_gdt_l1e, cpu));
+    root_pgentry_t *guest_pgt;
+
+    ASSERT(v != current);
+    ASSERT(v->arch.cr3);
+
+    /*
+     * Cannot use the linear page-table mappings because not yet running on v
+     * page-tables.
+     */
+    guest_pgt = map_domain_page(maddr_to_mfn(v->arch.cr3));
+
+    map_pages(GDT_VIRT_START(v) + (FIRST_RESERVED_GDT_PAGE << PAGE_SHIFT),
+              !is_pv_32bit_vcpu(v) ? per_cpu(gdt_mfn, cpu)
+                                   : per_cpu(compat_gdt_mfn, cpu),
+              1, __PAGE_HYPERVISOR_RW, guest_pgt, v->domain);
+
+    unmap_domain_page(guest_pgt);
 }
 
 static void load_full_gdt(const struct vcpu *v, unsigned int cpu)
