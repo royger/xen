@@ -353,6 +353,7 @@ void pv_vcpu_destroy(struct vcpu *v)
 int pv_vcpu_initialise(struct vcpu *v)
 {
     struct domain *d = v->domain;
+    unsigned int i;
     int rc;
 
     ASSERT(!is_idle_domain(d));
@@ -360,6 +361,9 @@ int pv_vcpu_initialise(struct vcpu *v)
     rc = pv_create_gdt_ldt_l1tab(v);
     if ( rc )
         return rc;
+
+    for ( i = 0; i < ARRAY_SIZE(v->arch.pv.ldt_frames); i++ )
+        v->arch.pv.ldt_frames[i] = INVALID_MFN;
 
     if ( v->domain->arch.pv.xpti )
     {
