@@ -523,6 +523,8 @@ struct pv_vcpu
     struct trap_info *trap_ctxt;
 
     unsigned long gdt_frames[FIRST_RESERVED_GDT_PAGE];
+    /* Max LDT entries is 8192, so 8192 * 8 = 64KiB (16 pages). */
+    mfn_t ldt_frames[16];
     unsigned long ldt_base;
     unsigned int gdt_ents, ldt_ents;
 
