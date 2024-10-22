@@ -20,28 +20,43 @@
  */
 bool pv_destroy_ldt(struct vcpu *v)
 {
-    l1_pgentry_t *pl1e;
+    const unsigned int nr_frames = ARRAY_SIZE(v->arch.pv.ldt_frames);
+    l1_pgentry_t *pl1e = NULL;
     unsigned int i, mappings_dropped = 0;
-    struct page_info *page;
 
     ASSERT(!in_irq());
 
     ASSERT(v == current || !vcpu_cpu_dirty(v));
 
-    pl1e = pv_ldt_ptes(v);
-
-    for ( i = 0; i < 16; i++ )
+    if ( v == current )
+        pl1e = &__linear_l1_table[l1_linear_offset(LDT_VIRT_START(v))];
+    else if ( v->arch.cr3 )
     {
-        if ( !(l1e_get_flags(pl1e[i]) & _PAGE_PRESENT) )
+        root_pgentry_t *guest_pgt = map_domain_page(maddr_to_mfn(v->arch.cr3));
+
+        destroy_mappings(LDT_VIRT_START(v),
+                         LDT_VIRT_START(v) + (nr_frames << PAGE_SHIFT),
+                         guest_pgt, v->domain);
+        unmap_domain_page(guest_pgt);
+    }
+
+    for ( i = 0; i < nr_frames; i++ )
+    {
+        mfn_t mfn = v->arch.pv.ldt_frames[i];
+        struct page_info *page;
+
+        if ( pl1e )
+            l1e_write(pl1e++, l1e_empty());
+
+        if ( mfn_eq(mfn, INVALID_MFN) )
             continue;
 
-        page = l1e_get_page(pl1e[i]);
-        l1e_write(&pl1e[i], l1e_empty());
-        mappings_dropped++;
-
+        v->arch.pv.ldt_frames[i] = INVALID_MFN;
+        page = mfn_to_page(mfn);
         ASSERT_PAGE_IS_TYPE(page, PGT_seg_desc_page);
         ASSERT_PAGE_IS_DOMAIN(page, v->domain);
         put_page_and_type(page);
+        mappings_dropped++;
     }
 
     return mappings_dropped;
