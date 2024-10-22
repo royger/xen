@@ -86,7 +86,8 @@ bool pv_map_ldt_shadow_page(unsigned int offset)
         return false;
     }
 
-    pl1e = &pv_ldt_ptes(curr)[offset >> PAGE_SHIFT];
+    curr->arch.pv.ldt_frames[offset >> PAGE_SHIFT] = page_to_mfn(page);
+    pl1e = &__linear_l1_table[l1_linear_offset(LDT_VIRT_START(curr) + offset)];
     l1e_add_flags(gl1e, _PAGE_RW);
 
     l1e_write(pl1e, gl1e);
