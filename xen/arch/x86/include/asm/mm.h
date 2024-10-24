@@ -578,8 +578,7 @@ int compat_arch_memory_op(unsigned long cmd, XEN_GUEST_HANDLE_PARAM(void) arg);
 #define IS_NIL(ptr) (!((uintptr_t)(ptr) + sizeof(*(ptr))))
 
 int create_perdomain_mapping(struct domain *d, unsigned long va,
-                             unsigned int nr, l1_pgentry_t **pl1tab,
-                             struct page_info **ppg);
+                             unsigned int nr, bool populate);
 void destroy_perdomain_mapping(struct domain *d, unsigned long va,
                                unsigned int nr);
 void free_perdomain_mappings(struct domain *d);
