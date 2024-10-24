@@ -276,9 +276,7 @@ int switch_compat(struct domain *d)
 static int pv_create_gdt_ldt_l1tab(struct vcpu *v)
 {
     return create_perdomain_mapping(v->domain, GDT_VIRT_START(v),
-                                    1U << GDT_LDT_VCPU_SHIFT,
-                                    NIL(l1_pgentry_t *),
-                                    NULL);
+                                    1U << GDT_LDT_VCPU_SHIFT, false);
 }
 
 void pv_vcpu_destroy(struct vcpu *v)
