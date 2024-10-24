@@ -279,7 +279,7 @@ static int pv_create_gdt_ldt_l1tab(struct vcpu *v)
 {
     return create_perdomain_mapping(v->domain, GDT_VIRT_START(v),
                                     1U << GDT_LDT_VCPU_SHIFT,
-                                    v->domain->arch.pv.gdt_ldt_l1tab,
+                                    NIL(l1_pgentry_t *),
                                     NULL);
 }
 
@@ -349,8 +349,6 @@ void pv_domain_destroy(struct domain *d)
     pv_l1tf_domain_destroy(d);
 
     XFREE(d->arch.pv.cpuidmasks);
-
-    FREE_XENHEAP_PAGE(d->arch.pv.gdt_ldt_l1tab);
 }
 
 void noreturn cf_check continue_pv_domain(void);
@@ -365,12 +363,6 @@ int pv_domain_initialise(struct domain *d)
     int rc = -ENOMEM;
 
     pv_l1tf_domain_init(d);
-
-    d->arch.pv.gdt_ldt_l1tab =
-        alloc_xenheap_pages(0, MEMF_node(domain_to_node(d)));
-    if ( !d->arch.pv.gdt_ldt_l1tab )
-        goto fail;
-    clear_page(d->arch.pv.gdt_ldt_l1tab);
 
     if ( levelling_caps & ~LCAP_faulting &&
          (d->arch.pv.cpuidmasks = xmemdup(&cpuidmask_defaults)) == NULL )
