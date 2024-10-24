@@ -633,11 +633,11 @@ void setup_perdomain_slot(const struct domain *d, root_pgentry_t *root_pgt);
 
 /* Manipulation of page-tables given a root pointer. */
 int map_pages(unsigned long virt, mfn_t mfn, unsigned long nr_mfns,
-              unsigned int flags, root_pgentry_t *root_pgt);
+              unsigned int flags, root_pgentry_t *root_pgt, struct domain *d);
 /* Alter the permissions of a range of Xen virtual address space. */
 int modify_mappings(unsigned long s, unsigned long e, unsigned int nf,
-                    root_pgentry_t *root_pgt);
+                    root_pgentry_t *root_pgt, struct domain *d);
 int destroy_mappings(unsigned long s, unsigned long e,
-                     root_pgentry_t *root_pgt);
+                     root_pgentry_t *root_pgt, struct domain *d);
 
 #endif /* __ASM_X86_MM_H__ */
