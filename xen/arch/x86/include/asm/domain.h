@@ -287,8 +287,6 @@ struct time_scale {
 
 struct pv_domain
 {
-    l1_pgentry_t **gdt_ldt_l1tab;
-
     /* Array of pointers to the l1 PTs holding PV root PTs of each vCPU */
     l1_pgentry_t **root_pt_l1tab;
 
@@ -526,13 +524,6 @@ struct arch_domain
 #define has_vpit(d)        (!!((d)->arch.emulation_flags & X86_EMU_PIT))
 #define has_pirq(d)        (!!((d)->arch.emulation_flags & X86_EMU_USE_PIRQ))
 #define has_vpci(d)        (!!((d)->arch.emulation_flags & X86_EMU_VPCI))
-
-#define gdt_ldt_pt_idx(v) \
-      ((v)->vcpu_id >> (PAGETABLE_ORDER - GDT_LDT_VCPU_SHIFT))
-#define pv_gdt_ptes(v) \
-    ((v)->domain->arch.pv.gdt_ldt_l1tab[gdt_ldt_pt_idx(v)] + \
-     (((v)->vcpu_id << GDT_LDT_VCPU_SHIFT) & (L1_PAGETABLE_ENTRIES - 1)))
-#define pv_ldt_ptes(v) (pv_gdt_ptes(v) + 16)
 
 struct pv_vcpu
 {
