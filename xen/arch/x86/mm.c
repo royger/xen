@@ -6301,8 +6301,7 @@ static bool perdomain_l1e_needs_freeing(l1_pgentry_t l1e)
 }
 
 int create_perdomain_mapping(struct domain *d, unsigned long va,
-                             unsigned int nr, l1_pgentry_t **pl1tab,
-                             struct page_info **ppg)
+                             unsigned int nr, bool populate)
 {
     struct page_info *pg;
     l3_pgentry_t *l3tab;
@@ -6351,55 +6350,32 @@ int create_perdomain_mapping(struct domain *d, unsigned long va,
 
     unmap_domain_page(l3tab);
 
-    if ( !pl1tab && !ppg )
-    {
-        unmap_domain_page(l2tab);
-        return 0;
-    }
-
     for ( l1tab = NULL; !rc && nr--; )
     {
         l2_pgentry_t *pl2e = l2tab + l2_table_offset(va);
 
         if ( !(l2e_get_flags(*pl2e) & _PAGE_PRESENT) )
         {
-            if ( pl1tab && !IS_NIL(pl1tab) )
+            pg = alloc_domheap_page(d, MEMF_no_owner);
+            if ( !pg )
             {
-                l1tab = alloc_xenheap_pages(0, MEMF_node(domain_to_node(d)));
-                if ( !l1tab )
-                {
-                    rc = -ENOMEM;
-                    break;
-                }
-                ASSERT(!pl1tab[l2_table_offset(va)]);
-                pl1tab[l2_table_offset(va)] = l1tab;
-                pg = virt_to_page(l1tab);
+                rc = -ENOMEM;
+                break;
             }
-            else
-            {
-                pg = alloc_domheap_page(d, MEMF_no_owner);
-                if ( !pg )
-                {
-                    rc = -ENOMEM;
-                    break;
-                }
-                l1tab = __map_domain_page(pg);
-            }
+            l1tab = __map_domain_page(pg);
             clear_page(l1tab);
             *pl2e = l2e_from_page(pg, __PAGE_HYPERVISOR_RW);
         }
         else if ( !l1tab )
             l1tab = map_l1t_from_l2e(*pl2e);
 
-        if ( ppg &&
+        if ( populate &&
              !(l1e_get_flags(l1tab[l1_table_offset(va)]) & _PAGE_PRESENT) )
         {
             pg = alloc_domheap_page(d, MEMF_no_owner);
             if ( pg )
             {
                 clear_domain_page(page_to_mfn(pg));
-                if ( !IS_NIL(ppg) )
-                    *ppg++ = pg;
                 l1tab[l1_table_offset(va)] =
                     l1e_from_page(pg, __PAGE_HYPERVISOR_RW | _PAGE_AVAIL0);
                 l2e_add_flags(*pl2e, _PAGE_AVAIL0);
@@ -6616,10 +6592,7 @@ void free_perdomain_mappings(struct domain *d)
                         unmap_domain_page(l1tab);
                     }
 
-                    if ( is_xen_heap_page(l1pg) )
-                        free_xenheap_page(page_to_virt(l1pg));
-                    else
-                        free_domheap_page(l1pg);
+                    free_domheap_page(l1pg);
                 }
 
             unmap_domain_page(l2tab);
