@@ -619,7 +619,7 @@ int hvm_domain_initialise(struct domain *d,
     INIT_LIST_HEAD(&d->arch.hvm.mmcfg_regions);
     INIT_LIST_HEAD(&d->arch.hvm.msix_tables);
 
-    rc = create_perdomain_mapping(d, PERDOMAIN_VIRT_START, 0, NULL, NULL);
+    rc = create_perdomain_mapping(d, PERDOMAIN_VIRT_START, 0, false);
     if ( rc )
         goto fail;
 

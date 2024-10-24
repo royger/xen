@@ -274,8 +274,7 @@ int mapcache_domain_init(struct domain *d)
     spin_lock_init(&dcache->lock);
 
     return create_perdomain_mapping(d, (unsigned long)dcache->inuse,
-                                    2 * bitmap_pages + 1,
-                                    NIL(l1_pgentry_t *), NULL);
+                                    2 * bitmap_pages + 1, false);
 }
 
 int mapcache_vcpu_init(struct vcpu *v)
@@ -292,16 +291,15 @@ int mapcache_vcpu_init(struct vcpu *v)
     if ( ents > dcache->entries )
     {
         /* Populate page tables. */
-        int rc = create_perdomain_mapping(d, MAPCACHE_VIRT_START, ents,
-                                          NIL(l1_pgentry_t *), NULL);
+        int rc = create_perdomain_mapping(d, MAPCACHE_VIRT_START, ents, false);
 
         /* Populate bit maps. */
         if ( !rc )
             rc = create_perdomain_mapping(d, (unsigned long)dcache->inuse,
-                                          nr, NULL, NIL(struct page_info *));
+                                          nr, true);
         if ( !rc )
             rc = create_perdomain_mapping(d, (unsigned long)dcache->garbage,
-                                          nr, NULL, NIL(struct page_info *));
+                                          nr, true);
 
         if ( rc )
             return rc;

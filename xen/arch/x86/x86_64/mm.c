@@ -733,8 +733,7 @@ void __init zap_low_mappings(void)
 int setup_compat_arg_xlat(struct vcpu *v)
 {
     return create_perdomain_mapping(v->domain, ARG_XLAT_START(v),
-                                    PFN_UP(COMPAT_ARG_XLAT_SIZE),
-                                    NULL, NIL(struct page_info *));
+                                    PFN_UP(COMPAT_ARG_XLAT_SIZE), true);
 }
 
 void free_compat_arg_xlat(struct vcpu *v)
