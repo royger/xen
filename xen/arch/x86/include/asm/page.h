@@ -202,7 +202,8 @@ static inline l4_pgentry_t l4e_from_paddr(paddr_t pa, unsigned int flags)
 
 /* Check if an address is aligned for a given slot level. */
 #define SLOT_IS_ALIGNED(v, m, s) \
-    IS_ALIGNED(PFN_DOWN(v) | mfn_x(m), (1UL << ((s) - PAGE_SHIFT)) - 1)
+    IS_ALIGNED(PFN_DOWN(v) | (mfn_eq(m, INVALID_MFN) ? 0 : mfn_x(m)), \
+               (1UL << ((s) - PAGE_SHIFT)) - 1)
 #define IS_L3E_ALIGNED(v, m) SLOT_IS_ALIGNED(v, m, L3_PAGETABLE_SHIFT)
 #define IS_L2E_ALIGNED(v, m) SLOT_IS_ALIGNED(v, m, L2_PAGETABLE_SHIFT)
 
