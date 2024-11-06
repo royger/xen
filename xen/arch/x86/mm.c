@@ -5232,9 +5232,17 @@ int map_pages_to_xen(
     }                                          \
 } while (0)
 
-/* Check if a (virt, mfn) tuple is aligned for a given slot level. */
-#define IS_LnE_ALIGNED(v, m, n) \
-    IS_ALIGNED(PFN_DOWN(v) | mfn_x(m), (1UL << (PAGETABLE_ORDER * (n - 1))) - 1)
+/*
+ * Check if a (virt, mfn) tuple is aligned for a given slot level. m must not
+ * be INVALID_MFN, since alignment is only relevant for present entries.
+ */
+#define IS_LnE_ALIGNED(v, m, n) ({                              \
+    mfn_t m_ = m;                                               \
+                                                                \
+    ASSERT(!mfn_eq(m_, INVALID_MFN));                           \
+    IS_ALIGNED(PFN_DOWN(v) | mfn_x(m_),                         \
+               (1UL << (PAGETABLE_ORDER * (n - 1))) - 1);       \
+})
 #define IS_L2E_ALIGNED(v, m) IS_LnE_ALIGNED(v, m, 2)
 #define IS_L3E_ALIGNED(v, m) IS_LnE_ALIGNED(v, m, 3)
 
@@ -5255,7 +5263,8 @@ int map_pages_to_xen(
         L3T_LOCK(current_l3page);
         ol3e = *pl3e;
 
-        if ( cpu_has_page1gb && IS_L3E_ALIGNED(virt, mfn) &&
+        if ( cpu_has_page1gb &&
+             (!(flags & _PAGE_PRESENT) || IS_L3E_ALIGNED(virt, mfn)) &&
              nr_mfns >= (1UL << (L3_PAGETABLE_SHIFT - PAGE_SHIFT)) &&
              !(flags & (_PAGE_PAT | MAP_SMALL_PAGES)) )
         {
@@ -5374,7 +5383,7 @@ int map_pages_to_xen(
         if ( !pl2e )
             goto out;
 
-        if ( IS_L2E_ALIGNED(virt, mfn) &&
+        if ( (!(flags & _PAGE_PRESENT) || IS_L2E_ALIGNED(virt, mfn)) &&
              (nr_mfns >= (1u << PAGETABLE_ORDER)) &&
              !(flags & (_PAGE_PAT|MAP_SMALL_PAGES)) )
         {
@@ -5544,7 +5553,8 @@ int map_pages_to_xen(
  check_l3:
         if ( cpu_has_page1gb &&
              (flags == PAGE_HYPERVISOR) &&
-             ((nr_mfns == 0) || IS_L3E_ALIGNED(virt, mfn)) )
+             ((nr_mfns == 0) || !(flags & _PAGE_PRESENT) ||
+              IS_L3E_ALIGNED(virt, mfn)) )
         {
             unsigned long base_mfn;
             const l2_pgentry_t *l2t;
