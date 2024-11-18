@@ -24,9 +24,6 @@ unsigned int copy_from_unsafe_ll(void *to, const void *from, unsigned int n);
 void noreturn __get_user_bad(void);
 void noreturn __put_user_bad(void);
 
-#define UA_KEEP(args...) args
-#define UA_DROP(args...)
-
 /**
  * get_guest: - Get a simple variable from guest space.
  * @x:   Variable to store result.
@@ -104,7 +101,7 @@ void noreturn __put_user_bad(void);
 #define put_unsafe(x, ptr)						\
 ({									\
 	int err_; 							\
-	put_unsafe_size(x, ptr, sizeof(*(ptr)), UA_DROP, err_, -EFAULT);\
+	put_unsafe_size(x, ptr, sizeof(*(ptr)), 0, err_, -EFAULT);      \
 	err_;								\
 })
 
@@ -126,7 +123,7 @@ void noreturn __put_user_bad(void);
 #define get_unsafe(x, ptr)						\
 ({									\
 	int err_; 							\
-	get_unsafe_size(x, ptr, sizeof(*(ptr)), UA_DROP, err_, -EFAULT);\
+	get_unsafe_size(x, ptr, sizeof(*(ptr)), 0, err_, -EFAULT);	\
 	err_;								\
 })
 
@@ -155,9 +152,9 @@ struct __large_struct { unsigned long buf[100]; };
  */
 #define put_unsafe_asm(x, addr, GUARD, err, itype, rtype, ltype, errret) \
 	__asm__ __volatile__(						\
-		GUARD(							\
+		".if " STR(GUARD) "\n"					\
 		"	guest_access_mask_ptr %[ptr], %[scr1], %[scr2]\n" \
-		)							\
+		".endif\n"						\
 		"1:	mov"itype" %"rtype"[val], (%[ptr])\n"		\
 		"2:\n"							\
 		".section .fixup,\"ax\"\n"				\
@@ -165,16 +162,16 @@ struct __large_struct { unsigned long buf[100]; };
 		"	jmp 2b\n"					\
 		".previous\n"						\
 		_ASM_EXTABLE(1b, 3b)					\
-		: [ret] "+r" (err), [ptr] "=&r" (dummy_)		\
-		  GUARD(, [scr1] "=&r" (dummy_), [scr2] "=&r" (dummy_))	\
+		: [ret] "+r" (err), [ptr] "=&r" (dummy_),		\
+		  [scr1] "=&r" (dummy_), [scr2] "=&r" (dummy_)		\
 		: [val] ltype (x), "m" (__m(addr)),			\
 		  "[ptr]" (addr), [errno] "i" (errret))
 
 #define get_unsafe_asm(x, addr, GUARD, err, rtype, ltype, errret)	\
 	__asm__ __volatile__(						\
-		GUARD(							\
+		".if " STR(GUARD) "\n"					\
 		"	guest_access_mask_ptr %[ptr], %[scr1], %[scr2]\n" \
-		)							\
+		".endif\n"						\
 		"1:	mov (%[ptr]), %"rtype"[val]\n"			\
 		"2:\n"							\
 		".section .fixup,\"ax\"\n"				\
@@ -184,14 +181,15 @@ struct __large_struct { unsigned long buf[100]; };
 		".previous\n"						\
 		_ASM_EXTABLE(1b, 3b)					\
 		: [ret] "+r" (err), [val] ltype (x),			\
-		  [ptr] "=&r" (dummy_)					\
-		  GUARD(, [scr1] "=&r" (dummy_), [scr2] "=&r" (dummy_))	\
+		  [ptr] "=&r" (dummy_),					\
+		  [scr1] "=&r" (dummy_), [scr2] "=&r" (dummy_)		\
 		: "m" (__m(addr)), "[ptr]" (addr),			\
 		  [errno] "i" (errret))
 
 #define put_unsafe_size(x, ptr, size, grd, retval, errret)                 \
 do {                                                                       \
     retval = 0;                                                            \
+    BUILD_BUG_ON((grd) != 0 && (grd) != 1);                                \
     stac();                                                                \
     switch ( size )                                                        \
     {                                                                      \
@@ -214,11 +212,12 @@ do {                                                                       \
 } while ( false )
 
 #define put_guest_size(x, ptr, size, retval, errret) \
-    put_unsafe_size(x, ptr, size, UA_KEEP, retval, errret)
+    put_unsafe_size(x, ptr, size, 1, retval, errret)
 
 #define get_unsafe_size(x, ptr, size, grd, retval, errret)                 \
 do {                                                                       \
     retval = 0;                                                            \
+    BUILD_BUG_ON((grd) != 0 && (grd) != 1);                                \
     stac();                                                                \
     switch ( size )                                                        \
     {                                                                      \
@@ -233,7 +232,7 @@ do {                                                                       \
 } while ( false )
 
 #define get_guest_size(x, ptr, size, retval, errret)                       \
-    get_unsafe_size(x, ptr, size, UA_KEEP, retval, errret)
+    get_unsafe_size(x, ptr, size, 1, retval, errret)
 
 /**
  * __copy_to_guest_pv: - Copy a block of data into guest space, with less
@@ -333,16 +332,16 @@ copy_to_unsafe(void __user *to, const void *from, unsigned int n)
 
         switch (n) {
         case 1:
-            put_unsafe_size(*(const uint8_t *)from, to, 1, UA_DROP, ret, 1);
+            put_unsafe_size(*(const uint8_t *)from, to, 1, 0, ret, 1);
             return ret;
         case 2:
-            put_unsafe_size(*(const uint16_t *)from, to, 2, UA_DROP, ret, 2);
+            put_unsafe_size(*(const uint16_t *)from, to, 2, 0, ret, 2);
             return ret;
         case 4:
-            put_unsafe_size(*(const uint32_t *)from, to, 4, UA_DROP, ret, 4);
+            put_unsafe_size(*(const uint32_t *)from, to, 4, 0, ret, 4);
             return ret;
         case 8:
-            put_unsafe_size(*(const uint64_t *)from, to, 8, UA_DROP, ret, 8);
+            put_unsafe_size(*(const uint64_t *)from, to, 8, 0, ret, 8);
             return ret;
         }
     }
@@ -374,16 +373,16 @@ copy_from_unsafe(void *to, const void __user *from, unsigned int n)
         switch ( n )
         {
         case 1:
-            get_unsafe_size(*(uint8_t *)to, from, 1, UA_DROP, ret, 1);
+            get_unsafe_size(*(uint8_t *)to, from, 1, 0, ret, 1);
             return ret;
         case 2:
-            get_unsafe_size(*(uint16_t *)to, from, 2, UA_DROP, ret, 2);
+            get_unsafe_size(*(uint16_t *)to, from, 2, 0, ret, 2);
             return ret;
         case 4:
-            get_unsafe_size(*(uint32_t *)to, from, 4, UA_DROP, ret, 4);
+            get_unsafe_size(*(uint32_t *)to, from, 4, 0, ret, 4);
             return ret;
         case 8:
-            get_unsafe_size(*(uint64_t *)to, from, 8, UA_DROP, ret, 8);
+            get_unsafe_size(*(uint64_t *)to, from, 8, 0, ret, 8);
             return ret;
         }
     }

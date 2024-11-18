@@ -11,23 +11,23 @@
 #include <asm/uaccess.h>
 
 #ifndef GUARD
-# define GUARD UA_KEEP
+# define GUARD 1 /* Keep speculative harden guards. */
 #endif
 
 unsigned int copy_to_guest_ll(void __user *to, const void *from, unsigned int n)
 {
-    GUARD(unsigned dummy);
+    unsigned dummy;
 
     stac();
     asm volatile (
-        GUARD(
+        ".if " STR(GUARD) "\n"
         "    guest_access_mask_ptr %[to], %q[scratch1], %q[scratch2]\n"
-        )
+        ".endif\n"
         "1:  rep movsb\n"
         "2:\n"
         _ASM_EXTABLE(1b, 2b)
-        : [cnt] "+c" (n), [to] "+D" (to), [from] "+S" (from)
-          GUARD(, [scratch1] "=&r" (dummy), [scratch2] "=&r" (dummy))
+        : [cnt] "+c" (n), [to] "+D" (to), [from] "+S" (from),
+          [scratch1] "=&r" (dummy), [scratch2] "=&r" (dummy)
         :: "memory" );
     clac();
 
@@ -40,9 +40,9 @@ unsigned int copy_from_guest_ll(void *to, const void __user *from, unsigned int 
 
     stac();
     asm volatile (
-        GUARD(
+        ".if " STR(GUARD) "\n"
         "    guest_access_mask_ptr %[from], %q[scratch1], %q[scratch2]\n"
-        )
+        ".endif\n"
         "1:  rep movsb\n"
         "2:\n"
         ".section .fixup,\"ax\"\n"
@@ -56,15 +56,15 @@ unsigned int copy_from_guest_ll(void *to, const void __user *from, unsigned int 
         ".previous\n"
         _ASM_EXTABLE(1b, 6b)
         : [cnt] "+c" (n), [to] "+D" (to), [from] "+S" (from),
-          [aux] "=&r" (dummy)
-          GUARD(, [scratch1] "=&r" (dummy), [scratch2] "=&r" (dummy))
+          [aux] "=&r" (dummy),
+          [scratch1] "=&r" (dummy), [scratch2] "=&r" (dummy)
         :: "memory" );
     clac();
 
     return n;
 }
 
-#if GUARD(1) + 0
+#if GUARD
 
 /**
  * copy_to_guest_pv: - Copy a block of data into PV guest space.
@@ -140,14 +140,14 @@ unsigned int copy_from_guest_pv(void *to, const void __user *from,
 }
 
 # undef GUARD
-# define GUARD UA_DROP
+# define GUARD 0 /* Drop speculative harden guards. */
 # define copy_to_guest_ll copy_to_unsafe_ll
 # define copy_from_guest_ll copy_from_unsafe_ll
 # undef __user
 # define __user
 # include __FILE__
 
-#endif /* GUARD(1) */
+#endif /* GUARD */
 
 /*
  * Local variables:
