@@ -5501,7 +5501,9 @@ int map_pages(
     root_pgentry_t *root_pgt,
     struct domain *d)
 {
-    bool locking = system_state > SYS_STATE_boot;
+    bool global = virt < PERDOMAIN_VIRT_START ||
+                  virt >= PERDOMAIN_VIRT_START + PML4_ENTRY_BYTES;
+    bool locking = system_state > SYS_STATE_boot && global;
     l3_pgentry_t *pl3e = NULL, ol3e;
     l2_pgentry_t *pl2e = NULL, ol2e;
     l1_pgentry_t *pl1e, ol1e;
@@ -5536,6 +5538,12 @@ int map_pages(
 })
 #define IS_L2E_ALIGNED(v, m) IS_LnE_ALIGNED(v, m, 2)
 #define IS_L3E_ALIGNED(v, m) IS_LnE_ALIGNED(v, m, 3)
+
+    /* Ensure it's a global mapping or it's modifying the per-domain area. */
+    ASSERT(global ||
+           (virt + nr_mfns * PAGE_SIZE >= PERDOMAIN_VIRT_START &&
+            virt + nr_mfns * PAGE_SIZE <  PERDOMAIN_VIRT_START +
+                                          PML4_ENTRY_BYTES));
 
     L3T_INIT(current_l3page);
 
@@ -5929,7 +5937,9 @@ int __init populate_pt_range(unsigned long virt, unsigned long nr_mfns)
 int modify_mappings(unsigned long s, unsigned long e, unsigned int nf,
                     root_pgentry_t *root_pgt, struct domain *d)
 {
-    bool locking = system_state > SYS_STATE_boot;
+    bool global = s <  PERDOMAIN_VIRT_START ||
+                  s >= PERDOMAIN_VIRT_START + PML4_ENTRY_BYTES;
+    bool locking = system_state > SYS_STATE_boot && global;
     l3_pgentry_t *pl3e = NULL;
     l2_pgentry_t *pl2e = NULL;
     l1_pgentry_t *pl1e;
@@ -5944,6 +5954,10 @@ int modify_mappings(unsigned long s, unsigned long e, unsigned int nf,
 
     ASSERT(IS_ALIGNED(s, PAGE_SIZE));
     ASSERT(IS_ALIGNED(e, PAGE_SIZE));
+
+    ASSERT(global ||
+           (e >= PERDOMAIN_VIRT_START &&
+            e <  PERDOMAIN_VIRT_START + PML4_ENTRY_BYTES));
 
     L3T_INIT(current_l3page);
 
