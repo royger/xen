@@ -346,7 +346,7 @@ void pv_domain_destroy(struct domain *d)
     pv_l1tf_domain_destroy(d);
 
     destroy_perdomain_mapping(d, GDT_LDT_VIRT_START,
-                              GDT_LDT_MBYTES << (20 - PAGE_SHIFT));
+                              d->max_vcpus << GDT_LDT_VCPU_SHIFT);
 
     XFREE(d->arch.pv.cpuidmasks);
 
@@ -377,7 +377,7 @@ int pv_domain_initialise(struct domain *d)
         goto fail;
 
     rc = create_perdomain_mapping(d, GDT_LDT_VIRT_START,
-                                  GDT_LDT_MBYTES << (20 - PAGE_SHIFT),
+                                  d->max_vcpus << GDT_LDT_VCPU_SHIFT,
                                   NULL, NULL);
     if ( rc )
         goto fail;
