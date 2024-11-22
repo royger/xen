@@ -469,7 +469,7 @@ static int setup_m2p_table(struct mem_hotadd_info *info)
             {
                 mfn_t l2_ro_mpt_mfn;
 
-                l2_ro_mpt = alloc_mapped_pagetable(&l2_ro_mpt_mfn);
+                l2_ro_mpt = alloc_xen_mapped_pagetable(&l2_ro_mpt_mfn);
                 if ( !l2_ro_mpt )
                 {
                     ret = -ENOMEM;
@@ -517,7 +517,7 @@ void __init paging_init(void)
         if ( !(l4e_get_flags(idle_pg_table[l4_table_offset(va)]) &
               _PAGE_PRESENT) )
         {
-            l3_pgentry_t *pl3t = alloc_mapped_pagetable(&mfn);
+            l3_pgentry_t *pl3t = alloc_xen_mapped_pagetable(&mfn);
 
             if ( !pl3t )
                 goto nomem;
@@ -528,7 +528,7 @@ void __init paging_init(void)
     }
 
     /* Create user-accessible L2 directory to map the MPT for guests. */
-    l3_ro_mpt = alloc_mapped_pagetable(&mfn);
+    l3_ro_mpt = alloc_xen_mapped_pagetable(&mfn);
     if ( !l3_ro_mpt )
         goto nomem;
     l4e_write(&idle_pg_table[l4_table_offset(RO_MPT_VIRT_START)],
@@ -626,7 +626,7 @@ void __init paging_init(void)
         {
             UNMAP_DOMAIN_PAGE(l2_ro_mpt);
 
-            l2_ro_mpt = alloc_mapped_pagetable(&mfn);
+            l2_ro_mpt = alloc_xen_mapped_pagetable(&mfn);
             if ( !l2_ro_mpt )
                 goto nomem;
 

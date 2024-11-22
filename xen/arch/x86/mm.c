@@ -5234,17 +5234,23 @@ int cf_check mmcfg_intercept_write(
  * them. The caller must check whether the allocation has succeeded, and only
  * pass valid MFNs to map_domain_page().
  */
-mfn_t alloc_xen_pagetable(void)
+static mfn_t alloc_pagetable(struct domain *d)
 {
     if ( system_state != SYS_STATE_early_boot )
     {
-        const struct page_info *pg = alloc_domheap_page(NULL, 0);
+        const struct page_info *pg = alloc_domheap_page(d, d ? MEMF_no_owner
+                                                             : 0);
 
         BUG_ON(!hardware_domain && !pg);
         return pg ? page_to_mfn(pg) : INVALID_MFN;
     }
 
     return alloc_boot_pages(1, 1);
+}
+
+mfn_t alloc_xen_pagetable(void)
+{
+    return alloc_pagetable(NULL);
 }
 
 /* mfn can be INVALID_MFN */
@@ -5254,9 +5260,9 @@ void free_xen_pagetable(mfn_t mfn)
         free_domheap_page(mfn_to_page(mfn));
 }
 
-void *alloc_mapped_pagetable(mfn_t *pmfn)
+static void *alloc_mapped_pagetable(struct domain *d, mfn_t *pmfn)
 {
-    mfn_t mfn = alloc_xen_pagetable();
+    mfn_t mfn = alloc_pagetable(d);
     void *ret;
 
     if ( mfn_eq(mfn, INVALID_MFN) )
@@ -5268,6 +5274,11 @@ void *alloc_mapped_pagetable(mfn_t *pmfn)
     clear_page(ret);
 
     return ret;
+}
+
+void *alloc_xen_mapped_pagetable(mfn_t *pmfn)
+{
+    return alloc_mapped_pagetable(NULL, pmfn);
 }
 
 static DEFINE_SPINLOCK(map_pgdir_lock);
@@ -5287,7 +5298,7 @@ static l3_pgentry_t *virt_to_l3e(unsigned long v, l4_pgentry_t *l4)
     {
         bool locking = system_state > SYS_STATE_boot;
         mfn_t l3mfn;
-        l3_pgentry_t *l3t = alloc_mapped_pagetable(&l3mfn);
+        l3_pgentry_t *l3t = alloc_xen_mapped_pagetable(&l3mfn);
 
         /*
          * Only allow populating L4 entries on the idle page tables, as all
@@ -5315,7 +5326,8 @@ static l3_pgentry_t *virt_to_l3e(unsigned long v, l4_pgentry_t *l4)
     return map_l3t_from_l4e(*pl4e) + l3_table_offset(v);
 }
 
-static l2_pgentry_t *virt_to_l2e(unsigned long v, l4_pgentry_t *pl4e)
+static l2_pgentry_t *virt_to_l2e(unsigned long v, l4_pgentry_t *pl4e,
+                                 struct domain *d)
 {
     l3_pgentry_t *pl3e, l3e;
 
@@ -5327,7 +5339,7 @@ static l2_pgentry_t *virt_to_l2e(unsigned long v, l4_pgentry_t *pl4e)
     {
         bool locking = system_state > SYS_STATE_boot;
         mfn_t l2mfn;
-        l2_pgentry_t *l2t = alloc_mapped_pagetable(&l2mfn);
+        l2_pgentry_t *l2t = alloc_mapped_pagetable(d, &l2mfn);
 
         if ( !l2t )
         {
@@ -5353,11 +5365,12 @@ static l2_pgentry_t *virt_to_l2e(unsigned long v, l4_pgentry_t *pl4e)
     return map_l2t_from_l3e(l3e) + l2_table_offset(v);
 }
 
-static l1_pgentry_t *virt_to_l1e(unsigned long v, l4_pgentry_t *pl4e)
+static l1_pgentry_t *virt_to_l1e(unsigned long v, l4_pgentry_t *pl4e,
+                                 struct domain *d)
 {
     l2_pgentry_t *pl2e, l2e;
 
-    pl2e = virt_to_l2e(v, pl4e);
+    pl2e = virt_to_l2e(v, pl4e, d);
     if ( !pl2e )
         return NULL;
 
@@ -5365,7 +5378,7 @@ static l1_pgentry_t *virt_to_l1e(unsigned long v, l4_pgentry_t *pl4e)
     {
         bool locking = system_state > SYS_STATE_boot;
         mfn_t l1mfn;
-        l1_pgentry_t *l1t = alloc_mapped_pagetable(&l1mfn);
+        l1_pgentry_t *l1t = alloc_mapped_pagetable(d, &l1mfn);
 
         if ( !l1t )
         {
@@ -5478,7 +5491,8 @@ int map_pages(
     mfn_t mfn,
     unsigned long nr_mfns,
     unsigned int flags,
-    root_pgentry_t *root_pgt)
+    root_pgentry_t *root_pgt,
+    struct domain *d)
 {
     bool locking = system_state > SYS_STATE_boot;
     l3_pgentry_t *pl3e = NULL, ol3e;
@@ -5649,7 +5663,7 @@ int map_pages(
             free_xen_pagetable(l2mfn);
         }
 
-        pl2e = virt_to_l2e(virt, root_pgt);
+        pl2e = virt_to_l2e(virt, root_pgt, d);
         if ( !pl2e )
             goto out;
 
@@ -5694,7 +5708,7 @@ int map_pages(
             /* Normal page mapping. */
             if ( !(l2e_get_flags(*pl2e) & _PAGE_PRESENT) )
             {
-                pl1e = virt_to_l1e(virt, root_pgt);
+                pl1e = virt_to_l1e(virt, root_pgt, d);
                 if ( pl1e == NULL )
                     goto out;
             }
@@ -5885,7 +5899,7 @@ int map_pages_to_xen(
     unsigned long nr_mfns,
     unsigned int flags)
 {
-    return map_pages(virt, mfn, nr_mfns, flags, idle_pg_table);
+    return map_pages(virt, mfn, nr_mfns, flags, idle_pg_table, NULL);
 }
 
 int __init populate_pt_range(unsigned long virt, unsigned long nr_mfns)
@@ -5906,7 +5920,7 @@ int __init populate_pt_range(unsigned long virt, unsigned long nr_mfns)
  * It is an error to call with present flags over an unpopulated range.
  */
 int modify_mappings(unsigned long s, unsigned long e, unsigned int nf,
-                    root_pgentry_t *root_pgt)
+                    root_pgentry_t *root_pgt, struct domain *d)
 {
     bool locking = system_state > SYS_STATE_boot;
     l3_pgentry_t *pl3e = NULL;
@@ -6186,17 +6200,18 @@ int modify_mappings(unsigned long s, unsigned long e, unsigned int nf,
 
 int modify_xen_mappings(unsigned long s, unsigned long e, unsigned int nf)
 {
-    return modify_mappings(s, e, nf, idle_pg_table);
+    return modify_mappings(s, e, nf, idle_pg_table, NULL);
 }
 
-int destroy_mappings(unsigned long s, unsigned long e, root_pgentry_t *root_pgt)
+int destroy_mappings(unsigned long s, unsigned long e, root_pgentry_t *root_pgt,
+                     struct domain *d)
 {
-    return modify_mappings(s, e, _PAGE_NONE, root_pgt);
+    return modify_mappings(s, e, _PAGE_NONE, root_pgt, d);
 }
 
 int destroy_xen_mappings(unsigned long s, unsigned long e)
 {
-    return modify_mappings(s, e, _PAGE_NONE, idle_pg_table);
+    return modify_mappings(s, e, _PAGE_NONE, idle_pg_table, NULL);
 }
 
 /*
