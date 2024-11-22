@@ -5296,7 +5296,7 @@ static l3_pgentry_t *virt_to_l3e(unsigned long v, l4_pgentry_t *l4)
     pl4e = &l4[l4_table_offset(v)];
     if ( !(l4e_get_flags(*pl4e) & _PAGE_PRESENT) )
     {
-        bool locking = system_state > SYS_STATE_boot;
+        bool locking = system_state > SYS_STATE_boot && pl4e == idle_pg_table;
         mfn_t l3mfn;
         l3_pgentry_t *l3t = alloc_xen_mapped_pagetable(&l3mfn);
 
@@ -5337,7 +5337,7 @@ static l2_pgentry_t *virt_to_l2e(unsigned long v, l4_pgentry_t *pl4e,
 
     if ( !(l3e_get_flags(*pl3e) & _PAGE_PRESENT) )
     {
-        bool locking = system_state > SYS_STATE_boot;
+        bool locking = system_state > SYS_STATE_boot && pl4e == idle_pg_table;
         mfn_t l2mfn;
         l2_pgentry_t *l2t = alloc_mapped_pagetable(d, &l2mfn);
 
@@ -5376,7 +5376,7 @@ static l1_pgentry_t *virt_to_l1e(unsigned long v, l4_pgentry_t *pl4e,
 
     if ( !(l2e_get_flags(*pl2e) & _PAGE_PRESENT) )
     {
-        bool locking = system_state > SYS_STATE_boot;
+        bool locking = system_state > SYS_STATE_boot && pl4e == idle_pg_table;
         mfn_t l1mfn;
         l1_pgentry_t *l1t = alloc_mapped_pagetable(d, &l1mfn);
 
@@ -5408,8 +5408,15 @@ static l1_pgentry_t *virt_to_l1e(unsigned long v, l4_pgentry_t *pl4e,
 #define l1f_to_lNf(f) (((f) & _PAGE_PRESENT) ? ((f) |  _PAGE_PSE) : (f))
 #define lNf_to_l1f(f) (((f) & _PAGE_PRESENT) ? ((f) & ~_PAGE_PSE) : (f))
 
-/* flush_area_all() can be used prior to any other CPU being online.  */
-#define flush_area(v, f) flush_area_all((const void *)(v), f)
+/*
+ * flush_area_all() can be used prior to any other CPU being online.  When the
+ * root page-table is not the idle one defer the flushing to the caller.
+ */
+#define flush_area(v, f)                                        \
+    do {                                                        \
+        if ( root_pgt == idle_pg_table )                        \
+            flush_area_all((const void *)(v), f);               \
+    } while ( false )
 
 #define L3T_INIT(page) (page) = ZERO_BLOCK_PTR
 
@@ -5494,7 +5501,11 @@ int map_pages(
     root_pgentry_t *root_pgt,
     struct domain *d)
 {
-    bool locking = system_state > SYS_STATE_boot;
+    /*
+     * Only take the lock when modifying idle page tables, for other page
+     * tables the caller is responsible for ensuring correctness.
+     */
+    bool locking = system_state > SYS_STATE_boot && root_pgt == idle_pg_table;
     l3_pgentry_t *pl3e = NULL, ol3e;
     l2_pgentry_t *pl2e = NULL, ol2e;
     l1_pgentry_t *pl1e, ol1e;
@@ -5529,6 +5540,16 @@ int map_pages(
 })
 #define IS_L2E_ALIGNED(v, m) IS_LnE_ALIGNED(v, m, 2)
 #define IS_L3E_ALIGNED(v, m) IS_LnE_ALIGNED(v, m, 3)
+
+    /*
+     * Ensure for non-idle page-tables only the per-domain area is manipulated,
+     * otherwise locking and flushing would be required if modifying a slot
+     * that's also shared between all page-tables.
+     */
+    ASSERT(root_pgt == idle_pg_table ||
+           (virt >= PERDOMAIN_VIRT_START &&
+            virt + nr_mfns * PAGE_SIZE <  PERDOMAIN_VIRT_START +
+                                          PML4_ENTRY_BYTES));
 
     L3T_INIT(current_l3page);
 
@@ -5922,7 +5943,11 @@ int __init populate_pt_range(unsigned long virt, unsigned long nr_mfns)
 int modify_mappings(unsigned long s, unsigned long e, unsigned int nf,
                     root_pgentry_t *root_pgt, struct domain *d)
 {
-    bool locking = system_state > SYS_STATE_boot;
+    /*
+     * Only take the lock when modifying idle page tables, for other page
+     * tables the caller is responsible for ensuring correctness.
+     */
+    bool locking = system_state > SYS_STATE_boot && root_pgt == idle_pg_table;
     l3_pgentry_t *pl3e = NULL;
     l2_pgentry_t *pl2e = NULL;
     l1_pgentry_t *pl1e;
@@ -5937,6 +5962,15 @@ int modify_mappings(unsigned long s, unsigned long e, unsigned int nf,
 
     ASSERT(IS_ALIGNED(s, PAGE_SIZE));
     ASSERT(IS_ALIGNED(e, PAGE_SIZE));
+
+    /*
+     * Ensure for non-idle page-tables only the per-domain area is manipulated,
+     * otherwise locking and flushing would be required if modifying a slot
+     * that's also shared between all page-tables.
+     */
+    ASSERT(root_pgt == idle_pg_table ||
+           (s >= PERDOMAIN_VIRT_START &&
+            e <  PERDOMAIN_VIRT_START + PML4_ENTRY_BYTES));
 
     L3T_INIT(current_l3page);
 

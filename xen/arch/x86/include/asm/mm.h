@@ -651,7 +651,12 @@ static inline bool arch_mfns_in_directmap(unsigned long mfn, unsigned long nr)
     return (mfn + nr) <= (virt_to_mfn(eva - 1) + 1);
 }
 
-/* Manipulation of page-tables given a root page-table pointer. */
+/*
+ * Manipulation of page-tables given a root page-table pointer.
+ *
+ * When root_pgt != idle_pg_table the locking and TBL flushing is deferred to
+ * the caller.
+ */
 int map_pages(unsigned long virt, mfn_t mfn, unsigned long nr_mfns,
               unsigned int flags, root_pgentry_t *root_pgt, struct domain *d);
 /* Alter the permissions of a range of Xen virtual address space. */
