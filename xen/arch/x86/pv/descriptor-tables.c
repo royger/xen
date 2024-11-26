@@ -49,23 +49,20 @@ bool pv_destroy_ldt(struct vcpu *v)
 
 void pv_destroy_gdt(struct vcpu *v)
 {
-    l1_pgentry_t *pl1e = pv_gdt_ptes(v);
-    mfn_t zero_mfn = _mfn(virt_to_mfn(zero_page));
-    l1_pgentry_t zero_l1e = l1e_from_mfn(zero_mfn, __PAGE_HYPERVISOR_RO);
     unsigned int i;
 
     ASSERT(v == current || !vcpu_cpu_dirty(v));
 
-    v->arch.pv.gdt_ents = 0;
-    for ( i = 0; i < FIRST_RESERVED_GDT_PAGE; i++ )
+    if ( v->arch.cr3 )
+        destroy_perdomain_mapping(v, GDT_VIRT_START(v),
+                                  ARRAY_SIZE(v->arch.pv.gdt_frames));
+
+    for ( i = 0; i < ARRAY_SIZE(v->arch.pv.gdt_frames); i++)
     {
-        mfn_t mfn = l1e_get_mfn(pl1e[i]);
+        if ( !v->arch.pv.gdt_frames[i] )
+            break;
 
-        if ( (l1e_get_flags(pl1e[i]) & _PAGE_PRESENT) &&
-             !mfn_eq(mfn, zero_mfn) )
-            put_page_and_type(mfn_to_page(mfn));
-
-        l1e_write(&pl1e[i], zero_l1e);
+        put_page_and_type(mfn_to_page(_mfn(v->arch.pv.gdt_frames[i])));
         v->arch.pv.gdt_frames[i] = 0;
     }
 }
@@ -74,8 +71,8 @@ int pv_set_gdt(struct vcpu *v, const unsigned long frames[],
                unsigned int entries)
 {
     struct domain *d = v->domain;
-    l1_pgentry_t *pl1e;
     unsigned int i, nr_frames = DIV_ROUND_UP(entries, 512);
+    mfn_t mfns[ARRAY_SIZE(v->arch.pv.gdt_frames)];
 
     ASSERT(v == current || !vcpu_cpu_dirty(v));
 
@@ -90,6 +87,8 @@ int pv_set_gdt(struct vcpu *v, const unsigned long frames[],
         if ( !mfn_valid(mfn) ||
              !get_page_and_type(mfn_to_page(mfn), d, PGT_seg_desc_page) )
             goto fail;
+
+        mfns[i] = mfn;
     }
 
     /* Tear down the old GDT. */
@@ -97,12 +96,9 @@ int pv_set_gdt(struct vcpu *v, const unsigned long frames[],
 
     /* Install the new GDT. */
     v->arch.pv.gdt_ents = entries;
-    pl1e = pv_gdt_ptes(v);
     for ( i = 0; i < nr_frames; i++ )
-    {
         v->arch.pv.gdt_frames[i] = frames[i];
-        l1e_write(&pl1e[i], l1e_from_pfn(frames[i], __PAGE_HYPERVISOR_RW));
-    }
+    populate_perdomain_mapping(v, GDT_VIRT_START(v), mfns, nr_frames);
 
     return 0;
 
