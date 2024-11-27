@@ -6442,9 +6442,10 @@ static root_pgentry_t *perdomain_root_pgt(const struct domain *d)
     return root_pgt;
 }
 
-int create_perdomain_mapping(struct domain *d, unsigned long va,
+int create_perdomain_mapping(struct vcpu *v, unsigned long va,
                              unsigned int nr, bool populate)
 {
+    struct domain *d = v->domain;
     root_pgentry_t *root_pgt;
     struct page_info *pg;
     l1_pgentry_t *l1tab = NULL;
@@ -6630,8 +6631,9 @@ void destroy_perdomain_mapping(const struct vcpu *v, unsigned long va,
     unmap_domain_page(root_pgt);
 }
 
-void free_perdomain_mappings(struct domain *d)
+void free_perdomain_mappings(struct vcpu *v)
 {
+    struct domain *d = v->domain;
     root_pgentry_t *root_pgt;
     int rc;
 
