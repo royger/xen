@@ -735,12 +735,6 @@ int setup_compat_arg_xlat(struct vcpu *v)
                                     NULL, NIL(struct page_info *));
 }
 
-void free_compat_arg_xlat(struct vcpu *v)
-{
-    destroy_perdomain_mapping(v->domain, ARG_XLAT_START(v),
-                              PFN_UP(COMPAT_ARG_XLAT_SIZE));
-}
-
 static void cleanup_frame_table(struct mem_hotadd_info *info)
 {
     unsigned long sva, eva;

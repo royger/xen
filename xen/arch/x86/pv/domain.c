@@ -265,11 +265,9 @@ int switch_compat(struct domain *d)
 
  undo_and_fail:
     d->arch.pv.is_32bit = d->arch.has_32bit_shinfo = false;
+    /* Don't remove XLAT areas, will be freed by free_perdomain_mappings(). */
     for_each_vcpu( d, v )
-    {
-        free_compat_arg_xlat(v);
         release_compat_l4(v);
-    }
 
     return rc;
 }
@@ -283,21 +281,11 @@ static int pv_create_gdt_ldt_l1tab(struct vcpu *v)
                                     NULL);
 }
 
-static void pv_destroy_gdt_ldt_l1tab(struct vcpu *v)
-{
-    destroy_perdomain_mapping(v->domain, GDT_VIRT_START(v),
-                              1U << GDT_LDT_VCPU_SHIFT);
-}
-
 void pv_vcpu_destroy(struct vcpu *v)
 {
     if ( is_pv_32bit_vcpu(v) )
-    {
-        free_compat_arg_xlat(v);
         release_compat_l4(v);
-    }
 
-    pv_destroy_gdt_ldt_l1tab(v);
     XFREE(v->arch.pv.trap_ctxt);
 }
 

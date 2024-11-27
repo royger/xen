@@ -1620,7 +1620,7 @@ int hvm_vcpu_initialise(struct vcpu *v)
     if ( rc )
         goto fail4;
 
-    rc = setup_compat_arg_xlat(v); /* teardown: free_compat_arg_xlat() */
+    rc = setup_compat_arg_xlat(v); /* torn down by free_perdomain_mappings() */
     if ( rc != 0 )
         goto fail4;
 
@@ -1628,7 +1628,7 @@ int hvm_vcpu_initialise(struct vcpu *v)
 
     if ( nestedhvm_enabled(d)
          && (rc = nestedhvm_vcpu_initialise(v)) < 0 ) /* teardown: nestedhvm_vcpu_destroy */
-        goto fail5;
+        goto fail4;
 
     rc = viridian_vcpu_init(v);
     if ( rc )
@@ -1652,8 +1652,6 @@ int hvm_vcpu_initialise(struct vcpu *v)
 
  fail6:
     nestedhvm_vcpu_destroy(v);
- fail5:
-    free_compat_arg_xlat(v);
  fail4:
     hvmemul_cache_destroy(v);
     alternative_vcall(hvm_funcs.vcpu_destroy, v);
@@ -1676,8 +1674,6 @@ void hvm_vcpu_destroy(struct vcpu *v)
         altp2m_vcpu_destroy(v);
 
     nestedhvm_vcpu_destroy(v);
-
-    free_compat_arg_xlat(v);
 
     tasklet_kill(&v->arch.hvm.assert_evtchn_irq_tasklet);
     alternative_vcall(hvm_funcs.vcpu_destroy, v);
