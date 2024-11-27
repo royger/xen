@@ -1658,8 +1658,9 @@ static int promote_l3_table(struct page_info *page)
  * extended directmap.
  */
 void init_xen_l4_slots(l4_pgentry_t *l4t, mfn_t l4mfn,
-                       const struct domain *d, mfn_t sl4mfn, bool ro_mpt)
+                       const struct vcpu *v, mfn_t sl4mfn, bool ro_mpt)
 {
+    const struct domain *d = v->domain;
     /*
      * PV vcpus need a shortened directmap.  HVM and Idle vcpus get the full
      * directmap.
@@ -1687,7 +1688,9 @@ void init_xen_l4_slots(l4_pgentry_t *l4t, mfn_t l4mfn,
 
     /* Slot 260: Per-domain mappings. */
     l4t[l4_table_offset(PERDOMAIN_VIRT_START)] =
-        l4e_from_page(d->arch.perdomain_l3_pg, __PAGE_HYPERVISOR_RW);
+        l4e_from_page(d->arch.asi ? v->arch.pervcpu_l3_pg
+                                  : d->arch.perdomain_l3_pg,
+                      __PAGE_HYPERVISOR_RW);
 
     /* Slot 4: Per-domain mappings mirror. */
     BUILD_BUG_ON(IS_ENABLED(CONFIG_PV32) &&
@@ -1842,8 +1845,15 @@ static int promote_l4_table(struct page_info *page)
 
     if ( !rc )
     {
+        /*
+         * Use vCPU#0 unconditionally.  When not running with ASI enabled the
+         * per-domain table is shared between all vCPUs, so it doesn't matter
+         * which vCPU gets passed to init_xen_l4_slots().  When running with
+         * ASI enabled this L4 will not be used, as a shadow per-vCPU L4 is
+         * used instead.
+         */
         init_xen_l4_slots(pl4e, l4mfn,
-                          d, INVALID_MFN, VM_ASSIST(d, m2p_strict));
+                          d->vcpu[0], INVALID_MFN, VM_ASSIST(d, m2p_strict));
         atomic_inc(&d->arch.pv.nr_l4_pages);
     }
     unmap_domain_page(pl4e);
@@ -6416,12 +6426,13 @@ static void perdomain_free_region(root_pgentry_t *root_pgt, unsigned long va,
  * Return a root page-table with only the per-domain slot populated.  Caller
  * must unmap the returned pointer when done using unmap_domain_page().
  */
-static root_pgentry_t *perdomain_root_pgt(const struct domain *d)
+static root_pgentry_t *perdomain_root_pgt(const struct vcpu *v)
 {
+    struct domain *d = v->domain;
     static DEFINE_PER_CPU(struct page_info *, scratch_rpt);
     root_pgentry_t *root_pgt;
 
-    ASSERT(d->arch.perdomain_l3_pg);
+    ASSERT((d->arch.asi && v->arch.pervcpu_l3_pg) || d->arch.perdomain_l3_pg);
 
     if ( unlikely(!this_cpu(scratch_rpt)) )
     {
@@ -6437,7 +6448,9 @@ static root_pgentry_t *perdomain_root_pgt(const struct domain *d)
      * should modify.
      */
     root_pgt[l4_table_offset(PERDOMAIN_VIRT_START)] =
-        l4e_from_page(d->arch.perdomain_l3_pg, __PAGE_HYPERVISOR_RW);
+        l4e_from_page(d->arch.asi ? v->arch.pervcpu_l3_pg
+                                  : d->arch.perdomain_l3_pg,
+                      __PAGE_HYPERVISOR_RW);
 
     return root_pgt;
 }
@@ -6454,7 +6467,7 @@ int create_perdomain_mapping(struct vcpu *v, unsigned long va,
     ASSERT(va >= PERDOMAIN_VIRT_START &&
            va < PERDOMAIN_VIRT_SLOT(PERDOMAIN_SLOTS));
 
-    if ( !d->arch.perdomain_l3_pg )
+    if ( !v->arch.pervcpu_l3_pg && !d->arch.perdomain_l3_pg )
     {
         l3_pgentry_t *l3tab;
 
@@ -6464,7 +6477,10 @@ int create_perdomain_mapping(struct vcpu *v, unsigned long va,
         l3tab = __map_domain_page(pg);
         clear_page(l3tab);
         unmap_domain_page(l3tab);
-        d->arch.perdomain_l3_pg = pg;
+        if ( d->arch.asi )
+            v->arch.pervcpu_l3_pg = pg;
+        else
+            d->arch.perdomain_l3_pg = pg;
     }
 
     if ( !nr )
@@ -6472,7 +6488,7 @@ int create_perdomain_mapping(struct vcpu *v, unsigned long va,
 
     ASSERT(!l3_table_offset(va ^ (va + nr * PAGE_SIZE - 1)));
 
-    root_pgt = perdomain_root_pgt(d);
+    root_pgt = perdomain_root_pgt(v);
     if ( !root_pgt )
         return -ENOMEM;
 
@@ -6637,10 +6653,10 @@ void free_perdomain_mappings(struct vcpu *v)
     root_pgentry_t *root_pgt;
     int rc;
 
-    if ( !d->arch.perdomain_l3_pg )
+    if ( (d->arch.asi && !v->arch.pervcpu_l3_pg) || !d->arch.perdomain_l3_pg )
         return;
 
-    root_pgt = perdomain_root_pgt(d);
+    root_pgt = perdomain_root_pgt(v);
     if ( !root_pgt )
     {
         domain_crash(d);
@@ -6682,8 +6698,16 @@ void free_perdomain_mappings(struct vcpu *v)
 }
 #endif
 
-    free_domheap_page(d->arch.perdomain_l3_pg);
-    d->arch.perdomain_l3_pg = NULL;
+    if ( d->arch.asi )
+    {
+        free_domheap_page(v->arch.pervcpu_l3_pg);
+        v->arch.pervcpu_l3_pg = NULL;
+    }
+    else
+    {
+        free_domheap_page(d->arch.perdomain_l3_pg);
+        d->arch.perdomain_l3_pg = NULL;
+    }
 }
 
 static void write_sss_token(unsigned long *ptr)
