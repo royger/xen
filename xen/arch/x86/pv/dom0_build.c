@@ -747,7 +747,7 @@ static int __init dom0_construct(const struct boot_domain *bd)
         maddr_to_page(mpt_alloc)->u.inuse.type_info = PGT_l4_page_table;
         l4tab = UNMAP_MAP_AND_ADVANCE(l4start_mfn, l4start, mpt_alloc);
         clear_page(l4tab);
-        init_xen_l4_slots(l4tab, l4start_mfn, d, INVALID_MFN, true);
+        init_xen_l4_slots(l4tab, l4start_mfn, d->vcpu[0], INVALID_MFN, true);
         v->arch.guest_table = pagetable_from_mfn(l4start_mfn);
     }
     else

@@ -981,7 +981,7 @@ sh_make_shadow(struct vcpu *v, mfn_t gmfn, u32 shadow_type)
 
             BUILD_BUG_ON(sizeof(l4_pgentry_t) != sizeof(shadow_l4e_t));
 
-            init_xen_l4_slots(l4t, gmfn, d, smfn, (!is_pv_32bit_domain(d) &&
+            init_xen_l4_slots(l4t, gmfn, v, smfn, (!is_pv_32bit_domain(d) &&
                                                    VM_ASSIST(d, m2p_strict)));
             unmap_domain_page(l4t);
         }
