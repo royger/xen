@@ -6517,10 +6517,11 @@ void populate_perdomain_mapping(const struct vcpu *v, unsigned long va,
     unmap_domain_page(l3tab);
 }
 
-void destroy_perdomain_mapping(struct domain *d, unsigned long va,
+void destroy_perdomain_mapping(const struct vcpu *v, unsigned long va,
                                unsigned int nr)
 {
     const l3_pgentry_t *l3tab, *pl3e;
+    const struct domain *d = v->domain;
 
     ASSERT(va >= PERDOMAIN_VIRT_START &&
            va < PERDOMAIN_VIRT_SLOT(PERDOMAIN_SLOTS));
@@ -6528,6 +6529,22 @@ void destroy_perdomain_mapping(struct domain *d, unsigned long va,
 
     if ( !d->arch.perdomain_l3_pg )
         return;
+
+    /* Use likely to force the optimization for the fast path. */
+    if ( likely(v == this_cpu(curr_vcpu)) )
+    {
+        l1_pgentry_t *pl1e = &__linear_l1_table[l1_linear_offset(va)];
+
+        /* Fast path: zap L1 entries using the recursive linear mappings. */
+        for ( ; nr--; pl1e++ )
+        {
+            if ( perdomain_l1e_needs_freeing(*pl1e) )
+                free_domheap_page(l1e_get_page(*pl1e));
+            l1e_write(pl1e, l1e_empty());
+        }
+
+        return;
+    }
 
     l3tab = __map_domain_page(d->arch.perdomain_l3_pg);
     pl3e = l3tab + l3_table_offset(va);
