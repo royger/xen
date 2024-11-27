@@ -666,6 +666,9 @@ struct arch_vcpu
 
     struct vcpu_msrs *msrs;
 
+    /* ASI: per-vCPU L3 table to use in the L4 per-domain slot. */
+    struct page_info *pervcpu_l3_pg;
+
     struct {
         bool next_interrupt_enabled;
     } monitor;
