@@ -609,7 +609,7 @@ int create_perdomain_mapping(struct domain *d, unsigned long va,
                              struct page_info **ppg);
 void populate_perdomain_mapping(const struct vcpu *v, unsigned long va,
                                 mfn_t *mfn, unsigned long nr);
-void destroy_perdomain_mapping(struct domain *d, unsigned long va,
+void destroy_perdomain_mapping(const struct vcpu *v, unsigned long va,
                                unsigned int nr);
 void free_perdomain_mappings(struct domain *d);
 

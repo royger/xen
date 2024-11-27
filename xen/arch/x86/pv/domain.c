@@ -320,8 +320,7 @@ static int pv_create_gdt_ldt_l1tab(struct vcpu *v)
 
 static void pv_destroy_gdt_ldt_l1tab(struct vcpu *v)
 {
-    destroy_perdomain_mapping(v->domain, GDT_VIRT_START(v),
-                              1U << GDT_LDT_VCPU_SHIFT);
+    destroy_perdomain_mapping(v, GDT_VIRT_START(v), 1U << GDT_LDT_VCPU_SHIFT);
 }
 
 static int pv_create_root_pt_l1tab(const struct vcpu *v)
@@ -334,7 +333,7 @@ static int pv_create_root_pt_l1tab(const struct vcpu *v)
 
 static void pv_destroy_root_pt_l1tab(const struct vcpu *v)
 {
-    destroy_perdomain_mapping(v->domain,
+    destroy_perdomain_mapping(v,
                               PV_ROOT_PT_MAPPING_VCPU_VIRT_START(v), 1);
 }
 
