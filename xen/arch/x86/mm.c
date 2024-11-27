@@ -1658,8 +1658,9 @@ static int promote_l3_table(struct page_info *page)
  * extended directmap.
  */
 void init_xen_l4_slots(l4_pgentry_t *l4t, mfn_t l4mfn,
-                       const struct domain *d, mfn_t sl4mfn, bool ro_mpt)
+                       const struct vcpu *v, mfn_t sl4mfn, bool ro_mpt)
 {
+    const struct domain *d = v->domain;
     /*
      * PV vcpus need a shortened directmap.  HVM and Idle vcpus get the full
      * directmap.
@@ -1687,7 +1688,9 @@ void init_xen_l4_slots(l4_pgentry_t *l4t, mfn_t l4mfn,
 
     /* Slot 260: Per-domain mappings. */
     l4t[l4_table_offset(PERDOMAIN_VIRT_START)] =
-        l4e_from_page(d->arch.perdomain_l3_pg, __PAGE_HYPERVISOR_RW);
+        l4e_from_page(d->arch.asi ? v->arch.pervcpu_l3_pg
+                                  : d->arch.perdomain_l3_pg,
+                      __PAGE_HYPERVISOR_RW);
 
     /* Slot 4: Per-domain mappings mirror. */
     BUILD_BUG_ON(IS_ENABLED(CONFIG_PV32) &&
@@ -1842,8 +1845,15 @@ static int promote_l4_table(struct page_info *page)
 
     if ( !rc )
     {
+        /*
+         * Use vCPU#0 unconditionally.  When not running with ASI enabled the
+         * per-domain table is shared between all vCPUs, so it doesn't matter
+         * which vCPU gets passed to init_xen_l4_slots().  When running with
+         * ASI enabled this L4 will not be used, as a shadow per-vCPU L4 is
+         * used instead.
+         */
         init_xen_l4_slots(pl4e, l4mfn,
-                          d, INVALID_MFN, VM_ASSIST(d, m2p_strict));
+                          d->vcpu[0], INVALID_MFN, VM_ASSIST(d, m2p_strict));
         atomic_inc(&d->arch.pv.nr_l4_pages);
     }
     unmap_domain_page(pl4e);
@@ -6313,14 +6323,17 @@ int create_perdomain_mapping(struct vcpu *v, unsigned long va,
     ASSERT(va >= PERDOMAIN_VIRT_START &&
            va < PERDOMAIN_VIRT_SLOT(PERDOMAIN_SLOTS));
 
-    if ( !d->arch.perdomain_l3_pg )
+    if ( !v->arch.pervcpu_l3_pg && !d->arch.perdomain_l3_pg )
     {
         pg = alloc_domheap_page(d, MEMF_no_owner);
         if ( !pg )
             return -ENOMEM;
         l3tab = __map_domain_page(pg);
         clear_page(l3tab);
-        d->arch.perdomain_l3_pg = pg;
+        if ( d->arch.asi )
+            v->arch.pervcpu_l3_pg = pg;
+        else
+            d->arch.perdomain_l3_pg = pg;
         if ( !nr )
         {
             unmap_domain_page(l3tab);
@@ -6330,7 +6343,8 @@ int create_perdomain_mapping(struct vcpu *v, unsigned long va,
     else if ( !nr )
         return 0;
     else
-        l3tab = __map_domain_page(d->arch.perdomain_l3_pg);
+        l3tab = __map_domain_page(d->arch.asi ? v->arch.pervcpu_l3_pg
+                                              : d->arch.perdomain_l3_pg);
 
     ASSERT(!l3_table_offset(va ^ (va + nr * PAGE_SIZE - 1)));
 
@@ -6436,8 +6450,9 @@ void populate_perdomain_mapping(const struct vcpu *v, unsigned long va,
         return;
     }
 
-    ASSERT(d->arch.perdomain_l3_pg);
-    l3tab = __map_domain_page(d->arch.perdomain_l3_pg);
+    ASSERT(d->arch.perdomain_l3_pg || v->arch.pervcpu_l3_pg);
+    l3tab = __map_domain_page(d->arch.asi ? v->arch.pervcpu_l3_pg
+                                          : d->arch.perdomain_l3_pg);
 
     if ( unlikely(!(l3e_get_flags(l3tab[l3_table_offset(va)]) &
                     _PAGE_PRESENT)) )
@@ -6498,7 +6513,7 @@ void destroy_perdomain_mapping(const struct vcpu *v, unsigned long va,
            va < PERDOMAIN_VIRT_SLOT(PERDOMAIN_SLOTS));
     ASSERT(!nr || !l3_table_offset(va ^ (va + nr * PAGE_SIZE - 1)));
 
-    if ( !d->arch.perdomain_l3_pg )
+    if ( !d->arch.perdomain_l3_pg && !v->arch.pervcpu_l3_pg )
         return;
 
     /* Ensure loaded page-tables are from current (if current != curr_vcpu). */
@@ -6520,7 +6535,8 @@ void destroy_perdomain_mapping(const struct vcpu *v, unsigned long va,
         return;
     }
 
-    l3tab = __map_domain_page(d->arch.perdomain_l3_pg);
+    l3tab = __map_domain_page(d->arch.asi ? v->arch.pervcpu_l3_pg
+                                          : d->arch.perdomain_l3_pg);
     pl3e = l3tab + l3_table_offset(va);
 
     if ( l3e_get_flags(*pl3e) & _PAGE_PRESENT )
@@ -6565,10 +6581,11 @@ void free_perdomain_mappings(struct vcpu *v)
     l3_pgentry_t *l3tab;
     unsigned int i;
 
-    if ( !d->arch.perdomain_l3_pg )
+    if ( !v->arch.pervcpu_l3_pg && !d->arch.perdomain_l3_pg )
         return;
 
-    l3tab = __map_domain_page(d->arch.perdomain_l3_pg);
+    l3tab = __map_domain_page(d->arch.asi ? v->arch.pervcpu_l3_pg
+                                          : d->arch.perdomain_l3_pg);
 
     for ( i = 0; i < PERDOMAIN_SLOTS; ++i)
         if ( l3e_get_flags(l3tab[i]) & _PAGE_PRESENT )
@@ -6602,8 +6619,10 @@ void free_perdomain_mappings(struct vcpu *v)
         }
 
     unmap_domain_page(l3tab);
-    free_domheap_page(d->arch.perdomain_l3_pg);
+    free_domheap_page(d->arch.asi ? v->arch.pervcpu_l3_pg
+                                  : d->arch.perdomain_l3_pg);
     d->arch.perdomain_l3_pg = NULL;
+    v->arch.pervcpu_l3_pg = NULL;
 }
 
 static void write_sss_token(unsigned long *ptr)
