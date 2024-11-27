@@ -312,7 +312,7 @@ int switch_compat(struct domain *d)
 
 static int pv_create_gdt_ldt_l1tab(struct vcpu *v)
 {
-    return create_perdomain_mapping(v->domain, GDT_VIRT_START(v),
+    return create_perdomain_mapping(v, GDT_VIRT_START(v),
                                     1U << GDT_LDT_VCPU_SHIFT, false);
 }
 
@@ -321,9 +321,9 @@ static void pv_destroy_gdt_ldt_l1tab(struct vcpu *v)
     destroy_perdomain_mapping(v, GDT_VIRT_START(v), 1U << GDT_LDT_VCPU_SHIFT);
 }
 
-static int pv_create_root_pt_l1tab(const struct vcpu *v)
+static int pv_create_root_pt_l1tab(struct vcpu *v)
 {
-    return create_perdomain_mapping(v->domain,
+    return create_perdomain_mapping(v,
                                     PV_ROOT_PT_MAPPING_VCPU_VIRT_START(v),
                                     1, false);
 }

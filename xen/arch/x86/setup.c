@@ -408,6 +408,13 @@ void __init free_boot_modules(void)
 static void __init init_idle_domain(void)
 {
     scheduler_init();
+    /*
+     * Set the idle page table per-domain slot, otherwise map_domain_page()
+     * would fail after setting current == idle_vcpu.
+     */
+    idle_pg_table[l4_table_offset(PERDOMAIN_VIRT_START)] =
+            l4e_from_page(idle_vcpu[0]->domain->arch.perdomain_l3_pg,
+                          __PAGE_HYPERVISOR_RW);
     set_current(idle_vcpu[0]);
     this_cpu(curr_vcpu) = current;
 }

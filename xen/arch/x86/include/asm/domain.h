@@ -88,7 +88,7 @@ struct mapcache_domain {
     unsigned long *garbage;
 };
 
-int mapcache_domain_init(struct domain *d);
+void mapcache_domain_init(struct domain *d);
 int mapcache_vcpu_init(struct vcpu *v);
 void mapcache_override_current(struct vcpu *v);
 

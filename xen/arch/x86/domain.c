@@ -511,6 +511,10 @@ int arch_vcpu_create(struct vcpu *v)
 
     v->arch.flags = TF_kernel_mode;
 
+    rc = create_perdomain_mapping(v, PERDOMAIN_VIRT_START, 0, false);
+    if ( rc )
+        return rc;
+
     rc = mapcache_vcpu_init(v);
     if ( rc )
         return rc;
@@ -564,6 +568,7 @@ int arch_vcpu_create(struct vcpu *v)
     return rc;
 
  fail:
+    free_perdomain_mappings(v);
     paging_vcpu_teardown(v);
     vcpu_destroy_fpu(v);
     xfree(v->arch.msrs);
@@ -588,6 +593,8 @@ void arch_vcpu_destroy(struct vcpu *v)
         pv_vcpu_destroy(v);
     else
         ASSERT_UNREACHABLE();
+
+    free_perdomain_mappings(v);
 }
 
 int arch_sanitise_domain_config(struct xen_domctl_createdomain *config)
@@ -820,11 +827,7 @@ void __init arch_init_idle_domain(struct domain *d)
 
     d->arch.ctxt_switch = &idle_csw;
 
-    BUG_ON(mapcache_domain_init(d));
-
-    /* Slot 260: Per-domain mappings. */
-    idle_pg_table[l4_table_offset(PERDOMAIN_VIRT_START)] =
-        l4e_from_page(d->arch.perdomain_l3_pg, __PAGE_HYPERVISOR_RW);
+    mapcache_domain_init(d);
 }
 
 int arch_domain_create(struct domain *d,
@@ -880,9 +883,7 @@ int arch_domain_create(struct domain *d,
 
     spec_ctrl_init_domain(d);
 
-    rc = mapcache_domain_init(d);
-    if ( rc )
-        goto fail;
+    mapcache_domain_init(d);
 
     if ( (rc = paging_domain_init(d)) != 0 )
         goto fail;
@@ -954,7 +955,6 @@ int arch_domain_create(struct domain *d,
     XFREE(d->arch.cpu_policy);
     if ( paging_initialised )
         paging_final_teardown(d);
-    free_perdomain_mappings(d);
 
     return rc;
 }
@@ -980,7 +980,6 @@ void arch_domain_destroy(struct domain *d)
 
     if ( is_pv_domain(d) )
         pv_domain_destroy(d);
-    free_perdomain_mappings(d);
 
     free_xenheap_page(d->shared_info);
     cleanup_domain_irq_mapping(d);
