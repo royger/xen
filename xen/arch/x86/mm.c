@@ -6378,6 +6378,40 @@ static bool perdomain_free_page(l1_pgentry_t l1e)
            (_PAGE_PRESENT | _PAGE_AVAIL0);
 }
 
+static void perdomain_free_region(root_pgentry_t *root_pgt, unsigned long va,
+                                  unsigned int nr)
+{
+    l1_pgentry_t *l1tab = NULL;
+
+    for ( const unsigned long va_end = va + (nr << PAGE_SHIFT);
+          va < va_end;
+          va += PAGE_SIZE )
+    {
+        l1_pgentry_t *pl1e;
+
+        if ( !l1tab || !l1_table_offset(va) )
+        {
+            unmap_domain_page(l1tab);
+            /* Pass NULL as domain, since the function will never alloc. */
+            l1tab = virt_to_l1e(va & ~((1UL << L2_PAGETABLE_SHIFT) - 1),
+                                root_pgt, NULL, false);
+            if ( !l1tab )
+            {
+                va &= ~((1UL << L2_PAGETABLE_SHIFT) - 1);
+                va += (1UL << L2_PAGETABLE_SHIFT) - PAGE_SIZE;
+                continue;
+            }
+        }
+
+        pl1e = &l1tab[l1_table_offset(va)];
+        if ( perdomain_free_page(*pl1e) )
+            free_domheap_page(l1e_get_page(*pl1e));
+        *pl1e = l1e_empty();
+    }
+
+    unmap_domain_page(l1tab);
+}
+
 int create_perdomain_mapping(struct domain *d, unsigned long va,
                              unsigned int nr, l1_pgentry_t **pl1tab,
                              struct page_info **ppg)
@@ -6570,55 +6604,37 @@ void populate_perdomain_mapping(const struct vcpu *v, unsigned long va,
     unmap_domain_page(root_pgt);
 }
 
-void destroy_perdomain_mapping(struct domain *d, unsigned long va,
+void destroy_perdomain_mapping(const struct vcpu *v, unsigned long va,
                                unsigned int nr)
 {
-    const l3_pgentry_t *l3tab, *pl3e;
+    root_pgentry_t *root_pgt;
 
     ASSERT(va >= PERDOMAIN_VIRT_START &&
            va < PERDOMAIN_VIRT_SLOT(PERDOMAIN_SLOTS));
     ASSERT(!nr || !l3_table_offset(va ^ (va + nr * PAGE_SIZE - 1)));
 
-    if ( !d->arch.perdomain_l3_pg )
-        return;
-
-    l3tab = __map_domain_page(d->arch.perdomain_l3_pg);
-    pl3e = l3tab + l3_table_offset(va);
-
-    if ( l3e_get_flags(*pl3e) & _PAGE_PRESENT )
+    /* Use likely to force the optimization for the fast path. */
+    if ( likely(v == this_cpu(curr_vcpu)) )
     {
-        const l2_pgentry_t *l2tab = map_l2t_from_l3e(*pl3e);
-        const l2_pgentry_t *pl2e = l2tab + l2_table_offset(va);
-        unsigned int i = l1_table_offset(va);
+        l1_pgentry_t *pl1e = &__linear_l1_table[l1_linear_offset(va)];
 
-        while ( nr )
+        /* Fast path: zap L1 entries using the recursive linear mappings. */
+        for ( ; nr--; pl1e++ )
         {
-            if ( l2e_get_flags(*pl2e) & _PAGE_PRESENT )
-            {
-                l1_pgentry_t *l1tab = map_l1t_from_l2e(*pl2e);
-
-                for ( ; nr && i < L1_PAGETABLE_ENTRIES; --nr, ++i )
-                {
-                    if ( perdomain_free_page(l1tab[i]) )
-                        free_domheap_page(l1e_get_page(l1tab[i]));
-                    l1tab[i] = l1e_empty();
-                }
-
-                unmap_domain_page(l1tab);
-            }
-            else if ( nr + i < L1_PAGETABLE_ENTRIES )
-                break;
-            else
-                nr -= L1_PAGETABLE_ENTRIES - i;
-
-            ++pl2e;
-            i = 0;
+            if ( perdomain_free_page(*pl1e) )
+                free_domheap_page(l1e_get_page(*pl1e));
+            l1e_write(pl1e, l1e_empty());
         }
 
-        unmap_domain_page(l2tab);
+        return;
     }
 
-    unmap_domain_page(l3tab);
+    ASSERT(v->arch.cr3);
+    root_pgt = map_domain_page(cr3_mfn(v->arch.cr3));
+
+    perdomain_free_region(root_pgt, va, nr);
+
+    unmap_domain_page(root_pgt);
 }
 
 void free_perdomain_mappings(struct domain *d)
