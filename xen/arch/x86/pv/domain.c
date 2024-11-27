@@ -285,8 +285,7 @@ static int pv_create_gdt_ldt_l1tab(struct vcpu *v)
 
 static void pv_destroy_gdt_ldt_l1tab(struct vcpu *v)
 {
-    destroy_perdomain_mapping(v->domain, GDT_VIRT_START(v),
-                              1U << GDT_LDT_VCPU_SHIFT);
+    destroy_perdomain_mapping(v, GDT_VIRT_START(v), 1U << GDT_LDT_VCPU_SHIFT);
 }
 
 void pv_vcpu_destroy(struct vcpu *v)
