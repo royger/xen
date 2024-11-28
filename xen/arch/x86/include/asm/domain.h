@@ -41,6 +41,16 @@ struct trap_bounce {
     unsigned long eip;
 };
 
+struct mapcache {
+    /* The number of array entries, and a cursor into the array. */
+    unsigned int entries;
+    unsigned int cursor;
+
+    /* Which mappings are in use, and which are garbage to reap next epoch? */
+    unsigned long *inuse;
+    unsigned long *garbage;
+};
+
 #define MAPHASH_ENTRIES 8
 #define MAPHASH_HASHFN(pfn) ((pfn) & (MAPHASH_ENTRIES-1))
 #define MAPHASHENT_NOTINUSE ((u32)~0U)
@@ -54,13 +64,11 @@ struct mapcache_vcpu {
         uint32_t      idx;
         uint32_t      refcnt;
     } hash[MAPHASH_ENTRIES];
+
+    struct mapcache cache;
 };
 
 struct mapcache_domain {
-    /* The number of array entries, and a cursor into the array. */
-    unsigned int entries;
-    unsigned int cursor;
-
     /* Protects map_domain_page(). */
     spinlock_t lock;
 
@@ -68,9 +76,7 @@ struct mapcache_domain {
     unsigned int epoch;
     u32 tlbflush_timestamp;
 
-    /* Which mappings are in use, and which are garbage to reap next epoch? */
-    unsigned long *inuse;
-    unsigned long *garbage;
+    struct mapcache cache;
 };
 
 void mapcache_domain_init(struct domain *d);
