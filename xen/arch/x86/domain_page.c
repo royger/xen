@@ -78,7 +78,9 @@ void *map_domain_page(mfn_t mfn)
     struct vcpu *v;
     struct mapcache_domain *dcache;
     struct mapcache_vcpu *vcache;
+    struct mapcache *cache;
     struct vcpu_maphash_entry *hashent;
+    struct domain *d;
 
 #ifdef NDEBUG
     if ( arch_mfns_in_directmap(mfn_x(mfn), 1) )
@@ -86,7 +88,16 @@ void *map_domain_page(mfn_t mfn)
 #endif
 
     v = mapcache_current_vcpu();
-    if ( !v || !v->domain->arch.mapcache.inuse )
+
+    if ( v )
+    {
+        d = v->domain;
+        dcache = &d->arch.mapcache;
+        vcache = &v->arch.mapcache;
+        cache = d->arch.vcpu_pt ? &vcache->cache : &dcache->cache;
+    }
+
+    if ( !v || !cache->inuse )
     {
         if ( arch_mfns_in_directmap(mfn_x(mfn), 1) )
             return mfn_to_virt(mfn_x(mfn));
@@ -101,9 +112,6 @@ void *map_domain_page(mfn_t mfn)
         }
     }
 
-    dcache = &v->domain->arch.mapcache;
-    vcache = &v->arch.mapcache;
-
     perfc_incr(map_domain_page_count);
 
     local_irq_save(flags);
@@ -112,17 +120,18 @@ void *map_domain_page(mfn_t mfn)
     if ( hashent->mfn == mfn_x(mfn) )
     {
         idx = hashent->idx;
-        ASSERT(idx < dcache->entries);
+        ASSERT(idx < cache->entries);
         hashent->refcnt++;
         ASSERT(hashent->refcnt);
         ASSERT(mfn_eq(l1e_get_mfn(MAPCACHE_L1ENT(idx)), mfn));
         goto out;
     }
 
-    spin_lock(&dcache->lock);
+    if ( !d->arch.vcpu_pt )
+        spin_lock(&dcache->lock);
 
     /* Has some other CPU caused a wrap? We must flush if so. */
-    if ( unlikely(dcache->epoch != vcache->shadow_epoch) )
+    if ( unlikely(!d->arch.vcpu_pt && dcache->epoch != vcache->shadow_epoch) )
     {
         vcache->shadow_epoch = dcache->epoch;
         if ( NEED_FLUSH(this_cpu(tlbflush_time), dcache->tlbflush_timestamp) )
@@ -132,21 +141,21 @@ void *map_domain_page(mfn_t mfn)
         }
     }
 
-    idx = find_next_zero_bit(dcache->inuse, dcache->entries, dcache->cursor);
-    if ( unlikely(idx >= dcache->entries) )
+    idx = find_next_zero_bit(cache->inuse, cache->entries, cache->cursor);
+    if ( unlikely(idx >= cache->entries) )
     {
         unsigned long accum = 0, prev = 0;
 
         /* /First/, clean the garbage map and update the inuse list. */
-        for ( i = 0; i < BITS_TO_LONGS(dcache->entries); i++ )
+        for ( i = 0; i < BITS_TO_LONGS(cache->entries); i++ )
         {
             accum |= prev;
-            dcache->inuse[i] &= ~xchg(&dcache->garbage[i], 0);
-            prev = ~dcache->inuse[i];
+            cache->inuse[i] &= ~xchg(&cache->garbage[i], 0);
+            prev = ~cache->inuse[i];
         }
 
-        if ( accum | (prev & BITMAP_LAST_WORD_MASK(dcache->entries)) )
-            idx = find_first_zero_bit(dcache->inuse, dcache->entries);
+        if ( accum | (prev & BITMAP_LAST_WORD_MASK(cache->entries)) )
+            idx = find_first_zero_bit(cache->inuse, cache->entries);
         else
         {
             /* Replace a hash entry instead. */
@@ -166,19 +175,23 @@ void *map_domain_page(mfn_t mfn)
                     i = 0;
             } while ( i != MAPHASH_HASHFN(mfn_x(mfn)) );
         }
-        BUG_ON(idx >= dcache->entries);
+        BUG_ON(idx >= cache->entries);
 
         /* /Second/, flush TLBs. */
         perfc_incr(domain_page_tlb_flush);
         flush_tlb_local();
-        vcache->shadow_epoch = ++dcache->epoch;
-        dcache->tlbflush_timestamp = tlbflush_current_time();
+        if ( !d->arch.vcpu_pt )
+        {
+            vcache->shadow_epoch = ++dcache->epoch;
+            dcache->tlbflush_timestamp = tlbflush_current_time();
+        }
     }
 
-    set_bit(idx, dcache->inuse);
-    dcache->cursor = idx + 1;
+    set_bit(idx, cache->inuse);
+    cache->cursor = idx + 1;
 
-    spin_unlock(&dcache->lock);
+    if ( !d->arch.vcpu_pt )
+        spin_unlock(&dcache->lock);
 
     l1e_write(&MAPCACHE_L1ENT(idx), l1e_from_mfn(mfn, __PAGE_HYPERVISOR_RW));
 
@@ -192,6 +205,7 @@ void unmap_domain_page(const void *ptr)
     unsigned int idx;
     struct vcpu *v;
     struct mapcache_domain *dcache;
+    struct mapcache *cache;
     unsigned long va = (unsigned long)ptr, mfn, flags;
     struct vcpu_maphash_entry *hashent;
 
@@ -212,7 +226,8 @@ void unmap_domain_page(const void *ptr)
     ASSERT(v);
 
     dcache = &v->domain->arch.mapcache;
-    ASSERT(dcache->inuse);
+    cache = v->domain->arch.vcpu_pt ? &v->arch.mapcache.cache
+                                    : &dcache->cache;
 
     idx = PFN_DOWN(va - MAPCACHE_VIRT_START);
     mfn = l1e_get_pfn(MAPCACHE_L1ENT(idx));
@@ -235,7 +250,7 @@ void unmap_domain_page(const void *ptr)
                    hashent->mfn);
             l1e_write(&MAPCACHE_L1ENT(hashent->idx), l1e_empty());
             /* /Second/, mark as garbage. */
-            set_bit(hashent->idx, dcache->garbage);
+            set_bit(hashent->idx, cache->garbage);
         }
 
         /* Add newly-freed mapping to the maphash. */
@@ -247,7 +262,7 @@ void unmap_domain_page(const void *ptr)
         /* /First/, zap the PTE. */
         l1e_write(&MAPCACHE_L1ENT(idx), l1e_empty());
         /* /Second/, mark as garbage. */
-        set_bit(idx, dcache->garbage);
+        set_bit(idx, cache->garbage);
     }
 
     local_irq_restore(flags);
@@ -256,20 +271,18 @@ void unmap_domain_page(const void *ptr)
 void mapcache_domain_init(struct domain *d)
 {
     struct mapcache_domain *dcache = &d->arch.mapcache;
-    unsigned int bitmap_pages;
 
 #ifdef NDEBUG
     if ( !mem_hotplug && arch_mfns_in_directmap(0, max_page) )
         return;
 #endif
 
+    if ( d->arch.vcpu_pt )
+        return;
+
     BUILD_BUG_ON(MAPCACHE_VIRT_END + PAGE_SIZE * (3 +
                  2 * PFN_UP(BITS_TO_LONGS(MAPCACHE_ENTRIES) * sizeof(long))) >
                  MAPCACHE_VIRT_START + (PERDOMAIN_SLOT_MBYTES << 20));
-    bitmap_pages = PFN_UP(BITS_TO_LONGS(MAPCACHE_ENTRIES) * sizeof(long));
-    dcache->inuse = (void *)MAPCACHE_VIRT_END + PAGE_SIZE;
-    dcache->garbage = dcache->inuse +
-                      (bitmap_pages + 1) * PAGE_SIZE / sizeof(long);
 
     spin_lock_init(&dcache->lock);
 }
@@ -278,30 +291,39 @@ int mapcache_vcpu_init(struct vcpu *v)
 {
     struct domain *d = v->domain;
     struct mapcache_domain *dcache = &d->arch.mapcache;
+    struct mapcache *cache;
     unsigned long i;
-    unsigned int ents = d->max_vcpus * MAPCACHE_VCPU_ENTRIES;
+    unsigned int ents = (d->arch.vcpu_pt ? 1 : d->max_vcpus) *
+                        MAPCACHE_VCPU_ENTRIES;
     unsigned int nr = PFN_UP(BITS_TO_LONGS(ents) * sizeof(long));
 
-    if ( !dcache->inuse )
-        return 0;
+    cache = d->arch.vcpu_pt ? &v->arch.mapcache.cache
+                            : &dcache->cache;
 
-    if ( ents > dcache->entries )
+    if ( ents > cache->entries )
     {
         /* Populate page tables. */
         int rc = create_perdomain_mapping(v, MAPCACHE_VIRT_START, ents, false);
+        const unsigned int bitmap_pages =
+            PFN_UP(BITS_TO_LONGS(MAPCACHE_ENTRIES) * sizeof(long));
+
+        cache->inuse = (void *)MAPCACHE_VIRT_END + PAGE_SIZE;
+        cache->garbage = cache->inuse +
+                         (bitmap_pages + 1) * PAGE_SIZE / sizeof(long);
+
 
         /* Populate bit maps. */
         if ( !rc )
-            rc = create_perdomain_mapping(v, (unsigned long)dcache->inuse,
+            rc = create_perdomain_mapping(v, (unsigned long)cache->inuse,
                                           nr, true);
         if ( !rc )
-            rc = create_perdomain_mapping(v, (unsigned long)dcache->garbage,
+            rc = create_perdomain_mapping(v, (unsigned long)cache->garbage,
                                           nr, true);
 
         if ( rc )
             return rc;
 
-        dcache->entries = ents;
+        cache->entries = ents;
     }
 
     /* Mark all maphash entries as not in use. */
