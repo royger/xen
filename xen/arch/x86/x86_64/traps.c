@@ -286,6 +286,9 @@ void asmlinkage do_double_fault(struct cpu_user_regs *regs)
     _show_registers(regs, crs, CTXT_hypervisor, NULL);
     show_code(regs);
     show_stack_overflow(cpu, regs);
+    printk("%pv - idle_pg: %lx\n", current, virt_to_maddr(idle_pg_table));
+    show_page_walk(read_cr2());
+    show_execution_state(regs);
 
     panic("DOUBLE FAULT -- system shutdown\n");
 }

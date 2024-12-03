@@ -6777,8 +6777,7 @@ static void write_sss_token(unsigned long *ptr, unsigned long va)
 
 void memguard_guard_stack(void *p, unsigned int cpu)
 {
-    unsigned long va = (opt_asi_hvm || opt_asi_pv) ? PCPU_STACK_VIRT(cpu)
-                                                   : (unsigned long)p;
+    unsigned long va = (unsigned long)p;
 
     /* IST Shadow stacks.  4x 1k in stack page 0. */
     if ( IS_ENABLED(CONFIG_XEN_SHSTK) )
@@ -6793,6 +6792,9 @@ void memguard_guard_stack(void *p, unsigned int cpu)
                         va + (IST_DF  * IST_SHSTK_SIZE) - 8);
     }
     map_pages_to_xen((unsigned long)p, virt_to_mfn(p), 1, PAGE_HYPERVISOR_SHSTK);
+
+    if ( opt_asi_hvm || opt_asi_pv )
+        va = PCPU_STACK_VIRT(cpu);
 
     /* Primary Shadow Stack.  1x 4k in stack page 5. */
     p += PRIMARY_SHSTK_SLOT * PAGE_SIZE;

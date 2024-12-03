@@ -832,6 +832,9 @@ void load_system_tables(void)
 		.limit = (IDT_ENTRIES * sizeof(idt_entry_t)) - 1,
 	};
 
+	if ( system_state >= SYS_STATE_boot )
+		stack_top = (unsigned long)stack_base[cpu];
+
 	/*
 	 * Set up the TSS.  Warning - may be live, and the NMI/#MC must remain
 	 * valid on every instruction boundary.  (Note: these are all
