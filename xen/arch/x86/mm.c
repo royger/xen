@@ -6399,7 +6399,7 @@ static bool perdomain_free_page(l1_pgentry_t l1e)
            (_PAGE_PRESENT | _PAGE_AVAIL0);
 }
 
-static void perdomain_free_region(root_pgentry_t *root_pgt, unsigned long va,
+static void perdomain_free_region(const struct vcpu *v, root_pgentry_t *root_pgt, unsigned long va,
                                   unsigned int nr)
 {
     l1_pgentry_t *l1tab = NULL;
@@ -6424,6 +6424,7 @@ static void perdomain_free_region(root_pgentry_t *root_pgt, unsigned long va,
             }
         }
 
+        ASSERT(!is_idle_vcpu(v));
         pl1e = &l1tab[l1_table_offset(va)];
         if ( perdomain_free_page(*pl1e) )
             free_domheap_page(l1e_get_page(*pl1e));
@@ -6510,7 +6511,7 @@ int create_perdomain_mapping(struct vcpu *v, unsigned long va,
      * Ensure the region doesn't have previously allocated pages, or else those
      * would be leaked.
      */
-    perdomain_free_region(root_pgt, va, nr);
+    perdomain_free_region(v, root_pgt, va, nr);
 
     /* Create the page-table structures. */
     rc = map_pages(va, INVALID_MFN, nr, MAP_SMALL_PAGES, root_pgt, d);
@@ -6664,6 +6665,7 @@ void destroy_perdomain_mapping(const struct vcpu *v, unsigned long va,
     ASSERT(va >= PERDOMAIN_VIRT_START &&
            va < PERDOMAIN_VIRT_SLOT(PERDOMAIN_SLOTS));
     ASSERT(!nr || !l3_table_offset(va ^ (va + nr * PAGE_SIZE - 1)));
+    ASSERT(!is_idle_vcpu(v));
 
     /* Use likely to force the optimization for the fast path. */
     if ( likely(v == this_cpu(curr_vcpu)) )
@@ -6684,7 +6686,7 @@ void destroy_perdomain_mapping(const struct vcpu *v, unsigned long va,
     ASSERT(v->arch.cr3);
     root_pgt = map_domain_page(cr3_mfn(v->arch.cr3));
 
-    perdomain_free_region(root_pgt, va, nr);
+    perdomain_free_region(v, root_pgt, va, nr);
 
     unmap_domain_page(root_pgt);
 }
@@ -6694,6 +6696,8 @@ void free_perdomain_mappings(struct vcpu *v)
     struct domain *d = v->domain;
     root_pgentry_t *root_pgt;
     int rc;
+
+    ASSERT(!is_idle_vcpu(v));
 
     if ( (d->arch.asi && !v->arch.pervcpu_l3_pg) || !d->arch.perdomain_l3_pg )
         return;
@@ -6719,7 +6723,7 @@ void free_perdomain_mappings(struct vcpu *v)
     }
 
 
-    perdomain_free_region(root_pgt, PERDOMAIN_VIRT_START,
+    perdomain_free_region(v, root_pgt, PERDOMAIN_VIRT_START,
                           (PERDOMAIN_SLOT_MBYTES << (20 - PAGE_SHIFT)) *
                           PERDOMAIN_SLOTS);
 
