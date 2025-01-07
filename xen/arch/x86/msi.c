@@ -1003,7 +1003,9 @@ static int msix_capability_init(struct pci_dev *dev,
         maskall = 0;
     }
     msix->host_maskall = maskall;
-    pci_conf_write16(dev->sbdf, msix_control_reg(pos), control);
+    pci_conf_write16(dev->sbdf, msix_control_reg(pos),
+                     control | PCI_MSIX_FLAGS_ENABLE |
+                     (maskall ? PCI_MSIX_FLAGS_MASKALL : 0));
 
     return 0;
 }
@@ -1455,10 +1457,12 @@ static void cf_check dump_msi(unsigned char key)
         struct irq_desc *desc = irq_to_desc(irq);
         const struct msi_desc *entry;
         u32 addr, data, dest32;
+        uint32_t ctrl = 0;
         signed char mask;
         struct msi_attrib attr;
         unsigned long flags;
         const char *type = "???";
+        struct msi_msg msg;
 
         if ( !(irq & 0x1f) )
             process_pending_softirqs();
@@ -1477,8 +1481,36 @@ static void cf_check dump_msi(unsigned char key)
 
         switch ( entry->msi_attrib.type )
         {
-        case PCI_CAP_ID_MSI: type = "MSI"; break;
-        case PCI_CAP_ID_MSIX: type = "MSI-X"; break;
+        case PCI_CAP_ID_MSI:
+            type = "MSI";
+            break;
+
+        case PCI_CAP_ID_MSIX:
+        {
+            void __iomem *base = entry->mask_base;
+            //uint32_t ctrl = readl(base + PCI_MSIX_ENTRY_VECTOR_CTRL_OFFSET);
+
+            msg.address_lo = readl(base + PCI_MSIX_ENTRY_LOWER_ADDR_OFFSET);
+            msg.address_hi = readl(base + PCI_MSIX_ENTRY_UPPER_ADDR_OFFSET);
+            msg.data = readl(base + PCI_MSIX_ENTRY_DATA_OFFSET);
+
+
+            if ( msg.address_lo != entry->msg.address_lo )
+                printk("addr lo different than expected! %x != %x\n",
+                       msg.address_lo, entry->msg.address_lo);
+            if ( msg.address_hi != entry->msg.address_hi )
+                printk("addr hi different than expected! %x != %x\n",
+                       msg.address_hi, entry->msg.address_hi);
+            if ( msg.data != entry->msg.data )
+                printk("addr hi different than expected! %x != %x\n",
+                       msg.data, entry->msg.data);
+
+            ctrl = readl(base + PCI_MSIX_ENTRY_VECTOR_CTRL_OFFSET);
+
+            type = "MSI-X";
+            break;
+        }
+
         case 0:
             switch ( entry->msi_attrib.pos )
             {
@@ -1503,9 +1535,9 @@ static void cf_check dump_msi(unsigned char key)
             mask += '0';
         else
             mask = '?';
-        printk(" %-6s%4u vec=%02x%7s%6s%3sassert%5s%7s"
-               " dest=%08x mask=%d/%c%c/%c\n",
-               type, irq,
+        printk("%pp[%02u] %-6s%4u vec=%02x%7s%6s%3sassert%5s%7s"
+               " dest=%08x mask=%d/%c%c/%c ctrl %x\n",
+               &entry->dev->sbdf, attr.entry_nr, type, irq,
                (data & MSI_DATA_VECTOR_MASK) >> MSI_DATA_VECTOR_SHIFT,
                data & MSI_DATA_DELIVERY_LOWPRI ? "lowest" : "fixed",
                data & MSI_DATA_TRIGGER_LEVEL ? "level" : "edge",
@@ -1515,7 +1547,7 @@ static void cf_check dump_msi(unsigned char key)
                dest32, attr.maskbit,
                attr.host_masked ? 'H' : ' ',
                attr.guest_masked ? 'G' : ' ',
-               mask);
+               mask, ctrl);
     }
 
     vpci_dump_msi();

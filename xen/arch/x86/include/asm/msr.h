@@ -129,10 +129,13 @@ static inline uint64_t rdtsc_ordered(void)
 
 #define __write_tsc(val) wrmsrl(MSR_IA32_TSC, val)
 #define write_tsc(val) ({                                       \
+    uint64_t v = (val);                                         \
+                                                                \
     /* Reliable TSCs are in lockstep across all CPUs. We should \
      * never write to them. */                                  \
     ASSERT(!boot_cpu_has(X86_FEATURE_TSC_RELIABLE));            \
-    __write_tsc(val);                                           \
+    ASSERT(v >= this_cpu(cpu_time).stamp.local_tsc);            \
+    __write_tsc(v);                                             \
 })
 
 #define rdpmc(counter,low,high) \

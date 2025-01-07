@@ -1888,6 +1888,8 @@ static void cf_check local_time_calibration(void)
 
     if ( boot_cpu_has(X86_FEATURE_CONSTANT_TSC) )
     {
+        ASSERT(rdtsc_ordered() >= c->local_tsc);
+
         /* Atomically read cpu_calibration struct and write cpu_time struct. */
         local_irq_disable();
         t->stamp = *c;

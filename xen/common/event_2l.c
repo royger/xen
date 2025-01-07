@@ -16,6 +16,8 @@
 
 #include <asm/guest_atomics.h>
 
+bool debug_evtchn;
+
 static void cf_check evtchn_2l_set_pending(
     struct vcpu *v, struct evtchn *evtchn)
 {
@@ -30,7 +32,13 @@ static void cf_check evtchn_2l_set_pending(
      */
 
     if ( guest_test_and_set_bit(d, port, &shared_info(d, evtchn_pending)) )
+    {
+        if ( debug_evtchn && evtchn->state == ECS_PIRQ )
+            printk("%pv: evtch %u already pending masked: %d\n", v, port,
+                   guest_test_bit(d, port, &shared_info(d, evtchn_mask)));
+        //printk("%pv: evtch %u already pending\n", v, port);
         return;
+    }
 
     if ( !guest_test_bit(d, port, &shared_info(d, evtchn_mask)) &&
          !guest_test_and_set_bit(d, port / BITS_PER_EVTCHN_WORD(d),

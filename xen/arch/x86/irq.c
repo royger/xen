@@ -1949,6 +1949,8 @@ static void do_IRQ_guest(struct irq_desc *desc, unsigned int vector)
     }
 }
 
+atomic_t irq_count[1024];
+
 void do_IRQ(struct cpu_user_regs *regs)
 {
     struct irqaction *action;
@@ -2007,6 +2009,9 @@ void do_IRQ(struct cpu_user_regs *regs)
         }
         goto out_no_unlock;
     }
+
+    if ( irq < ARRAY_SIZE(irq_count) )
+        atomic_inc(&irq_count[irq]);
 
     desc = irq_to_desc(irq);
 
@@ -2526,8 +2531,9 @@ static void cf_check dump_irqs(unsigned char key)
 
         spin_lock_irqsave(&desc->lock, flags);
 
-        printk("   IRQ:%4d vec:%02x %-15s status=%03x aff:{%*pbl}/{%*pbl} ",
-               irq, desc->arch.vector, desc->handler->typename, desc->status,
+        printk("   IRQ:%4d vec:%02x cnt: %8d %-15s status=%03x aff:{%*pbl}/{%*pbl} ",
+               irq, desc->arch.vector, atomic_read(&irq_count[irq]),
+               desc->handler->typename, desc->status,
                CPUMASK_PR(desc->affinity), CPUMASK_PR(desc->arch.cpu_mask));
 
         if ( ssid )
@@ -2589,6 +2595,71 @@ static int __init cf_check setup_dump_irqs(void)
     return 0;
 }
 __initcall(setup_dump_irqs);
+
+extern bool debug_evtchn;
+static void cf_check inject(unsigned char key)
+{
+    int i, irq, pirq;
+    struct irq_desc *desc;
+    struct domain *d;
+    const struct pirq *info;
+    unsigned long flags;
+    char *ssid;
+
+    for ( irq = 0; irq < nr_irqs; irq++ )
+    {
+        const irq_guest_action_t *action;
+
+        if ( !(irq & 0x1f) )
+            process_pending_softirqs();
+
+        desc = irq_to_desc(irq);
+
+        if ( !irq_desc_initialized(desc) || desc->handler == &no_irq_type )
+            continue;
+
+        ssid = in_irq() ? NULL : xsm_show_irq_sid(irq);
+
+        spin_lock_irqsave(&desc->lock, flags);
+
+        action = guest_action(desc);
+        if ( action )
+        {
+            for ( i = 0; i < action->nr_guests; )
+            {
+                struct evtchn *evtchn;
+                unsigned int pending = 2, masked = 2;
+
+                d = action->guest[i++];
+                pirq = domain_irq_to_pirq(d, irq);
+                info = pirq_info(d, pirq);
+                evtchn = evtchn_from_port(d, info->evtchn);
+                if ( evtchn_read_trylock(evtchn) )
+                {
+                    pending = evtchn_is_pending(d, evtchn);
+                    masked = evtchn_is_masked(d, evtchn);
+                    evtchn_read_unlock(evtchn);
+                }
+                debug_evtchn = true;
+                send_guest_pirq(d, info);
+                debug_evtchn = false;
+            }
+        }
+
+        spin_unlock_irqrestore(&desc->lock, flags);
+
+        xfree(ssid);
+    }
+
+    process_pending_softirqs();
+}
+
+static int __init cf_check setup_inject_irqs(void)
+{
+    register_keyhandler('j', inject, "inject interrupt", 1);
+    return 0;
+}
+__initcall(setup_inject_irqs);
 
 /* Evacuate interrupts assigned to CPUs not present in the input CPU mask. */
 void fixup_irqs(const cpumask_t *mask, bool verbose)
