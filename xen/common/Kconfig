@@ -295,6 +295,7 @@ config SPECULATIVE_HARDEN_LOCK
 config ONDEMAND_DIRECTMAP
 	bool "On-Demand Directmap"
 	depends on HAS_ONDEMAND_DIRECTMAP
+	select HAS_PMAP
 	help
 	  Contemporary processors may use speculative execution as a
 	  performance optimisation, but this can potentially be abused by an
