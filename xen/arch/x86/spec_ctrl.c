@@ -87,6 +87,11 @@ bool __ro_after_init opt_bp_spec_reduce = true;
 
 static bool __initdata opt_ibpb_alt;
 
+#ifdef CONFIG_ONDEMAND_DIRECTMAP
+bool __ro_after_init opt_ondemand_dmap;
+boolean_param("asi", opt_ondemand_dmap);
+#endif
+
 static int __init cf_check parse_spec_ctrl(const char *s)
 {
     const char *ss;
@@ -642,6 +647,8 @@ static void __init print_details(enum ind_thunk thunk)
                ", Safe address %"PRIx64"\n",
                cpu_has_bug_l1tf ? "" : " not",
                l1d_maxphysaddr, paddr_bits, l1tf_safe_maddr);
+
+    printk("  ASI: %s", !has_directmap() ? "enabled" : "disabled");
 
     /*
      * Alternatives blocks for protecting against and/or virtualising

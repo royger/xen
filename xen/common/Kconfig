@@ -146,6 +146,9 @@ config HAS_KEXEC
 config HAS_LLC_COLORING
 	bool
 
+config HAS_ONDEMAND_DIRECTMAP
+	bool
+
 config HAS_PIRQ
 	bool
 
@@ -288,6 +291,24 @@ config SPECULATIVE_HARDEN_LOCK
 
 	  This option is disabled by default at run time, and needs to be
 	  enabled on the command line.
+
+config ONDEMAND_DIRECTMAP
+	bool "On-Demand Directmap"
+	depends on HAS_ONDEMAND_DIRECTMAP
+	help
+	  Contemporary processors may use speculative execution as a
+	  performance optimisation, but this can potentially be abused by an
+	  attacker to leak data via speculative sidechannels.
+
+	  When enabled, this option provides defense in depth by preventing
+	  most RAM from being constantly mapped on the hypervisor, thereby
+	  greatly reducing the scope of data leaks after a successful
+	  speculative attack.
+
+	  This option is disabled by default at run time, and needs to be
+	  enabled on the command line.
+
+	  If unsure, say N.
 
 endmenu
 

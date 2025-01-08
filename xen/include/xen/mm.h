@@ -181,6 +181,17 @@ extern unsigned long max_page;
 extern unsigned long total_pages;
 extern paddr_t mem_hotplug;
 
+#ifdef CONFIG_ONDEMAND_DIRECTMAP
+extern bool opt_ondemand_dmap;
+
+static inline bool has_directmap(void)
+{
+    return !opt_ondemand_dmap;
+}
+#else
+#define has_directmap() true
+#endif
+
 /*
  * Extra fault info types which are used to further describe
  * the source of an access violation.
