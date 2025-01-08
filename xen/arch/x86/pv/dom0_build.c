@@ -631,17 +631,24 @@ static int __init dom0_construct(const struct boot_domain *bd)
         if ( d->arch.pv.physaddr_bitsize &&
              ((mfn + count - 1) >> (d->arch.pv.physaddr_bitsize - PAGE_SHIFT)) )
         {
+            unsigned int nr_pages = count;
+
             order = get_order_from_pages(count);
             page = alloc_domheap_pages(d, order, MEMF_no_scrub);
             if ( !page )
                 panic("Not enough RAM for domain 0 initrd\n");
+
             for ( count = -count; order--; )
                 if ( count & (1UL << order) )
                 {
                     free_domheap_pages(page, order);
                     page += 1UL << order;
+                    nr_pages -= 1UL << order;
                 }
-            memcpy(page_to_virt(page), __va(initrd->start), initrd_len);
+
+            for ( ; nr_pages-- ; page++, mfn++ )
+                copy_domain_page(page_to_mfn(page), _mfn(mfn));
+
             /*
              * The initrd was copied but the initrd variable is reused in the
              * calculations below. As to not leak the memory used for the
