@@ -346,6 +346,8 @@ void asmlinkage __init noreturn start_xen(unsigned long fdt_paddr)
     device_tree_flattened = early_fdt_map(fdt_paddr);
 
     setup_mm();
+    printk("Booting with directmap: %s\n",
+           has_directmap() ? "full" : "on demand");
 
     vm_init();
 

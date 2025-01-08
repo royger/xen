@@ -8,6 +8,7 @@ config ARM_64
 	select 64BIT
 	select HAS_FAST_MULTIPLY
 	select HAS_VPCI_GUEST_SUPPORT if PCI_PASSTHROUGH
+	select HAS_ONDEMAND_DIRECTMAP
 
 config ARM
 	def_bool y
