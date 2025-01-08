@@ -6,6 +6,7 @@
 #include <xen/mm.h>
 #include <xen/param.h>
 #include <xen/pfn.h>
+#include <asm/domain_page.h>
 #include <xen/static-memory.h>
 #include <xen/static-shmem.h>
 #include <asm/fixmap.h>
