@@ -64,6 +64,14 @@ void __init setup_mm(void)
 
     setup_frametable_mappings(ram_start, ram_end);
 
+    /*
+     * The allocators may need to use map_domain_page() (such as for
+     * scrubbing pages). So we need to prepare the domheap area first.
+     */
+    if ( !init_domheap_mappings(smp_processor_id()) )
+        panic("CPU%u: Unable to prepare the domheap page-tables\n",
+              smp_processor_id());
+
     init_staticmem_pages();
     init_sharedmem_pages();
 }

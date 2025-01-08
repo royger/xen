@@ -1,7 +1,6 @@
 config ARM_32
 	def_bool y
 	depends on "$(ARCH)" = "arm32"
-	select ARCH_MAP_DOMAIN_PAGE if MMU
 
 config ARM_64
 	def_bool y
@@ -12,6 +11,7 @@ config ARM_64
 
 config ARM
 	def_bool y
+	select ARCH_MAP_DOMAIN_PAGE if MMU
 	select DOMAIN_BUILD_HELPERS
 	select FUNCTION_ALIGNMENT_4B
 	select GENERIC_UART_INIT

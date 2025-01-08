@@ -5,6 +5,7 @@
 #include <xen/mm.h>
 #include <xen/pfn.h>
 
+#include <asm/domain_page.h>
 #include <asm/setup.h>
 
 /* Override macros from asm/page.h to make them work with mfn_t */
