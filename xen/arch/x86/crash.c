@@ -176,6 +176,7 @@ static void nmi_shootdown_cpus(void)
         x2apic_enabled = (current_local_apic_mode() == APIC_MODE_X2APIC);
 
         disable_IO_APIC();
+        pci_disable_msi_all();
         hpet_disable();
     }
 }

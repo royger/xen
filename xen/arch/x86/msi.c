@@ -1248,6 +1248,20 @@ void pci_cleanup_msi(struct pci_dev *pdev)
     msi_free_irqs(pdev);
 }
 
+static int cf_check disable_msi(struct pci_dev *pdev, void *arg)
+{
+    msi_set_enable(pdev, 0);
+    msix_set_enable(pdev, 0);
+
+    return 0;
+}
+
+void pci_disable_msi_all(void)
+{
+    /* Disable MSI and/or MSI-X on all devices. */
+    pci_iterate_devices(disable_msi, NULL);
+}
+
 int pci_reset_msix_state(struct pci_dev *pdev)
 {
     unsigned int pos = pdev->msix_pos;

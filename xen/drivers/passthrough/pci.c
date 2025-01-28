@@ -1803,6 +1803,38 @@ int iommu_do_pci_domctl(
     return ret;
 }
 
+struct segment_iter {
+    int (*handler)(struct pci_dev *pdev, void *arg);
+    void *arg;
+};
+
+static int cf_check iterate_all(struct pci_seg *pseg, void *arg)
+{
+    const struct segment_iter *iter = arg;
+    struct pci_dev *pdev;
+
+    list_for_each_entry ( pdev, &pseg->alldevs_list, alldevs_list )
+    {
+        int rc = iter->handler(pdev, iter->arg);
+
+        if ( rc )
+            return rc;
+    }
+
+    return 0;
+}
+
+int pci_iterate_devices(int (*handler)(struct pci_dev *pdev, void *arg),
+                        void *arg)
+{
+    struct segment_iter iter = {
+        .handler = handler,
+        .arg = arg,
+    };
+
+    return pci_segments_iterate(iterate_all, &iter);
+}
+
 /*
  * Local variables:
  * mode: C

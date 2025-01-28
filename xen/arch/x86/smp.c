@@ -358,13 +358,14 @@ void smp_send_stop(void)
 {
     unsigned int cpu = smp_processor_id();
 
+    local_irq_disable();
+    disable_IO_APIC();
+    pci_disable_msi_all();
+    local_irq_enable();
+
     if ( num_online_cpus() > 1 )
     {
         int timeout = 10;
-
-        local_irq_disable();
-        fixup_irqs(cpumask_of(cpu), 0);
-        local_irq_enable();
 
         smp_call_function(stop_this_cpu, NULL, 0);
 
@@ -376,7 +377,6 @@ void smp_send_stop(void)
     if ( cpu_online(cpu) )
     {
         local_irq_disable();
-        disable_IO_APIC();
         hpet_disable();
         __stop_this_cpu();
         x2apic_enabled = (current_local_apic_mode() == APIC_MODE_X2APIC);
