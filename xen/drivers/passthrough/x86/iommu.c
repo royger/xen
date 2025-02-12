@@ -475,10 +475,11 @@ void __hwdom_init arch_iommu_hwdom_init(struct domain *d)
     if ( rc )
         panic("IOMMU failed to remove Xen ranges: %d\n", rc);
 
-    /* Remove any overlap with the Interrupt Address Range. */
-    rc = rangeset_remove_range(map, 0xfee00, 0xfeeff);
+    /* Remove any overlap with the local APIC page. */
+    rc = rangeset_remove_range(map, paddr_to_pfn(mp_lapic_addr),
+                               paddr_to_pfn(mp_lapic_addr));
     if ( rc )
-        panic("IOMMU failed to remove Interrupt Address Range: %d\n", rc);
+        panic("IOMMU failed to remove local APIC page: %d\n", rc);
 
     /* If emulating IO-APIC(s) make sure the base address is unmapped. */
     if ( has_vioapic(d) )
