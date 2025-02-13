@@ -338,8 +338,38 @@ static int hvmemul_do_io(
         if ( !s )
         {
             if ( is_mmio && is_hardware_domain(currd) )
-                gdprintk(XENLOG_DEBUG, "unhandled memory %s to %#lx size %u\n",
-                         dir ? "read" : "write", addr, size);
+            {
+                /*
+                 * PVH dom0 is likely missing MMIO mappings on the p2m, due to
+                 * the incomplete information Xen has about the memory layout.
+                 *
+                 * Either print a message to note dom0 attempted to access an
+                 * unpopulated GPA, or try to fixup the p2m by creating an
+                 * identity mapping for the faulting GPA.
+                 */
+                if ( opt_dom0_pf_fixup )
+                {
+                    int inner_rc = hvm_hwdom_fixup_p2m(addr);
+
+                    if ( !inner_rc )
+                    {
+                        gdprintk(XENLOG_DEBUG,
+                                 "fixup p2m mapping for page %lx added\n",
+                                 paddr_to_pfn(addr));
+                        rc = X86EMUL_RETRY;
+                        vio->req.state = STATE_IOREQ_NONE;
+                        break;
+                    }
+
+                    gprintk(XENLOG_WARNING,
+                            "unable to fixup memory %s to %#lx size %u: %d\n",
+                            dir ? "read" : "write", addr, size, inner_rc);
+                }
+                else
+                    gdprintk(XENLOG_DEBUG,
+                             "unhandled memory %s to %#lx size %u\n",
+                             dir ? "read" : "write", addr, size);
+            }
             rc = hvm_process_io_intercept(&null_handler, &p);
             vio->req.state = STATE_IOREQ_NONE;
         }

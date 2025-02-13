@@ -13,6 +13,7 @@
 #include <xen/lib.h>
 #include <xen/trace.h>
 #include <xen/sched.h>
+#include <xen/iocap.h>
 #include <xen/irq.h>
 #include <xen/softirq.h>
 #include <xen/domain.h>
@@ -5454,6 +5455,36 @@ int hvm_copy_context_and_params(struct domain *dst, struct domain *src)
 
  out:
     vfree(c.data);
+
+    return rc;
+}
+
+bool __ro_after_init opt_dom0_pf_fixup;
+int hvm_hwdom_fixup_p2m(paddr_t addr)
+{
+    unsigned long gfn = paddr_to_pfn(addr);
+    struct domain *currd = current->domain;
+    p2m_type_t type;
+    mfn_t mfn;
+    int rc;
+
+    ASSERT(is_hardware_domain(currd));
+    ASSERT(!altp2m_active(currd));
+
+    /*
+     * Fixups are only applied for MMIO holes, and rely on the hardware domain
+     * having identity mappings for non RAM regions (gfn == mfn).
+     */
+    if ( !iomem_access_permitted(currd, gfn, gfn) ||
+         !is_memory_hole(_mfn(gfn), _mfn(gfn)) )
+        return -EPERM;
+
+    mfn = get_gfn(currd, gfn, &type);
+    if ( !mfn_eq(mfn, INVALID_MFN) || !p2m_is_hole(type) )
+        rc = mfn_eq(mfn, _mfn(gfn)) ? 0 : -EEXIST;
+    else
+        rc = set_mmio_p2m_entry(currd, _gfn(gfn), _mfn(gfn), 0);
+    put_gfn(currd, gfn);
 
     return rc;
 }

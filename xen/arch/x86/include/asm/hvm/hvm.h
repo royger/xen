@@ -772,6 +772,11 @@ static inline int hvm_vmtrace_reset(struct vcpu *v)
     return -EOPNOTSUPP;
 }
 
+/* For PVH dom0: signal whether to attempt fixup of p2m page-faults. */
+extern bool opt_dom0_pf_fixup;
+/* Attempt to fixup a p2m page-fault by adding an identity mapping entry. */
+int hvm_hwdom_fixup_p2m(paddr_t addr);
+
 /*
  * Accessors for registers which have per-guest-type or per-vendor locations
  * (e.g. VMCS, msr load/save lists, VMCB, VMLOAD lazy, etc).
