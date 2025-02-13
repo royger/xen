@@ -337,6 +337,9 @@ static int hvmemul_do_io(
         /* If there is no suitable backing DM, just ignore accesses */
         if ( !s )
         {
+            if ( is_mmio && is_hardware_domain(currd) )
+                gdprintk(XENLOG_DEBUG, "unhandled memory %s to %#lx size %u\n",
+                         dir ? "read" : "write", addr, size);
             rc = hvm_process_io_intercept(&null_handler, &p);
             vio->req.state = STATE_IOREQ_NONE;
         }
