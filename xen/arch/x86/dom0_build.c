@@ -552,7 +552,8 @@ int __init dom0_setup_permissions(struct domain *d)
     for ( i = 0; i < nr_ioapics; i++ )
     {
         mfn = paddr_to_pfn(mp_ioapics[i].mpc_apicaddr);
-        if ( !rangeset_contains_singleton(mmio_ro_ranges, mfn) )
+        if ( is_hvm_domain(d) ||
+             !rangeset_contains_singleton(mmio_ro_ranges, mfn) )
             rc |= iomem_deny_access(d, mfn, mfn);
     }
     /* MSI range. */
@@ -591,6 +592,22 @@ int __init dom0_setup_permissions(struct domain *d)
             rc |= iomem_deny_access(d, mfn, mfn + 15);
         else if ( ro_hpet )
             rc |= rangeset_add_singleton(mmio_ro_ranges, mfn);
+    }
+
+    /* For PVH dom0 prevent access to MCFG, it's emulated by Xen. */
+    if ( is_hvm_domain(d) )
+    {
+        for ( i = 0; i < pci_mmcfg_config_num; i++ )
+        {
+            const unsigned long s =
+                PFN_DOWN(pci_mmcfg_config[i].address) +
+                PCI_BDF(pci_mmcfg_config[i].start_bus_number, 0, 0);
+            const unsigned long e =
+                PFN_DOWN(pci_mmcfg_config[i].address) +
+                PCI_BDF(pci_mmcfg_config[i].end_bus_number, ~0, ~0);
+
+            rc |= iomem_deny_access(d, s, e);
+        }
     }
 
     return rc;
