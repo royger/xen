@@ -341,7 +341,7 @@ static hw_irq_controller hpet_msi_type = {
 
 static int __hpet_setup_msi_irq(struct irq_desc *desc)
 {
-    struct msi_msg msg;
+    struct msi_msg msg = {};
 
     msi_compose_msg(desc->arch.vector, desc->arch.cpu_mask, &msg);
     return hpet_msi_write(desc->action->dev_id, &msg);

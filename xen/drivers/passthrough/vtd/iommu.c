@@ -1182,23 +1182,20 @@ static void cf_check dma_msi_end(struct irq_desc *desc, u8 vector)
 static void cf_check dma_msi_set_affinity(
     struct irq_desc *desc, const cpumask_t *mask)
 {
-    struct msi_msg msg;
-    unsigned int dest;
+    struct msi_msg msg = {};
     unsigned long flags;
     struct vtd_iommu *iommu = desc->action->dev_id;
 
-    dest = set_desc_affinity(desc, mask);
-    if (dest == BAD_APICID){
+    msg.dest32 = set_desc_affinity(desc, mask);
+    if ( msg.dest32 == BAD_APICID )
+    {
         dprintk(XENLOG_ERR VTDPREFIX, "Set iommu interrupt affinity error!\n");
         return;
     }
 
     msi_compose_msg(desc->arch.vector, NULL, &msg);
-    msg.dest32 = dest;
     if (x2apic_enabled)
-        msg.address_hi = dest & 0xFFFFFF00;
-    ASSERT(!(msg.address_lo & MSI_ADDR_DEST_ID_MASK));
-    msg.address_lo |= MSI_ADDR_DEST_ID(dest);
+        msg.address_hi = msg.dest32 & 0xFFFFFF00;
     iommu->msi.msg = msg;
 
     spin_lock_irqsave(&iommu->register_lock, flags);
