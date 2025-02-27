@@ -1182,7 +1182,7 @@ static void cf_check dma_msi_end(struct irq_desc *desc, u8 vector)
 static void cf_check dma_msi_set_affinity(
     struct irq_desc *desc, const cpumask_t *mask)
 {
-    struct msi_msg msg;
+    struct msi_msg msg = {};
     unsigned int dest;
     unsigned long flags;
     struct vtd_iommu *iommu = desc->action->dev_id;

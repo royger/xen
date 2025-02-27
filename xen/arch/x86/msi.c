@@ -152,11 +152,13 @@ static bool msix_memory_decoded(const struct pci_dev *dev, unsigned int pos)
 }
 
 /*
- * MSI message composition
+ * MSI message composition.
+ * If cpu_mask is NULL msg->dest32 is used as the destination APIC ID.
  */
 void msi_compose_msg(unsigned vector, const cpumask_t *cpu_mask, struct msi_msg *msg)
 {
-    memset(msg, 0, sizeof(*msg));
+    msg->address = 0;
+    msg->data = 0;
 
     if ( vector < FIRST_DYNAMIC_VECTOR )
         return;
@@ -191,8 +193,6 @@ void msi_compose_msg(unsigned vector, const cpumask_t *cpu_mask, struct msi_msg 
 
 static int write_msi_msg(struct msi_desc *entry, struct msi_msg *msg)
 {
-    entry->msg = *msg;
-
     if ( iommu_intremap != iommu_intremap_off )
     {
         int rc;
@@ -202,6 +202,20 @@ static int write_msi_msg(struct msi_desc *entry, struct msi_msg *msg)
         if ( rc )
             return rc;
     }
+
+    /*
+     * Avoid updating the MSI entry if the address and data fields haven't
+     * changed.  When using interrupt remapping changing the MSI affinity
+     * shouldn't change the interrupt remapping table index, and hence the MSI
+     * address and data fields should remain the same.
+     */
+    if ( entry->msg.address == msg->address && entry->msg.data == msg->data )
+    {
+        entry->msg.dest32 = msg->dest32;
+        return 0;
+    }
+
+    entry->msg = *msg;
 
     switch ( entry->msi_attrib.type )
     {
@@ -248,21 +262,15 @@ static int write_msi_msg(struct msi_desc *entry, struct msi_msg *msg)
 void cf_check set_msi_affinity(struct irq_desc *desc, const cpumask_t *mask)
 {
     struct msi_msg msg;
-    unsigned int dest;
     struct msi_desc *msi_desc = desc->msi_desc;
 
-    dest = set_desc_affinity(desc, mask);
-    if ( dest == BAD_APICID || !msi_desc )
+    msg.dest32 = set_desc_affinity(desc, mask);
+    if ( msg.dest32 == BAD_APICID || !msi_desc )
         return;
 
     ASSERT(spin_is_locked(&desc->lock));
 
-    msg = msi_desc->msg;
-    msg.data &= ~MSI_DATA_VECTOR_MASK;
-    msg.data |= MSI_DATA_VECTOR(desc->arch.vector);
-    msg.address_lo &= ~MSI_ADDR_DEST_ID_MASK;
-    msg.address_lo |= MSI_ADDR_DEST_ID(dest);
-    msg.dest32 = dest;
+    msi_compose_msg(desc->arch.vector, NULL, &msg);
 
     write_msi_msg(msi_desc, &msg);
 }
@@ -1407,7 +1415,9 @@ int pci_restore_msi_state(struct pci_dev *pdev)
         }
         type = entry->msi_attrib.type;
 
-        msg = entry->msg;
+        msg.dest32 = entry->msg.dest32;
+        msi_compose_msg(desc->arch.vector, NULL, &msg);
+        entry->msg = (typeof(entry->msg)){};
         write_msi_msg(entry, &msg);
 
         for ( i = 0; ; )

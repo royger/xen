@@ -124,7 +124,8 @@ struct msi_desc {
     int irq;
     int remap_index;         /* index in interrupt remapping table */
 
-    struct msi_msg msg;      /* Last set MSI message */
+    /* Last set MSI message in remappable format if applicable */
+    struct msi_msg msg;
 };
 
 /*
@@ -236,6 +237,8 @@ struct arch_msix {
 };
 
 void early_msi_init(void);
+
+/* If cpu_mask is NULL msg->dest32 is used as the destination APIC ID. */
 void msi_compose_msg(unsigned vector, const cpumask_t *cpu_mask,
                      struct msi_msg *msg);
 void __msi_set_enable(pci_sbdf_t sbdf, int pos, int enable);
