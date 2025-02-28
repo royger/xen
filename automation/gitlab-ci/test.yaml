@@ -136,7 +136,7 @@
       - '*.log'
     when: always
   rules:
-    - if: $QUBES_JOBS == "true" && $CI_COMMIT_REF_PROTECTED == "true"
+    - if: $QUBES_JOBS == "true"
   tags:
     - qubes-hw2
 
