@@ -20,19 +20,17 @@ void reloc_trampoline64(void)
     uint32_t phys = trampoline_phys;
     const int32_t *trampoline_ptr;
 
-    /*
-     * Apply relocations to trampoline.
-     *
-     * This modifies the trampoline in place within Xen, so that it will
-     * operate correctly when copied into place.
-     */
+    /* Apply relocations to trampoline after copy to destination. */
+#define RELA_TARGET(ptr, bits) \
+    *(uint ## bits ## _t *)(phys + *ptr + (long)ptr - (long)trampoline_start)
     for ( trampoline_ptr = __trampoline_rel_start;
           trampoline_ptr < __trampoline_rel_stop;
           ++trampoline_ptr )
-        *(uint32_t *)(*trampoline_ptr + (long)trampoline_ptr) += phys;
+        RELA_TARGET(trampoline_ptr, 32) += phys;
 
     for ( trampoline_ptr = __trampoline_seg_start;
           trampoline_ptr < __trampoline_seg_stop;
           ++trampoline_ptr )
-        *(uint16_t *)(*trampoline_ptr + (long)trampoline_ptr) = phys >> 4;
+        RELA_TARGET(trampoline_ptr, 16) = phys >> 4;
+#undef RELA_TARGET
 }

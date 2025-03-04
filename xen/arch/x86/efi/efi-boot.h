@@ -105,10 +105,8 @@ static void __init efi_arch_relocate_image(unsigned long delta)
     }
 }
 
-static void __init relocate_trampoline(unsigned long phys)
+static void __init relocate_trampoline(void)
 {
-    trampoline_phys = phys;
-
     if ( !efi_enabled(EFI_LOADER) )
         return;
 
@@ -213,6 +211,8 @@ static void __init efi_arch_process_memory_map(EFI_SYSTEM_TABLE *SystemTable,
         }
     }
 
+    if ( !trampoline_phys )
+        trampoline_phys = cfg.addr;
 }
 
 static void *__init efi_arch_allocate_mmap_buffer(UINTN map_size)
@@ -223,11 +223,7 @@ static void *__init efi_arch_allocate_mmap_buffer(UINTN map_size)
 static void __init efi_arch_pre_exit_boot(void)
 {
     if ( !trampoline_phys )
-    {
-        if ( !cfg.addr )
-            blexit(L"No memory for trampoline");
-        relocate_trampoline(cfg.addr);
-    }
+        blexit(L"No memory for trampoline");
 }
 
 static void __init noreturn efi_arch_post_exit_boot(void)
@@ -236,6 +232,7 @@ static void __init noreturn efi_arch_post_exit_boot(void)
 
     efi_arch_relocate_image(__XEN_VIRT_START - xen_phys_start);
     memcpy(_p(trampoline_phys), trampoline_start, cfg.size);
+    relocate_trampoline();
 
     /*
      * We're in physical mode right now (i.e. identity map), so a regular
@@ -638,7 +635,7 @@ static void __init efi_arch_memory_setup(void)
     status = efi_bs->AllocatePages(AllocateMaxAddress, EfiLoaderData,
                                    PFN_UP(cfg.size), &cfg.addr);
     if ( status == EFI_SUCCESS )
-        relocate_trampoline(cfg.addr);
+        trampoline_phys = cfg.addr;
     else
     {
         cfg.addr = 0;

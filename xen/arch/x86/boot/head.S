@@ -679,9 +679,6 @@ trampoline_setup:
         shr     $PAGE_SHIFT, %ecx                /* %ecx = Slot to write */
         mov     %edx, sym_offs(l1_bootmap)(%esi, %ecx, 8)
 
-        /* Apply relocations to bootstrap trampoline. */
-        call    reloc_trampoline32
-
         /* Do not parse command line on EFI platform here. */
         cmpb    $0, sym_esi(efi_platform)
         jnz     1f
@@ -708,6 +705,9 @@ trampoline_setup:
         lea     sym_esi(trampoline_start), %esi
         mov     $((trampoline_end - trampoline_start) / 4),%ecx
         rep movsl
+
+        /* Apply relocations to bootstrap trampoline. */
+        call    reloc_trampoline32
 
         /* Jump into the relocated trampoline. */
         lret
