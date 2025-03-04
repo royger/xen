@@ -505,7 +505,8 @@ trampoline_bios_setup:
 
 trampoline_setup:
         /*
-         * Called on legacy BIOS and EFI platforms.
+         * Called on legacy BIOS and EFI platforms when using multiboot (either
+         * 1 or 2).
          */
 
         /* Save Xen image load base address for later use. */
