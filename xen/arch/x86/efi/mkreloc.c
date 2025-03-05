@@ -216,11 +216,6 @@ static void diff_sections(const unsigned char *ptr1, const unsigned char *ptr2,
             exit(3);
         }
 
-        if ( !(sec->flags & IMAGE_SCN_MEM_WRITE) )
-            fprintf(stderr,
-                    "Warning: relocation to r/o section %.8s:%08" PRIxFAST32 "\n",
-                    sec->name, i - disp);
-
         printf("\t.word (%u << 12) | 0x%03" PRIxFAST32 "\n",
                reloc, sec->rva + i - disp - rva);
         reloc_size += 2;
