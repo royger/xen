@@ -358,7 +358,8 @@ int main(int argc, char **argv)
         note_sz = in64_phdr.p_memsz;
         note_base = in64_phdr.p_vaddr - note_base;
 
-        if ( in64_phdr.p_offset > dat_siz || offset > in64_phdr.p_offset )
+        if ( in64_phdr.p_offset > (offset + dat_siz) ||
+             offset > in64_phdr.p_offset )
         {
             fprintf(stderr, "Expected .note section within .text section!\n" \
                     "Offset %"PRId64" not within %d!\n",
