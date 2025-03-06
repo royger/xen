@@ -1454,6 +1454,16 @@ void __init early_msi_init(void)
 static void cf_check dump_msi(unsigned char key)
 {
     unsigned int irq;
+    struct msi_msg msg = {};
+    uint32_t addr, data;
+
+    /*
+     * Compose a dummy msg message for the purpose of getting the delivery
+     * attributes.
+     */
+    msi_compose_msg(FIRST_DYNAMIC_VECTOR, NULL, &msg);
+    addr = msg.address_lo;
+    data = msg.data;
 
     printk("MSI information:\n");
 
@@ -1461,7 +1471,7 @@ static void cf_check dump_msi(unsigned char key)
     {
         struct irq_desc *desc = irq_to_desc(irq);
         const struct msi_desc *entry;
-        u32 addr, data, dest32;
+        uint32_t dest32;
         signed char mask;
         struct msi_attrib attr;
         unsigned long flags;
@@ -1495,8 +1505,6 @@ static void cf_check dump_msi(unsigned char key)
             break;
         }
 
-        data = entry->msg.data;
-        addr = entry->msg.address_lo;
         dest32 = entry->msg.dest32;
         attr = entry->msi_attrib;
         if ( entry->msi_attrib.type )
@@ -1512,8 +1520,7 @@ static void cf_check dump_msi(unsigned char key)
             mask = '?';
         printk(" %-6s%4u vec=%02x%7s%6s%3sassert%5s%7s"
                " dest=%08x mask=%d/%c%c/%c\n",
-               type, irq,
-               (data & MSI_DATA_VECTOR_MASK) >> MSI_DATA_VECTOR_SHIFT,
+               type, irq, desc->arch.vector,
                data & MSI_DATA_DELIVERY_LOWPRI ? "lowest" : "fixed",
                data & MSI_DATA_TRIGGER_LEVEL ? "level" : "edge",
                data & MSI_DATA_LEVEL_ASSERT ? "" : "de",
