@@ -119,23 +119,15 @@ void wake_up_all(struct waitqueue_head *wq)
 
 #ifdef CONFIG_X86
 
-static void __prepare_to_wait(struct waitqueue_vcpu *wqv)
+/*
+ * context_save() must strictly be noinline, as to avoid multiple callers from
+ * inlining the code, thus duplicating the label and triggering an assembler
+ * error about duplicated labels.
+ */
+static void noinline context_save(struct waitqueue_vcpu *wqv)
 {
     struct cpu_info *cpu_info = get_cpu_info();
-    struct vcpu *curr = current;
     unsigned long dummy;
-
-    ASSERT(wqv->esp == NULL);
-
-    /* Save current VCPU affinity; force wakeup on *this* CPU only. */
-    if ( vcpu_temporary_affinity(curr, smp_processor_id(), VCPU_AFFINITY_WAIT) )
-    {
-        gdprintk(XENLOG_ERR, "Unable to set vcpu affinity\n");
-        domain_crash(curr->domain);
-
-        for ( ; ; )
-            do_softirq();
-    }
 
     /*
      * Hand-rolled setjmp().
@@ -170,6 +162,54 @@ static void __prepare_to_wait(struct waitqueue_vcpu *wqv)
         : "0" (0), "1" (cpu_info), "2" (wqv->stack),
           [sz] "i" (PAGE_SIZE)
         : "memory", "rax", "rdx", "r8", "r9", "r10", "r11" );
+}
+
+/*
+ * Since context_save() is noinline, context_restore() must also be noinline,
+ * to balance the RET vs CALL instructions.
+ */
+static void noinline noreturn context_restore(struct waitqueue_vcpu *wqv)
+{
+    /*
+     * Hand-rolled longjmp().
+     *
+     * check_wakeup_from_wait() is always called with a shallow stack,
+     * immediately after the vCPU has been rescheduled.
+     *
+     * Adjust %rsp to be the correct depth for the (deeper) stack we want to
+     * restore, then prepare %rsi, %rdi and %rcx such that when we rejoin the
+     * rep movs in __prepare_to_wait(), it copies from wqv->stack over the
+     * active stack.
+     *
+     * All other GPRs are available for use; They're restored from the stack,
+     * or explicitly clobbered.
+     */
+    asm volatile ( "mov %%rdi, %%rsp;"
+                   "jmp .L_wq_resume"
+                   :
+                   : "S" (wqv->stack), "D" (wqv->esp),
+                     "c" ((char *)get_cpu_info() - (char *)wqv->esp)
+                   : "memory" );
+    unreachable();
+}
+
+static void __prepare_to_wait(struct waitqueue_vcpu *wqv)
+{
+    struct vcpu *curr = current;
+
+    ASSERT(wqv->esp == NULL);
+
+    /* Save current VCPU affinity; force wakeup on *this* CPU only. */
+    if ( vcpu_temporary_affinity(curr, smp_processor_id(), VCPU_AFFINITY_WAIT) )
+    {
+        gdprintk(XENLOG_ERR, "Unable to set vcpu affinity\n");
+        domain_crash(curr->domain);
+
+        for ( ; ; )
+            do_softirq();
+    }
+
+    context_save(wqv);
 
     if ( unlikely(wqv->esp == NULL) )
     {
@@ -229,29 +269,30 @@ void check_wakeup_from_wait(void)
      *
      * Therefore, no actions are necessary here to maintain RSB safety.
      */
-
-    /*
-     * Hand-rolled longjmp().
-     *
-     * check_wakeup_from_wait() is always called with a shallow stack,
-     * immediately after the vCPU has been rescheduled.
-     *
-     * Adjust %rsp to be the correct depth for the (deeper) stack we want to
-     * restore, then prepare %rsi, %rdi and %rcx such that when we rejoin the
-     * rep movs in __prepare_to_wait(), it copies from wqv->stack over the
-     * active stack.
-     *
-     * All other GPRs are available for use; They're restored from the stack,
-     * or explicitly clobbered.
-     */
-    asm volatile ( "mov %%rdi, %%rsp;"
-                   "jmp .L_wq_resume"
-                   :
-                   : "S" (wqv->stack), "D" (wqv->esp),
-                     "c" ((char *)get_cpu_info() - (char *)wqv->esp)
-                   : "memory" );
+    context_restore(wqv);
     unreachable();
 }
+
+#ifdef CONFIG_SELF_TESTS
+static void __init __constructor test_save_restore_ctx(void)
+{
+    static unsigned int __initdata count;
+    struct waitqueue_vcpu wqv = {};
+
+    wqv.stack = alloc_xenheap_page();
+    if ( !wqv.stack )
+        panic("unable to allocate memory for context selftest\n");
+
+    context_save(&wqv);
+    if ( !count++ )
+        context_restore(&wqv);
+
+    if ( count != 2 )
+        panic("context save and restore not working as expected\n");
+
+    free_xenheap_page(wqv.stack);
+}
+#endif
 
 #else /* !CONFIG_X86 */
 
