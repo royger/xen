@@ -84,15 +84,19 @@ ENTRY(__high_start)
 /*
  * Mapping of first 2 megabytes of memory. This is mapped with 4kB mappings
  * to avoid type conflicts with fixed-range MTRRs covering the lowest megabyte
- * of physical memory. In any case the VGA hole should be mapped with type UC.
+ * of physical memory. VGA hole should be mapped with type UC, with the
+ * exception of the text buffer that uses WC.
  * Uses 1x 4k page.
  */
 l1_directmap:
         pfn = 0
         .rept L1_PAGETABLE_ENTRIES
-        /* VGA hole (0xa0000-0xc0000) should be mapped UC-. */
-        .if pfn >= 0xa0 && pfn < 0xc0
+        /* VGA hole (0xa0000-0xb8000) should be mapped UC-. */
+        .if pfn >= 0xa0 && pfn < 0xb8
         .quad (pfn << PAGE_SHIFT) | __PAGE_HYPERVISOR_UCMINUS | _PAGE_GLOBAL | MAP_SMALL_PAGES
+        /* VGA text buffer (0xb80000-0xc0000) should be mapped WC. */
+        .elseif pfn >= 0xb8 && pfn < 0xc0
+        .quad (pfn << PAGE_SHIFT) | __PAGE_HYPERVISOR_WC | _PAGE_GLOBAL | MAP_SMALL_PAGES
         .else
         .quad (pfn << PAGE_SHIFT) | PAGE_HYPERVISOR_RWX | MAP_SMALL_PAGES
         .endif

@@ -208,6 +208,11 @@
 #endif
 #define DIRECTMAP_VIRT_END      (DIRECTMAP_VIRT_START + DIRECTMAP_SIZE)
 
+#define IS_DIRECTMAP_ADDR(x) ({                                         \
+    unsigned long _addr = (unsigned long)(x);                           \
+    _addr >= DIRECTMAP_VIRT_START && _addr < DIRECTMAP_VIRT_END;        \
+})
+
 #ifndef __ASSEMBLY__
 
 #ifdef CONFIG_PV32

@@ -70,9 +70,13 @@ void __init video_init(void)
     switch ( vga_console_info.video_type )
     {
     case XEN_VGATYPE_TEXT_MODE_3:
-        if ( page_is_ram_type(paddr_to_pfn(0xB8000), RAM_TYPE_CONVENTIONAL) ||
-             ((video = ioremap_wc(0xB8000, 0x8000)) == NULL) )
+        if ( page_is_ram_type(paddr_to_pfn(0xB8000), RAM_TYPE_CONVENTIONAL) )
             return;
+        /*
+         * The low first Mb is always mapped, and the VGA hole uses the WC
+         * cache attribute.
+         */
+        video = __va(0xB8000);
         outw(0x200a, 0x3d4); /* disable cursor */
         columns = vga_console_info.u.text_mode_3.columns;
         lines   = vga_console_info.u.text_mode_3.rows;
@@ -158,7 +162,8 @@ void __init video_endboot(void)
         if ( !vgacon_keep )
         {
             memset(video, 0, columns * lines * 2);
-            iounmap(video);
+            /* VGA text buffer uses a directmap mapping, don't try to unmap. */
+            ASSERT(IS_DIRECTMAP_ADDR(video));
             video = ZERO_BLOCK_PTR;
         }
         break;
