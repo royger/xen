@@ -737,6 +737,9 @@ libxl_domain_build_info = Struct("domain_build_info",[
 
     ("vpmu", libxl_defbool),
 
+    # Allow guest access to cache control instructions.
+    ("cache_control", libxl_defbool),
+
     ], dir=DIR_IN,
        copy_deprecated_fn="libxl__domain_build_info_copy_deprecated",
 )

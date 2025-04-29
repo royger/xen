@@ -1029,6 +1029,13 @@ static struct domain *__init create_dom0(struct boot_info *bi)
 
     if ( iommu_enabled )
         dom0_cfg.flags |= XEN_DOMCTL_CDF_iommu;
+    else if ( !pv_shim )
+        /*
+         * pvshim doesn't support passthrough, so never allow it cache control.
+         * Otherwise a hardware domain without IOMMU will need cache control to
+         * ensure DMA coherency.
+         */
+        dom0_cfg.flags |= XEN_DOMCTL_CDF_cache_control;
 
     /* Create initial domain.  Not d0 for pvshim. */
     bd->domid = get_initial_domain_id();

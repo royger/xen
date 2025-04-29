@@ -493,6 +493,9 @@ int libxl__domain_build_info_setdefault(libxl__gc *gc,
         b_info->bootloader_user =
             libxl__strdup(gc, getenv("LIBXL_BOOTLOADER_USER"));
 
+    libxl_defbool_setdefault(&b_info->cache_control,
+                             b_info->num_iomem || b_info->num_ioports);
+
     return 0;
 }
 
@@ -666,6 +669,9 @@ int libxl__domain_make(libxl__gc *gc, libxl_domain_config *d_config,
 
         if (libxl_defbool_val(b_info->vpmu))
             create.flags |= XEN_DOMCTL_CDF_vpmu;
+
+        if (libxl_defbool_val(b_info->cache_control))
+            create.flags |= XEN_DOMCTL_CDF_cache_control;
 
         assert(info->passthrough != LIBXL_PASSTHROUGH_DEFAULT);
         LOG(DETAIL, "passthrough: %s",

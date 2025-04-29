@@ -1106,6 +1106,8 @@ void __init create_domUs(void)
 
             if ( !strcmp(dom0less_iommu, "enabled") )
                 iommu = true;
+            else
+                d_cfg.flags |= XEN_DOMCTL_CDF_cache_control;
         }
 
         if ( (flags & CDF_hardware) && !(flags & CDF_directmap) &&
@@ -1120,8 +1122,14 @@ void __init create_domUs(void)
             has_dtb = true;
         }
 
-        if ( iommu_enabled && (iommu || has_dtb) )
-            d_cfg.flags |= XEN_DOMCTL_CDF_iommu;
+        if ( iommu || has_dtb )
+            /*
+             * Domain has devices assigned, either enable IOMMU support (if
+             * present), or explicitly allow cache control operations for DMA
+             * coherency.
+             */
+            d_cfg.flags |= iommu_enabled ? XEN_DOMCTL_CDF_iommu
+                                         : XEN_DOMCTL_CDF_cache_control;
 
         if ( !dt_property_read_u32(node, "nr_spis", &d_cfg.arch.nr_spis) )
         {

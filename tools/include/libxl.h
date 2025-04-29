@@ -648,6 +648,13 @@
 #define LIBXL_HAVE_DT_OVERLAY_DOMAIN 1
 
 /*
+ * LIBXL_HAVE_CACHE_CONTROL indicates the presence of cache_control boolean
+ * field in libxl_domain_build_info.  The field signals whether a domain is
+ * allowed access to cache control operations.
+ */
+#define LIBXL_HAVE_CACHE_CONTROL 1
+
+/*
  * libxl memory management
  *
  * From the point of view of the application (ie, libxl's caller),

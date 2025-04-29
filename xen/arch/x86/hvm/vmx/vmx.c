@@ -3840,7 +3840,7 @@ static void vmx_do_extint(struct cpu_user_regs *regs)
 
 static void cf_check vmx_wbinvd_intercept(void)
 {
-    if ( !cache_flush_permitted(current->domain) || iommu_snoop )
+    if ( !cache_flush_permitted(current->domain) )
         return;
 
     if ( cpu_has_wbinvd_exiting )

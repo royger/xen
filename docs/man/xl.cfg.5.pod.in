@@ -1705,6 +1705,16 @@ This feature is a B<technology preview>.
 
 =back
 
+=item B<cache_control=BOOLEAN>
+
+If this option is B<true>, Xen allows the guest to perform cache control
+operations.
+
+If this option is missing the default will be set based on whether there are
+any <B>iomem or <B>ioports (if applicable) assigned to the guest.  Note that
+enabling <B>passthrough support can also allow guest cache control operations
+depending on the <B>IOMMU features.
+
 =back
 
 =head2 Paravirtualised (PV) Guest Specific Options

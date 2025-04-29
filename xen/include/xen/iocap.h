@@ -15,34 +15,13 @@
 static inline int iomem_permit_access(struct domain *d, unsigned long s,
                                       unsigned long e)
 {
-    bool flush = cache_flush_permitted(d);
-    int ret = rangeset_add_range(d->iomem_caps, s, e);
-
-    if ( !ret && !is_iommu_enabled(d) && !flush )
-        /*
-         * Only flush if the range(s) are empty before this addition and
-         * IOMMU is not enabled for the domain, otherwise it makes no
-         * difference for effective cache attribute calculation purposes.
-         */
-        memory_type_changed(d);
-
-    return ret;
+    return rangeset_add_range(d->iomem_caps, s, e);
 }
 
 static inline int iomem_deny_access(struct domain *d, unsigned long s,
                                     unsigned long e)
 {
-    int ret = rangeset_remove_range(d->iomem_caps, s, e);
-
-    if ( !ret && !is_iommu_enabled(d) && !cache_flush_permitted(d) )
-        /*
-         * Only flush if the range(s) are empty after this removal and
-         * IOMMU is not enabled for the domain, otherwise it makes no
-         * difference for effective cache attribute calculation purposes.
-         */
-        memory_type_changed(d);
-
-    return ret;
+    return rangeset_remove_range(d->iomem_caps, s, e);
 }
 
 #define iomem_access_permitted(d, s, e)                 \

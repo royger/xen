@@ -505,12 +505,7 @@ int epte_get_entry_emt(struct domain *d, gfn_t gfn, mfn_t mfn,
         return -1;
     }
 
-    /*
-     * Conditional must be kept in sync with the code in
-     * {iomem,ioports}_{permit,deny}_access().
-     */
-    if ( type != p2m_mmio_direct && !is_iommu_enabled(d) &&
-         !cache_flush_permitted(d) )
+    if ( type != p2m_mmio_direct && !cache_flush_permitted(d) )
     {
         *ipat = true;
         return X86_MT_WB;

@@ -2381,6 +2381,12 @@ void __init create_dom0(void)
 
     if ( iommu_enabled )
         dom0_cfg.flags |= XEN_DOMCTL_CDF_iommu;
+    else
+        /*
+         * A hardware domain without IOMMU will need cache control to
+         * ensure DMA coherency.
+         */
+        dom0_cfg.flags |= XEN_DOMCTL_CDF_cache_control;
 
     if ( opt_dom0_sve )
     {
