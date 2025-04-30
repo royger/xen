@@ -605,22 +605,8 @@ int hvm_set_mem_pinned_cacheattr(struct domain *d, uint64_t gfn_start,
 
                 type = range->type;
                 call_rcu(&range->rcu, free_pinned_cacheattr_entry);
-                p2m_memory_type_changed(d);
-                switch ( type )
-                {
-                case X86_MT_UCM:
-                    /*
-                     * For EPT we can also avoid the flush in this case;
-                     * see epte_get_entry_emt().
-                     */
-                    if ( hap_enabled(d) && cpu_has_vmx )
-                case X86_MT_UC:
-                        break;
-                    /* fall through */
-                default:
-                    flush_all(FLUSH_CACHE);
-                    break;
-                }
+                memory_type_changed(d);
+
                 return 0;
             }
         domain_unlock(d);
@@ -682,9 +668,7 @@ int hvm_set_mem_pinned_cacheattr(struct domain *d, uint64_t gfn_start,
 
     xfree(newr);
 
-    p2m_memory_type_changed(d);
-    if ( type != X86_MT_WB )
-        flush_all(FLUSH_CACHE);
+    memory_type_changed(d);
 
     return rc;
 }
