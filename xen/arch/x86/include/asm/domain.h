@@ -668,6 +668,12 @@ struct arch_vcpu
 
     struct vcpu_msrs *msrs;
 
+    /*
+     * When vCPU is allowed cache control track the pCPUs the vCPU has run on
+     * since the last flush.
+     */
+    cpumask_var_t dirty_cache;
+
     struct {
         bool next_interrupt_enabled;
     } monitor;
@@ -789,6 +795,9 @@ unsigned int domain_max_paddr_bits(const struct domain *d);
 
 #define arch_init_idle_domain arch_init_idle_domain
 void arch_init_idle_domain(struct domain *d);
+
+void vcpu_flush_cache(struct vcpu *curr);
+void domain_flush_cache(const struct domain *d);
 
 #endif /* __ASM_DOMAIN_H__ */
 

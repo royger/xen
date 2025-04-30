@@ -2315,8 +2315,10 @@ static void svm_vmexit_mce_intercept(
 
 static void cf_check svm_wbinvd_intercept(void)
 {
-    if ( cache_flush_permitted(current->domain) )
-        flush_all(FLUSH_CACHE);
+    struct vcpu *curr = current;
+
+    if ( cache_flush_permitted(curr->domain) )
+        vcpu_flush_cache(curr);
 }
 
 static void svm_vmexit_do_invalidate_cache(struct cpu_user_regs *regs,

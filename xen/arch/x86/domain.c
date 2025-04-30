@@ -579,6 +579,13 @@ int arch_vcpu_create(struct vcpu *v)
 
         if ( (rc = init_vcpu_msr_policy(v)) )
             goto fail;
+
+        if ( cache_flush_permitted(d) &&
+             !cond_zalloc_cpumask_var(&v->arch.dirty_cache) )
+        {
+            rc = -ENOMEM;
+            goto fail;
+        }
     }
     else if ( (rc = xstate_alloc_save_area(v)) != 0 )
         return rc;
@@ -614,6 +621,7 @@ int arch_vcpu_create(struct vcpu *v)
     vcpu_destroy_fpu(v);
     xfree(v->arch.msrs);
     v->arch.msrs = NULL;
+    FREE_CPUMASK_VAR(v->arch.dirty_cache);
 
     return rc;
 }
@@ -627,6 +635,8 @@ void arch_vcpu_destroy(struct vcpu *v)
 
     xfree(v->arch.msrs);
     v->arch.msrs = NULL;
+
+    FREE_CPUMASK_VAR(v->arch.dirty_cache);
 
     if ( is_hvm_vcpu(v) )
         hvm_vcpu_destroy(v);
@@ -2018,6 +2028,9 @@ static void __context_switch(void)
         cpumask_set_cpu(cpu, nd->dirty_cpumask);
     write_atomic(&n->dirty_cpu, cpu);
 
+    if ( cache_flush_permitted(nd) )
+        __cpumask_set_cpu(cpu, n->arch.dirty_cache);
+
     if ( !is_idle_domain(nd) )
     {
         memcpy(stack_regs, &n->arch.user_regs, CTXT_SWITCH_STACK_BYTES);
@@ -2604,6 +2617,36 @@ unsigned int domain_max_paddr_bits(const struct domain *d)
     }
 
     return bits;
+}
+
+void vcpu_flush_cache(struct vcpu *curr)
+{
+    ASSERT(curr == current);
+    ASSERT(cache_flush_permitted(curr->domain));
+
+    flush_mask(curr->arch.dirty_cache, FLUSH_CACHE);
+    cpumask_clear(curr->arch.dirty_cache);
+    __cpumask_set_cpu(smp_processor_id(), curr->arch.dirty_cache);
+}
+
+void domain_flush_cache(const struct domain *d)
+{
+    const struct vcpu *v;
+    cpumask_t *mask = this_cpu(scratch_cpumask);
+
+    ASSERT(cache_flush_permitted(d));
+
+    cpumask_clear(mask);
+    for_each_vcpu( d, v )
+        cpumask_or(mask, mask, v->arch.dirty_cache);
+
+    flush_mask(mask, FLUSH_CACHE);
+    /*
+     * Clearing the mask of vCPUs in the domain would be racy unless all vCPUs
+     * are paused, so just leave them as-is, at the cost of possibly doing
+     * redundant flushes in later calls.  It's still better than doing a
+     * host-wide cache flush.
+     */
 }
 
 /*

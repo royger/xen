@@ -769,7 +769,7 @@ void memory_type_changed(struct domain *d)
     if ( cache_flush_permitted(d) &&
          d->vcpu && d->vcpu[0] && p2m_memory_type_changed(d) )
     {
-        flush_all(FLUSH_CACHE);
+        domain_flush_cache(d);
     }
 }
 

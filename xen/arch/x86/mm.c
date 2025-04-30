@@ -3804,26 +3804,19 @@ long do_mmuext_op(
             break;
 
         case MMUEXT_FLUSH_CACHE:
-            /*
-             * Dirty pCPU caches where the current vCPU has been scheduled are
-             * not tracked, and hence we need to resort to a global cache
-             * flush for correctness.
-             */
+            if ( unlikely(currd != pg_owner) )
+                rc = -EPERM;
+            else if ( likely(cache_flush_permitted(currd)) )
+                vcpu_flush_cache(curr);
+            else
+                rc = -EINVAL;
+            break;
+
         case MMUEXT_FLUSH_CACHE_GLOBAL:
             if ( unlikely(currd != pg_owner) )
                 rc = -EPERM;
             else if ( likely(cache_flush_permitted(currd)) )
-            {
-                unsigned int cpu;
-                cpumask_t *mask = this_cpu(scratch_cpumask);
-
-                cpumask_clear(mask);
-                for_each_online_cpu(cpu)
-                    if ( !cpumask_intersects(mask,
-                                             per_cpu(cpu_sibling_mask, cpu)) )
-                        __cpumask_set_cpu(cpu, mask);
-                flush_mask(mask, FLUSH_CACHE);
-            }
+                domain_flush_cache(currd);
             else
                 rc = -EINVAL;
             break;

@@ -1199,12 +1199,8 @@ static int cf_check cache_op(
      * newer linux uses this in some start-of-day timing loops.
      */
     if ( cache_flush_permitted(current->domain) )
-        /*
-         * Handle wbnoinvd as wbinvd, at the expense of higher cost.  Broadcast
-         * the flush to all pCPUs, Xen doesn't track where the vCPU has ran
-         * previously.
-         */
-        flush_all(FLUSH_CACHE);
+        /* Handle wbnoinvd as wbinvd, at the expense of higher cost. */
+        vcpu_flush_cache(current);
 
     return X86EMUL_OKAY;
 }

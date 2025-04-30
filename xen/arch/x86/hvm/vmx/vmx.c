@@ -3840,11 +3840,13 @@ static void vmx_do_extint(struct cpu_user_regs *regs)
 
 static void cf_check vmx_wbinvd_intercept(void)
 {
-    if ( !cache_flush_permitted(current->domain) )
+    struct vcpu *curr = current;
+
+    if ( !cache_flush_permitted(curr->domain) )
         return;
 
     if ( cpu_has_wbinvd_exiting )
-        flush_all(FLUSH_CACHE);
+        vcpu_flush_cache(curr);
     else
         wbinvd();
 }
