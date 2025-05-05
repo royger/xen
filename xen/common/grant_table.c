@@ -3780,6 +3780,11 @@ long do_grant_table_op(
 
         if ( unlikely(!guest_handle_okay(cflush, count)) )
             goto out;
+
+        rc = -EPERM;
+        if ( !cache_flush_permitted(current->domain) )
+            goto out;
+
         rc = gnttab_cache_flush(cflush, &opaque_in, count);
         if ( rc >= 0 )
         {
