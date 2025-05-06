@@ -1193,17 +1193,18 @@ static int cf_check cache_op(
 {
     ASSERT(op == x86emul_wbinvd || op == x86emul_wbnoinvd);
 
-    /* Ignore the instruction if unprivileged. */
-    if ( !cache_flush_permitted(current->domain) )
+    /*
+     * Ignore the instruction if domain doesn't have cache control.
+     * Non-physdev domain attempted WBINVD; ignore for now since
+     * newer linux uses this in some start-of-day timing loops.
+     */
+    if ( cache_flush_permitted(current->domain) )
         /*
-         * Non-physdev domain attempted WBINVD; ignore for now since
-         * newer linux uses this in some start-of-day timing loops.
+         * Handle wbnoinvd as wbinvd, at the expense of higher cost.  Broadcast
+         * the flush to all pCPUs, Xen doesn't track where the vCPU has ran
+         * previously.
          */
-        ;
-    else if ( op == x86emul_wbnoinvd /* && cpu_has_wbnoinvd */ )
-        wbnoinvd();
-    else
-        wbinvd();
+        flush_all(FLUSH_CACHE);
 
     return X86EMUL_OKAY;
 }
