@@ -819,6 +819,15 @@ static int hvm_build_set_xs_values(libxl__gc *gc,
             goto err;
     }
 
+    if (info->type == LIBXL_DOMAIN_TYPE_HVM &&
+        libxl_defbool_val(info->u.hvm.xenpci_bar_uc)) {
+        path = GCSPRINTF("/local/domain/%d/"HVM_XS_XENPCI_BAR_UC, domid);
+        ret = libxl__xs_printf(gc, XBT_NULL, path, "%d",
+                               libxl_defbool_val(info->u.hvm.xenpci_bar_uc));
+        if (ret)
+            goto err;
+    }
+
     return 0;
 
 err:
