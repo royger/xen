@@ -785,6 +785,19 @@ static int sanitise_domain_config(struct xen_domctl_createdomain *config)
     return arch_sanitise_domain_config(config);
 }
 
+struct domain *__weak alloc_domain_struct(void)
+{
+    struct domain *d = alloc_xenheap_pages(0, 0);
+
+    BUILD_BUG_ON(sizeof(*d) > PAGE_SIZE);
+
+    if ( !d )
+        return NULL;
+
+    clear_page(d);
+    return d;
+}
+
 struct domain *domain_create(domid_t domid,
                              struct xen_domctl_createdomain *config,
                              unsigned int flags)
