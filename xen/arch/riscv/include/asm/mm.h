@@ -13,6 +13,7 @@
 #include <xen/types.h>
 
 #include <asm/page-bits.h>
+#include <asm/page.h>
 
 extern vaddr_t directmap_virt_start;
 
