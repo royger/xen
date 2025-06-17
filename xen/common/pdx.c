@@ -24,6 +24,7 @@
 #include <xen/param.h>
 #include <xen/pfn.h>
 #include <xen/sections.h>
+#include <xen/sort.h>
 
 /**
  * Maximum (non-inclusive) usable pdx. Must be
@@ -40,6 +41,8 @@ bool __mfn_valid(unsigned long mfn)
 
 #ifdef CONFIG_PDX_MASK_COMPRESSION
     invalid |= mfn & pfn_hole_mask;
+#elif defined(CONFIG_PDX_OFFSET_COMPRESSION)
+    invalid |= mfn ^ pdx_to_pfn(pfn_to_pdx(mfn));
 #endif
 
     if ( unlikely(evaluate_nospec(invalid)) )
@@ -75,6 +78,13 @@ void set_pdx_range(unsigned long smfn, unsigned long emfn)
 # error "Missing architecture maximum number of RAM ranges"
 #endif
 
+/* Some functions should be init when not using PDX mask compression. */
+#ifndef CONFIG_PDX_MASK_COMPRESSION
+# define __init_or_pdx_mask __init
+#else
+# define __init_or_pdx_mask
+#endif
+
 /* Generic PFN compression helpers. */
 static struct pfn_range {
     unsigned long base, size;
@@ -102,7 +112,7 @@ void __init pfn_pdx_add_region(paddr_t base, paddr_t size)
 }
 
 /* Sets all bits from the most-significant 1-bit down to the LSB */
-static uint64_t fill_mask(uint64_t mask)
+static uint64_t __init_or_pdx_mask fill_mask(uint64_t mask)
 {
     while (mask & (mask + 1))
         mask |= mask + 1;
@@ -128,7 +138,7 @@ static uint64_t fill_mask(uint64_t mask)
  * @param len  Size in octets of the region
  * @return Mask of moving bits at the bottom of all the region addresses
  */
-static uint64_t pdx_region_mask(uint64_t base, uint64_t len)
+static uint64_t __init_or_pdx_mask pdx_region_mask(uint64_t base, uint64_t len)
 {
     /*
      * We say a bit "moves" in a range if there exist 2 addresses in that
@@ -290,7 +300,200 @@ void __init pfn_pdx_compression_reset(void)
     nr_ranges = 0;
 }
 
-#endif /* CONFIG_PDX_COMPRESSION */
+#elif defined(CONFIG_PDX_OFFSET_COMPRESSION) /* CONFIG_PDX_MASK_COMPRESSION */
+
+unsigned long __ro_after_init pfn_pdx_lookup[CONFIG_PDX_NR_LOOKUP];
+unsigned int __ro_after_init pfn_index_shift;
+
+unsigned long __ro_after_init pdx_pfn_lookup[CONFIG_PDX_NR_LOOKUP];
+unsigned int __ro_after_init pdx_index_shift;
+
+bool pdx_is_region_compressible(paddr_t base, unsigned long npages)
+{
+    unsigned long pfn = PFN_DOWN(base);
+
+    return pdx_to_pfn(pfn_to_pdx(pfn) + npages - 1) == (pfn + npages - 1);
+}
+
+static int __init cf_check cmp_node(const void *a, const void *b)
+{
+    const struct pfn_range *l = a;
+    const struct pfn_range *r = b;
+
+    if ( l->base > r->base )
+        return 1;
+    if ( l->base < r->base )
+        return -1;
+
+    return 0;
+}
+
+static void __init cf_check swp_node(void *a, void *b, size_t size)
+{
+    struct pfn_range *l = a;
+    struct pfn_range *r = b;
+    struct pfn_range tmp = *l;
+
+    *l = *r;
+    *r = tmp;
+}
+
+static bool __init pfn_offset_sanitize_ranges(void)
+{
+    unsigned int i = 0;
+
+    if ( nr_ranges == 1 )
+    {
+        ASSERT(PFN_TBL_IDX_VALID(ranges[0].base));
+        ASSERT(PFN_TBL_IDX(ranges[0].base) ==
+               PFN_TBL_IDX(ranges[0].base + ranges[0].size - 1));
+        return true;
+    }
+
+    /* Sort nodes by start address. */
+    sort(ranges, nr_ranges, sizeof(struct pfn_range), cmp_node, swp_node);
+
+    /* Sanitize and merge ranges if possible. */
+    while ( i + 1 < nr_ranges )
+    {
+        /* No overlap between ranges. */
+        if ( ranges[i].base + ranges[i].size > ranges[i + 1].base )
+        {
+            printk(XENLOG_WARNING
+"Invalid ranges for PDX compression: [%#lx, %#lx] overlaps [%#lx, %#lx]\n",
+                   ranges[i].base, ranges[i].base + ranges[i].size - 1,
+                   ranges[i + 1].base,
+                   ranges[i + 1].base + ranges[i + 1].size - 1);
+            return false;
+        }
+
+        /* Ensure lookup indexes don't overflow table size. */
+        if ( !PFN_TBL_IDX_VALID(ranges[i].base) ||
+             !PFN_TBL_IDX_VALID(ranges[i].base + ranges[i].size - 1) ||
+             !PFN_TBL_IDX_VALID(ranges[i + 1].base) ||
+             !PFN_TBL_IDX_VALID(ranges[i + 1].base + ranges[i + 1].size - 1) )
+            return false;
+
+        /*
+         * Ensure ranges [start, end] use the same offset table index.  Should
+         * be guaranteed by the logic that calculates the pfn shift.
+         */
+        if ( PFN_TBL_IDX(ranges[i].base) !=
+             PFN_TBL_IDX(ranges[i].base + ranges[i].size - 1) ||
+             PFN_TBL_IDX(ranges[i + 1].base) !=
+             PFN_TBL_IDX(ranges[i + 1].base + ranges[i + 1].size - 1) )
+        {
+            ASSERT_UNREACHABLE();
+            return false;
+        }
+
+        if ( PFN_TBL_IDX(ranges[i].base) != PFN_TBL_IDX(ranges[i + 1].base) )
+        {
+            i++;
+            continue;
+        }
+
+        /* Merge ranges with the same table index. */
+        ranges[i].size = ranges[i + 1].base + ranges[i + 1].size -
+                         ranges[i].base;
+        memmove(&ranges[i + 1], &ranges[i + 2],
+                (nr_ranges - (i + 2)) * sizeof(ranges[0]));
+        nr_ranges--;
+    }
+
+    return true;
+}
+
+bool __init pfn_pdx_compression_setup(paddr_t base)
+{
+    unsigned long size = 0, mask = PFN_DOWN(pdx_init_mask(base));
+    unsigned int i;
+
+    if ( !nr_ranges )
+        return false;
+
+    if ( nr_ranges > ARRAY_SIZE(ranges) )
+    {
+        printk(XENLOG_WARNING
+               "Too many PFN ranges (%u > %zu), not attempting PFN compression\n",
+               nr_ranges, ARRAY_SIZE(ranges));
+        return false;
+    }
+
+    for ( i = 0; i < nr_ranges; i++ )
+        mask |= pdx_region_mask(ranges[i].base, ranges[i].size);
+
+    pfn_index_shift = flsl(mask);
+
+    /*
+     * Increase the shift as much as possible, removing bits that are equal in
+     * all regions, as this allows the usage of smaller indexes, and in turn
+     * smaller lookup tables.
+     */
+    for ( pfn_index_shift = flsl(mask); pfn_index_shift < sizeof(mask) * 8 - 1;
+          pfn_index_shift++ )
+    {
+        const unsigned long bit = ranges[0].base & (1UL << pfn_index_shift);
+
+        for ( i = 1; i < nr_ranges; i++ )
+            if ( bit != (ranges[i].base & (1UL << pfn_index_shift)) )
+                break;
+        if ( i != nr_ranges )
+            break;
+    }
+
+    /* Sort and sanitize ranges. */
+    if ( !pfn_offset_sanitize_ranges() )
+        return false;
+
+    /* Calculate PDX region size. */
+    for ( i = 0; i < nr_ranges; i++ )
+        size = max(size, ranges[i].size);
+
+    mask = PFN_DOWN(pdx_init_mask(size << PAGE_SHIFT));
+    pdx_index_shift = flsl(mask);
+
+    /* Avoid compression if there's no gain. */
+    if ( (mask + 1) * (nr_ranges - 1) >= ranges[nr_ranges - 1].base )
+        return false;
+
+    /* Poison all lookup table entries ahead of setting them. */
+    memset(pfn_pdx_lookup, ~0, sizeof(pfn_pdx_lookup));
+    memset(pdx_pfn_lookup, ~0, sizeof(pfn_pdx_lookup));
+
+    for ( i = 0; i < nr_ranges; i++ )
+    {
+        unsigned int idx = PFN_TBL_IDX(ranges[i].base);
+
+        pfn_pdx_lookup[idx] = ranges[i].base - (mask + 1) * i;
+        pdx_pfn_lookup[i] = pfn_pdx_lookup[idx];
+    }
+
+    printk(XENLOG_INFO
+           "PFN compression using PFN lookup table shift %u and PDX region size %#lx\n",
+           pfn_index_shift, mask + 1);
+
+    for ( i = 0; i < nr_ranges; i++ )
+        printk(XENLOG_DEBUG
+               " range %u [%#013lx, %#013lx] PFN IDX %2lu : %#013lx\n",
+               i, ranges[i].base, ranges[i].base + ranges[i].size - 1,
+               PFN_TBL_IDX(ranges[i].base),
+               pfn_pdx_lookup[PFN_TBL_IDX(ranges[i].base)]);
+
+    return true;
+}
+
+void __init pfn_pdx_compression_reset(void)
+{
+    memset(pfn_pdx_lookup, 0, sizeof(pfn_pdx_lookup));
+    memset(pdx_pfn_lookup, 0, sizeof(pfn_pdx_lookup));
+    pfn_index_shift = 0;
+    pdx_index_shift = 0;
+
+    nr_ranges = 0;
+}
+
+#endif /* CONFIG_PDX_OFFSET_COMPRESSION */
 
 /*
  * Local variables:
