@@ -215,20 +215,20 @@ static uint64_t __init pdx_init_mask(uint64_t base_addr)
                          (uint64_t)1 << (MAX_ORDER + PAGE_SHIFT)) - 1);
 }
 
-void __init pfn_pdx_compression_setup(paddr_t base)
+bool __init pfn_pdx_compression_setup(paddr_t base)
 {
     unsigned int i, j, bottom_shift = 0, hole_shift = 0;
     unsigned long mask = pdx_init_mask(base) >> PAGE_SHIFT;
 
     if ( !nr_ranges )
-        return;
+        return false;
 
     if ( nr_ranges > ARRAY_SIZE(ranges) )
     {
         printk(XENLOG_WARNING
                "Too many PFN ranges (%u > %zu), not attempting PFN compression\n",
                nr_ranges, ARRAY_SIZE(ranges));
-        return;
+        return false;
     }
 
     for ( i = 0; i < nr_ranges; i++ )
@@ -259,7 +259,7 @@ void __init pfn_pdx_compression_setup(paddr_t base)
         }
     }
     if ( !hole_shift )
-        return;
+        return false;
 
     printk(KERN_INFO "PFN compression on bits %u...%u\n",
            bottom_shift, bottom_shift + hole_shift - 1);
@@ -270,6 +270,8 @@ void __init pfn_pdx_compression_setup(paddr_t base)
     pfn_hole_mask       = ((1UL << hole_shift) - 1) << bottom_shift;
     pfn_top_mask        = ~(pfn_pdx_bottom_mask | pfn_hole_mask);
     ma_top_mask         = pfn_top_mask << PAGE_SHIFT;
+
+    return true;
 }
 
 void __init pfn_pdx_compression_reset(void)

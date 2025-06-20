@@ -6,6 +6,7 @@ generic-y += hardirq.h
 generic-y += hypercall.h
 generic-y += iocap.h
 generic-y += paging.h
+generic-y += pdx.h
 generic-y += percpu.h
 generic-y += perfc_defn.h
 generic-y += random.h
