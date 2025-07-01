@@ -10,6 +10,10 @@
 #ifndef ASM__RISCV__PROCESSOR_H
 #define ASM__RISCV__PROCESSOR_H
 
+#include <asm/page-bits.h>
+
+#define paddr_bits PADDR_BITS
+
 #ifndef __ASSEMBLY__
 
 /* On stack VCPU state */

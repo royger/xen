@@ -4,7 +4,12 @@
 #ifndef __ASSEMBLY__
 #include <xen/types.h>
 #endif
+
+#include <asm/page-bits.h>
+
 #include <public/arch-arm.h>
+
+#define paddr_bits PADDR_BITS
 
 /* CTR Cache Type Register */
 #define CTR_L1IP_MASK       0x3

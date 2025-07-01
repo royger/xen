@@ -9,8 +9,6 @@
 #include <asm/current.h>
 #include <asm/hsr.h>
 
-#define paddr_bits PADDR_BITS
-
 /* Holds the bit size of IPAs in p2m tables.  */
 extern unsigned int p2m_ipa_bits;
 

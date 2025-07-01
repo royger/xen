@@ -4,10 +4,6 @@
 
 #include <xen/errno.h>
 
-#include <asm/page-bits.h>
-
-#define paddr_bits PADDR_BITS
-
 /*
  * List of possible type for each page in the p2m entry.
  * The number of available bit per page in the pte for this purpose is 2 bits.

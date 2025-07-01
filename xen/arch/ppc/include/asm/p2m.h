@@ -1,10 +1,6 @@
 #ifndef __ASM_PPC_P2M_H__
 #define __ASM_PPC_P2M_H__
 
-#include <asm/page-bits.h>
-
-#define paddr_bits PADDR_BITS
-
 /*
  * List of possible type for each page in the p2m entry.
  * The number of available bit per page in the pte for this purpose is 4 bits.

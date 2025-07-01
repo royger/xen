@@ -12,6 +12,10 @@
 #ifndef _ASM_PPC_PROCESSOR_H
 #define _ASM_PPC_PROCESSOR_H
 
+#include <asm/page-bits.h>
+
+#define paddr_bits PADDR_BITS
+
 #define IOBMP_BYTES          8192
 #define IOBMP_INVALID_OFFSET 0x8000
 
