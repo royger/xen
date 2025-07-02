@@ -275,7 +275,7 @@ static void __init assign_io_page(struct page_info *page)
 
 void __init arch_init_memory(void)
 {
-    unsigned long i, pfn, rstart_pfn, rend_pfn, iostart_pfn, ioend_pfn;
+    unsigned long i, pfn, rstart_pfn, rend_pfn, iostart_pfn, ioend_pfn, pdx;
 
     /*
      * Basic guest-accessible flags:
@@ -328,9 +328,14 @@ void __init arch_init_memory(void)
             destroy_xen_mappings((unsigned long)mfn_to_virt(iostart_pfn),
                                  (unsigned long)mfn_to_virt(ioend_pfn));
 
-        /* Mark as I/O up to next RAM region. */
-        for ( ; pfn < rstart_pfn; pfn++ )
+        /*
+         * Mark as I/O up to next RAM region.  Iterate over the PDX space to
+         * skip holes which would always fail the mfn_valid() check.
+         */
+        for ( pdx = pfn_to_pdx(pfn); pdx < pfn_to_pdx(rstart_pfn); pdx++ )
         {
+            pfn = pdx_to_pfn(pdx);
+
             if ( !mfn_valid(_mfn(pfn)) )
                 continue;
 
