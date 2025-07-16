@@ -75,10 +75,12 @@ bool arch_livepatch_symbol_deny(const struct livepatch_elf *elf,
                                 const struct livepatch_elf_sym *sym);
 int arch_livepatch_perform_rel(struct livepatch_elf *elf,
                                const struct livepatch_elf_sec *base,
-                               const struct livepatch_elf_sec *rela);
+                               const struct livepatch_elf_sec *rela,
+                               bool fixup);
 int arch_livepatch_perform_rela(struct livepatch_elf *elf,
                                 const struct livepatch_elf_sec *base,
-                                const struct livepatch_elf_sec *rela);
+                                const struct livepatch_elf_sec *rela,
+                                bool fixup);
 enum va_type {
     LIVEPATCH_VA_RX, /* .text */
     LIVEPATCH_VA_RW, /* .data */

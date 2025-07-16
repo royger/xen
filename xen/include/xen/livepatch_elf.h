@@ -46,7 +46,9 @@ int livepatch_elf_load(struct livepatch_elf *elf, void *data);
 void livepatch_elf_free(struct livepatch_elf *elf);
 
 int livepatch_elf_resolve_symbols(struct livepatch_elf *elf);
-int livepatch_elf_perform_relocs(struct livepatch_elf *elf);
+int livepatch_elf_perform_relocs(struct livepatch_elf *elf, bool fixup);
+Elf_Addr livepatch_elf_use_old_addr(const struct livepatch_elf *elf,
+                                    Elf_Addr new);
 
 static inline bool livepatch_elf_ignore_section(const Elf_Shdr *sec)
 {

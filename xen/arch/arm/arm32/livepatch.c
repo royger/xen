@@ -224,7 +224,7 @@ static int perform_rel(unsigned char type, void *dest, uint32_t val,
 int arch_livepatch_perform(struct livepatch_elf *elf,
                            const struct livepatch_elf_sec *base,
                            const struct livepatch_elf_sec *rela,
-                           bool use_rela)
+                           bool fixup, bool use_rela)
 {
     unsigned int i;
     int rc = 0;
@@ -282,7 +282,20 @@ int arch_livepatch_perform(struct livepatch_elf *elf,
             return -EINVAL;
         }
 
-        val = elf->sym[symndx].sym->st_value; /* S */
+        if ( fixup )
+        {
+            val = livepatch_elf_use_old_addr(elf,
+                                             elf->sym[symndx].sym->st_value);
+            if ( val == elf->sym[symndx].sym->st_value )
+                /* Don't re-apply if the symbol value hasn't changed. */
+                continue;
+            dprintk(XENLOG_DEBUG, LIVEPATCH
+                    "%s: Using old address for symbol %s at reloc %s + %#x\n",
+                    elf->name, elf->sym[symndx].name, base->name,
+                    dest - base->addr);
+        }
+        else
+            val = elf->sym[symndx].sym->st_value; /* S */
 
         rc = perform_rel(type, dest, val, addend);
         switch ( rc )
@@ -307,16 +320,18 @@ int arch_livepatch_perform(struct livepatch_elf *elf,
 
 int arch_livepatch_perform_rel(struct livepatch_elf *elf,
                                const struct livepatch_elf_sec *base,
-                               const struct livepatch_elf_sec *rela)
+                               const struct livepatch_elf_sec *rela,
+                               bool fixup)
 {
-    return arch_livepatch_perform(elf, base, rela, false);
+    return arch_livepatch_perform(elf, base, rela, fixup, false);
 }
 
 int arch_livepatch_perform_rela(struct livepatch_elf *elf,
                                 const struct livepatch_elf_sec *base,
-                                const struct livepatch_elf_sec *rela)
+                                const struct livepatch_elf_sec *rela
+                                bool fixup)
 {
-    return arch_livepatch_perform(elf, base, rela, true);
+    return arch_livepatch_perform(elf, base, rela, fixup, true);
 }
 
 /*

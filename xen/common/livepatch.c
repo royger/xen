@@ -741,6 +741,17 @@ static int prepare_payload(struct payload *payload,
             if ( rc )
                 return rc;
         }
+
+        /*
+         * Do a second pass over the relocations and adjust those that use a
+         * replacement symbol to continue using the old address.  Otherwise
+         * storing those relocated addresses would lead to crashes when the
+         * livepatch is reverted if there are stored references that point to
+         * the reverted symbols.
+         */
+        rc = livepatch_elf_perform_relocs(elf, true);
+        if ( rc )
+           return rc;
     }
 
     LIVEPATCH_ASSIGN_MULTI_HOOK(elf, payload->load_funcs, payload->n_load_funcs, ELF_LIVEPATCH_LOAD_HOOKS);
@@ -1164,7 +1175,7 @@ static int load_payload_data(struct payload *payload, void *raw, size_t len)
     if ( rc )
         goto out;
 
-    rc = livepatch_elf_perform_relocs(&elf);
+    rc = livepatch_elf_perform_relocs(&elf, false);
     if ( rc )
         goto out;
 

@@ -358,7 +358,29 @@ int livepatch_elf_resolve_symbols(struct livepatch_elf *elf)
     return rc;
 }
 
-int livepatch_elf_perform_relocs(struct livepatch_elf *elf)
+Elf_Addr livepatch_elf_use_old_addr(const struct livepatch_elf *elf,
+                                    Elf_Addr new)
+{
+    const struct livepatch_elf_sec *replacements =
+        livepatch_elf_sec_by_name(elf, ELF_LIVEPATCH_FUNC);
+    struct livepatch_func *f;
+    unsigned int i;
+
+    if ( !replacements )
+    {
+        ASSERT_UNREACHABLE();
+        return new;
+    }
+
+    f = replacements->addr;
+    for ( i = 0; i < replacements->sec->sh_size / sizeof(*f); i++ )
+        if ( (Elf_Addr)f[0].new_addr == new )
+            return (Elf_Addr)f[0].old_addr;
+
+    return new;
+}
+
+int livepatch_elf_perform_relocs(struct livepatch_elf *elf, bool fixup)
 {
     struct livepatch_elf_sec *r, *base;
     unsigned int i;
@@ -380,6 +402,40 @@ int livepatch_elf_perform_relocs(struct livepatch_elf *elf)
             continue;
 
          base = &elf->sec[r->sec->sh_info];
+
+         if ( fixup )
+         {
+             static const char *const ignore[] = {
+                 /* Do not fixup the replacement coordinates. */
+                 ELF_LIVEPATCH_FUNC,
+                 /*
+                  * alternatives and exception table fixups need to unconditionally
+                  * reference the new functions, or otherwise they won't be applied
+                  * correctly.
+                  */
+                 ".altinstructions",
+                 ".alt_call_sites",
+                 ".ex_table",
+                 /*
+                  * livepatch hooks use the old function addresses: if there's a need
+                  * for the hooks to call the newly added function replacements a
+                  * non-aliased duplicate must be added.
+                  */
+             };
+             unsigned int j;
+
+             /* Bug frames must use the payload addresses. */
+             if ( !strncmp(base->name, ".bug_frames.", 12) )
+                 continue;
+
+             /* If doing fixups ignore some special sections. */
+             for ( j = 0; j < ARRAY_SIZE(ignore); j++ )
+                 if ( !strcmp(base->name, ignore[j]) )
+                     break;
+
+             if ( j != ARRAY_SIZE(ignore) )
+                 continue;
+         }
 
          /* Don't relocate non-allocated sections. */
          if ( !(base->sec->sh_flags & SHF_ALLOC) )
@@ -410,9 +466,9 @@ int livepatch_elf_perform_relocs(struct livepatch_elf *elf)
         }
 
         if ( r->sec->sh_type == SHT_RELA )
-            rc = arch_livepatch_perform_rela(elf, base, r);
+            rc = arch_livepatch_perform_rela(elf, base, r, fixup);
         else /* SHT_REL */
-            rc = arch_livepatch_perform_rel(elf, base, r);
+            rc = arch_livepatch_perform_rel(elf, base, r, fixup);
 
         if ( rc )
             break;
