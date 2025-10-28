@@ -1111,7 +1111,7 @@ static struct page_info *alloc_heap_pages(
     if ( first_dirty != INVALID_DIRTY_IDX ||
          (scrub_debug && !(memflags & MEMF_no_scrub)) )
     {
-        bool cold = d && d != current->domain;
+        bool cold = d && current && d != current->domain;
 
         if ( !(memflags & MEMF_no_scrub) )
         {
@@ -2105,7 +2105,7 @@ static struct page_info *alloc_color_heap_page(unsigned int memflags,
     if ( !(memflags & MEMF_no_scrub) )
     {
         if ( need_scrub )
-            scrub_one_page(pg, d != current->domain);
+            scrub_one_page(pg, current && d != current->domain);
         else
             check_one_page(pg);
     }
