@@ -327,8 +327,7 @@ static int pv_create_root_pt_l1tab(const struct vcpu *v)
 {
     return create_perdomain_mapping(v->domain,
                                     PV_ROOT_PT_MAPPING_VCPU_VIRT_START(v),
-                                    1, v->domain->arch.pv.root_pt_l1tab,
-                                    NULL);
+                                    1, NIL(l1_pgentry_t *), NULL);
 }
 
 static void pv_destroy_root_pt_l1tab(const struct vcpu *v)
@@ -406,7 +405,6 @@ void pv_domain_destroy(struct domain *d)
     pv_l1tf_domain_destroy(d);
 
     XFREE(d->arch.pv.cpuidmasks);
-    XFREE(d->arch.pv.root_pt_l1tab);
 }
 
 void noreturn cf_check continue_pv_domain(void);
@@ -426,21 +424,7 @@ int pv_domain_initialise(struct domain *d)
          (d->arch.pv.cpuidmasks = xmemdup(&cpuidmask_defaults)) == NULL )
         goto fail;
 
-    rc = create_perdomain_mapping(d, PV_ROOT_PT_MAPPING_VIRT_START,
-                                  d->max_vcpus, NULL, NULL);
-    if ( rc )
-        goto fail;
-
     d->arch.ctxt_switch = &pv_csw;
-
-    if ( d->arch.pv.xpti )
-    {
-        d->arch.pv.root_pt_l1tab =
-            xzalloc_array(l1_pgentry_t *,
-                          DIV_ROUND_UP(d->max_vcpus, L1_PAGETABLE_ENTRIES));
-        if ( !d->arch.pv.root_pt_l1tab )
-            goto fail;
-    }
 
     if ( !is_pv_32bit_domain(d) && use_invpcid && cpu_has_pcid )
         switch ( ACCESS_ONCE(opt_pcid) )

@@ -287,9 +287,6 @@ struct time_scale {
 
 struct pv_domain
 {
-    /* Array of pointers to the l1 PTs holding PV root PTs of each vCPU */
-    l1_pgentry_t **root_pt_l1tab;
-
     atomic_t nr_l4_pages;
 
     /* Is a 32-bit PV guest? */
