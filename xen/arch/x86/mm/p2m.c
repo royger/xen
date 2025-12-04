@@ -2007,11 +2007,15 @@ int xenmem_add_to_physmap_one(
     {
         gmfn = idx;
         mfn = get_gfn_unshare(d, gmfn, &p2mt);
-        /* If the page is still shared, exit early */
-        if ( p2m_is_shared(p2mt) )
+        /*
+         * The mapping at the new position will be created as p2m_ram_rw, so
+         * only allow moving entries with that type to avoid unexpected p2m
+         * type changes as a result of the operation.
+         */
+        if ( p2mt != p2m_ram_rw )
         {
             put_gfn(d, gmfn);
-            return -ENOMEM;
+            return -ENOENT;
         }
         page = get_page_from_mfn(mfn, d);
         if ( unlikely(!page) )
