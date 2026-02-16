@@ -325,10 +325,18 @@ unsigned long __init dom0_paging_pages(const struct domain *d,
  * If allocation isn't specified, reserve 1/16th of available memory for
  * things like DMA buffers. This reservation is clamped to a maximum of 128MB.
  */
-static unsigned long __init default_nr_pages(unsigned long avail)
+static unsigned long __init default_nr_pages(unsigned long avail,
+                                             unsigned long init_images)
 {
-    return avail - (pv_shim ? pv_shim_mem(avail)
-                            : min(avail / 16, 128UL << (20 - PAGE_SHIFT)));
+    unsigned long rsvd = min(avail / 16, 128UL << (20 - PAGE_SHIFT));
+
+    /*
+     * Account for memory consumed by initial images as if it was part of the
+     * reserved amount.
+     */
+    rsvd -= rsvd <= init_images ? rsvd : init_images;
+
+    return avail - (pv_shim ? pv_shim_mem(avail) : rsvd);
 }
 
 unsigned long __init dom0_compute_nr_pages(
@@ -336,14 +344,28 @@ unsigned long __init dom0_compute_nr_pages(
 {
     nodeid_t node;
     unsigned long avail = 0, nr_pages, min_pages, max_pages, iommu_pages = 0;
+    unsigned long init_images = 0;
 
     /* The ordering of operands is to work around a clang5 issue. */
     if ( CONFIG_DOM0_MEM[0] && !dom0_mem_set )
         parse_dom0_mem(CONFIG_DOM0_MEM);
 
     for_each_node_mask ( node, dom0_nodes )
-        avail += avail_domheap_pages_region(node, 0, 0) +
-                 initial_images_nrpages(node);
+    {
+        avail += avail_domheap_pages_region(node, 0, 0);
+        init_images += initial_images_nrpages(node);
+    }
+
+    if ( is_pv_domain(d) )
+    {
+        /*
+         * For PV domains the initrd pages are directly assigned to the
+         * guest, and hence the initrd size counts as free memory that can
+         * be used by the domain.  Set to 0 to prevent further adjustments.
+         */
+        avail += init_images;
+        init_images = 0;
+    }
 
     /* Reserve memory for further dom0 vcpu-struct allocations... */
     avail -= (d->max_vcpus - 1UL)
@@ -367,7 +389,8 @@ unsigned long __init dom0_compute_nr_pages(
     {
         unsigned long cpu_pages;
 
-        nr_pages = get_memsize(&dom0_size, avail) ?: default_nr_pages(avail);
+        nr_pages = get_memsize(&dom0_size, avail) ?:
+                   default_nr_pages(avail, init_images);
 
         /*
          * Clamp according to min/max limits and available memory
@@ -385,7 +408,8 @@ unsigned long __init dom0_compute_nr_pages(
             avail -= cpu_pages - iommu_pages;
     }
 
-    nr_pages = get_memsize(&dom0_size, avail) ?: default_nr_pages(avail);
+    nr_pages = get_memsize(&dom0_size, avail) ?:
+               default_nr_pages(avail, init_images);
     min_pages = get_memsize(&dom0_min_size, avail);
     max_pages = get_memsize(&dom0_max_size, avail);
 
