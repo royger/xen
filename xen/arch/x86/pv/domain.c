@@ -525,7 +525,10 @@ static void _toggle_guest_pt(struct vcpu *v)
         }
     }
 
-    write_ptbase(v);
+    if ( v->domain->arch.pv.xpti )
+        write_ptbase(v);
+    else
+        write_cr3(cr3);
 
     if ( !pagetable_is_null(old_shadow) )
         shadow_put_top_level(v->domain, old_shadow);
