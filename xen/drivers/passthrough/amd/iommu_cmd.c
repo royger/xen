@@ -35,6 +35,10 @@ static void send_iommu_command(struct amd_iommu *iommu,
     if ( tail == iommu->cmd_buffer.size )
         tail = 0;
 
+    printk("head: %x tail: %x\n",
+           readl(iommu->mmio_base + IOMMU_CMD_BUFFER_HEAD_OFFSET),
+           readl(iommu->mmio_base + IOMMU_CMD_BUFFER_TAIL_OFFSET));
+
     while ( tail == (readl(iommu->mmio_base +
                            IOMMU_CMD_BUFFER_HEAD_OFFSET) &
                      IOMMU_RING_BUFFER_PTR_MASK) )
@@ -71,15 +75,26 @@ static void flush_command_buffer(struct amd_iommu *iommu,
     };
     s_time_t start, timeout;
     static unsigned int __read_mostly threshold = 1;
+    unsigned int i = 0;
 
+printk("Q\n");
     ACCESS_ONCE(*this_poll_slot) = CMD_COMPLETION_INIT;
-
+printk("R\n");
     send_iommu_command(iommu, cmd);
+printk("S\n");
 
     start = NOW();
     timeout = start + (timeout_base ?: 100) * MILLISECS(threshold);
+printk("start %"PRI_stime" end %"PRI_stime"\n", start, timeout);
     while ( ACCESS_ONCE(*this_poll_slot) != CMD_COMPLETION_DONE )
     {
+//printk("T\n");
+        if ( !(++i % 100000) )
+        {
+            printk("head: %x tail: %x\n",
+                   readl(iommu->mmio_base + IOMMU_CMD_BUFFER_HEAD_OFFSET),
+                   readl(iommu->mmio_base + IOMMU_CMD_BUFFER_TAIL_OFFSET));
+        }
         if ( timeout && NOW() > timeout )
         {
             threshold |= threshold << 1;
@@ -98,6 +113,7 @@ static void flush_command_buffer(struct amd_iommu *iommu,
                &iommu->sbdf,
                timeout_base ? "iotlb " : "",
                (NOW() - start) / 10000000);
+printk("U\n");
 }
 
 /* Build low level iommu command messages */
@@ -268,12 +284,15 @@ static void invalidate_iommu_all(struct amd_iommu *iommu)
 
     cmd[3] = cmd[2] = cmd[0] = 0;
 
+printk("N\n");
     set_field_in_reg_u32(IOMMU_CMD_INVALIDATE_IOMMU_ALL, 0,
                          IOMMU_CMD_OPCODE_MASK, IOMMU_CMD_OPCODE_SHIFT,
                          &entry);
+printk("O\n");
     cmd[1] = entry;
 
     send_iommu_command(iommu, cmd);
+printk("P\n");
 }
 
 void amd_iommu_flush_iotlb(u8 devfn, const struct pci_dev *pdev,

@@ -875,15 +875,22 @@ static void enable_iommu(struct amd_iommu *iommu)
         return;
     }
 
+printk("%pp: iommu init\n", &iommu->sbdf);
     amd_iommu_erratum_746_workaround(iommu);
 
+printk("A\n");
     register_iommu_dev_table_in_mmio_space(iommu);
+printk("B\n");
     register_iommu_cmd_buffer_in_mmio_space(iommu);
+printk("C\n");
     register_iommu_event_log_in_mmio_space(iommu);
+printk("D\n");
     register_iommu_exclusion_range(iommu);
+printk("E\n");
 
     if ( iommu->features.flds.ppr_sup )
         register_iommu_ppr_log_in_mmio_space(iommu);
+printk("F\n");
 
     if ( iommu->msi.irq > 0 )
     {
@@ -904,9 +911,12 @@ static void enable_iommu(struct amd_iommu *iommu)
             amd_iommu_msi_enable(iommu, IOMMU_CONTROL_ENABLED);
         }
     }
+printk("G\n");
 
     set_iommu_ht_flags(iommu);
+printk("H\n");
     set_iommu_command_buffer_control(iommu, IOMMU_CONTROL_ENABLED);
+printk("I\n");
 
     if ( iommu->msi.irq > 0 )
     {
@@ -915,11 +925,14 @@ static void enable_iommu(struct amd_iommu *iommu)
         if ( iommu->features.flds.ppr_sup )
             set_iommu_ppr_log_control(iommu, IOMMU_CONTROL_ENABLED);
     }
+printk("J\n");
 
     if ( iommu->features.flds.gt_sup )
         set_iommu_guest_translation_control(iommu, IOMMU_CONTROL_ENABLED);
+printk("K\n");
 
     set_iommu_translation_control(iommu, IOMMU_CONTROL_ENABLED);
+printk("L\n");
 
     iommu->enabled = 1;
 
@@ -927,6 +940,7 @@ static void enable_iommu(struct amd_iommu *iommu)
 
     if ( iommu->features.flds.ia_sup )
         amd_iommu_flush_all_caches(iommu);
+printk("M\n");
 }
 
 static void disable_iommu(struct amd_iommu *iommu)
@@ -1473,6 +1487,7 @@ int __init amd_iommu_init(bool xt)
     /* per iommu initialization  */
     for_each_amd_iommu ( iommu )
     {
+        printk("init iommu %pp\n", &iommu->sbdf);
         /*
          * Setting up of the IOMMU interrupts cannot occur yet at the (very
          * early) time we get here when enabling x2APIC mode. Suppress it
@@ -1481,6 +1496,7 @@ int __init amd_iommu_init(bool xt)
         rc = amd_iommu_init_one(iommu, !xt);
         if ( rc )
             goto error_out;
+        printk("iommu init done %pp\n", &iommu->sbdf);
     }
 
     if ( iommu_intremap != iommu_intremap_off )
