@@ -250,12 +250,10 @@ static unsigned int flush_flags;
 void cf_check invalidate_interrupt(void)
 {
     unsigned int flags = flush_flags;
+
     ack_APIC_irq();
     perfc_incr(ipis);
-    if ( (flags & FLUSH_VCPU_STATE) && __sync_local_execstate() )
-        flags &= ~(FLUSH_TLB | FLUSH_TLB_GLOBAL | FLUSH_ROOT_PGTBL);
-    if ( flags & ~(FLUSH_VCPU_STATE | FLUSH_ORDER_MASK) )
-        flush_area_local(flush_va, flags);
+    flush_area_local(flush_va, flags);
     cpumask_clear_cpu(smp_processor_id(), &flush_cpumask);
 }
 
@@ -265,11 +263,8 @@ void flush_area_mask(const cpumask_t *mask, const void *va, unsigned int flags)
 
     /* Local flushes can be performed with interrupts disabled. */
     ASSERT(local_irq_is_enabled() || cpumask_subset(mask, cpumask_of(cpu)));
-    /* Exclude use of FLUSH_VCPU_STATE for the local CPU. */
-    ASSERT(!cpumask_test_cpu(cpu, mask) || !(flags & FLUSH_VCPU_STATE));
 
-    if ( (flags & ~(FLUSH_VCPU_STATE | FLUSH_ORDER_MASK)) &&
-         cpumask_test_cpu(cpu, mask) )
+    if ( (flags & ~FLUSH_ORDER_MASK) && cpumask_test_cpu(cpu, mask) )
         flags = flush_area_local(va, flags);
 
     if ( (flags & ~FLUSH_ORDER_MASK) &&

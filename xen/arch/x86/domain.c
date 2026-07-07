@@ -2158,23 +2158,14 @@ static void __context_switch(void)
 
 void context_switch(struct vcpu *prev, struct vcpu *next)
 {
-    unsigned int cpu = smp_processor_id();
     struct cpu_info *info = get_cpu_info();
     const struct domain *prevd = prev->domain, *nextd = next->domain;
-    unsigned int dirty_cpu = read_atomic(&next->dirty_cpu);
 
     ASSERT(prev != next);
     ASSERT(local_irq_is_enabled());
 
     info->use_pv_cr3 = false;
     info->xen_cr3 = 0;
-
-    if ( unlikely(dirty_cpu != cpu) && dirty_cpu != VCPU_CPU_CLEAN )
-    {
-        /* Remote CPU calls __sync_local_execstate() from flush IPI handler. */
-        flush_mask(cpumask_of(dirty_cpu), FLUSH_VCPU_STATE);
-        ASSERT(!vcpu_cpu_dirty(next));
-    }
 
     _update_runstate_area(prev);
     vpmu_switch_from(prev);
@@ -2187,38 +2178,30 @@ void context_switch(struct vcpu *prev, struct vcpu *next)
 
     set_current(next);
 
-    if ( (per_cpu(curr_vcpu, cpu) == next) ||
-         (is_idle_domain(nextd) && cpu_online(cpu)) )
-    {
-        local_irq_enable();
-    }
-    else
-    {
-        __context_switch();
+    __context_switch();
 
-        /* Re-enable interrupts before restoring state which may fault. */
-        local_irq_enable();
+    /* Re-enable interrupts before restoring state which may fault. */
+    local_irq_enable();
 
-        if ( is_pv_domain(nextd) )
-            load_segments(next);
+    if ( is_pv_domain(nextd) )
+        load_segments(next);
 
-        ctxt_switch_levelling(next);
+    ctxt_switch_levelling(next);
 
-        /*
-         * Issue an IBPB when scheduling a different vCPU if required.
-         *
-         * IBPB clears the RSB/RAS/RAP, but that's fine as we leave this
-         * function via reset_stack_and_call_ind() rather than via a RET
-         * instruction.
-         */
-        if ( opt_ibpb_ctxt_switch )
-            spec_ctrl_new_guest_context();
+    /*
+     * Issue an IBPB when scheduling a different vCPU if required.
+     *
+     * IBPB clears the RSB/RAS/RAP, but that's fine as we leave this
+     * function via reset_stack_and_call_ind() rather than via a RET
+     * instruction.
+     */
+    if ( opt_ibpb_ctxt_switch )
+        spec_ctrl_new_guest_context();
 
-        /* Update the top-of-stack block with the new speculation settings. */
-        info->scf =
-            (info->scf       & ~SCF_DOM_MASK) |
-            (nextd->arch.scf &  SCF_DOM_MASK);
-    }
+    /* Update the top-of-stack block with the new speculation settings. */
+    info->scf =
+        (info->scf       & ~SCF_DOM_MASK) |
+        (nextd->arch.scf &  SCF_DOM_MASK);
 
     sched_context_switched(prev, next);
 
@@ -2238,44 +2221,12 @@ void continue_running(struct vcpu *same)
     reset_stack_and_call_ind(same->domain->arch.ctxt_switch->tail);
 }
 
-int __sync_local_execstate(void)
-{
-    unsigned long flags;
-    int switch_required;
-
-    local_irq_save(flags);
-
-    switch_required = (this_cpu(curr_vcpu) != current);
-
-    if ( switch_required )
-    {
-        ASSERT(current == idle_vcpu[smp_processor_id()]);
-        __context_switch();
-    }
-
-    local_irq_restore(flags);
-
-    return switch_required;
-}
-
 void sync_local_execstate(void)
 {
-    (void)__sync_local_execstate();
 }
 
 void sync_vcpu_execstate(struct vcpu *v)
 {
-    unsigned int dirty_cpu = read_atomic(&v->dirty_cpu);
-
-    if ( dirty_cpu == smp_processor_id() )
-        sync_local_execstate();
-    else if ( is_vcpu_dirty_cpu(dirty_cpu) )
-    {
-        /* Remote CPU calls __sync_local_execstate() from flush IPI handler. */
-        flush_mask(cpumask_of(dirty_cpu), FLUSH_VCPU_STATE);
-    }
-    ASSERT(!is_vcpu_dirty_cpu(dirty_cpu) ||
-           read_atomic(&v->dirty_cpu) != dirty_cpu);
 }
 
 static int relinquish_memory(

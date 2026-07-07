@@ -121,13 +121,11 @@ void switch_cr3_cr4(struct vcpu *v, unsigned long cr3, unsigned long cr4);
 #define FLUSH_CACHE_EVICT 0x400
  /* VA for the flush has a valid mapping */
 #define FLUSH_VA_VALID   0x800
- /* Flush CPU state */
-#define FLUSH_VCPU_STATE 0x1000
  /* Flush the per-cpu root page table */
-#define FLUSH_ROOT_PGTBL 0x2000
+#define FLUSH_ROOT_PGTBL 0x1000
 #if CONFIG_HVM
  /* Flush all HVM guests linear TLB (using ASID/VPID) */
-#define FLUSH_HVM_ASID_CORE 0x4000
+#define FLUSH_HVM_ASID_CORE 0x2000
 #else
 #define FLUSH_HVM_ASID_CORE 0
 #endif
@@ -136,12 +134,12 @@ void switch_cr3_cr4(struct vcpu *v, unsigned long cr3, unsigned long cr4);
  * Adding this to the flags passed to flush_area_mask will prevent using the
  * assisted flush without having any other side effect.
  */
-# define FLUSH_NO_ASSIST 0x8000
+# define FLUSH_NO_ASSIST 0x4000
 #else
 # define FLUSH_NO_ASSIST 0
 #endif
  /* Write back data cache contents */
-#define FLUSH_CACHE_WRITEBACK  0x10000
+#define FLUSH_CACHE_WRITEBACK  0x80000
 
 /* Flush local TLBs/caches. */
 unsigned int flush_area_local(const void *va, unsigned int flags);
