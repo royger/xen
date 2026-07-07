@@ -92,11 +92,6 @@ struct efi_rs_state efi_rs_enter(void)
     if ( mfn_eq(efi_l4_mfn, INVALID_MFN) )
         return state;
 
-    /*
-     * If in lazy idle context switch state sync now to avoid an incoming
-     * FLUSH_VCPU_STATE IPI changing the loaded page-tables.
-     */
-    sync_local_execstate();
     state.cr3 = read_cr3();
     if ( !is_idle_vcpu(current) )
         vcpu_save_fpu(current);

@@ -967,11 +967,6 @@ void vcpu_sleep_sync(struct vcpu *v)
 
     while ( !vcpu_runnable(v) && v->is_running )
         cpu_relax();
-
-    /* Sync state /after/ observing the running flag clear. */
-    smp_rmb();
-
-    sync_vcpu_execstate(v);
 }
 
 void vcpu_wake(struct vcpu *v)

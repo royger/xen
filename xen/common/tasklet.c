@@ -90,7 +90,6 @@ static void do_tasklet_work(unsigned int cpu, struct list_head *list)
     t->is_running = 1;
 
     spin_unlock_irq(&tasklet_lock);
-    sync_local_execstate();
     t->func(t->data);
     spin_lock_irq(&tasklet_lock);
 

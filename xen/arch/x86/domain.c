@@ -2221,14 +2221,6 @@ void continue_running(struct vcpu *same)
     reset_stack_and_call_ind(same->domain->arch.ctxt_switch->tail);
 }
 
-void sync_local_execstate(void)
-{
-}
-
-void sync_vcpu_execstate(struct vcpu *v)
-{
-}
-
 static int relinquish_memory(
     struct domain *d, struct page_list_head *list, unsigned long type)
 {

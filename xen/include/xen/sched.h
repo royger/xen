@@ -894,16 +894,6 @@ void vcpu_sleep_sync(struct vcpu *v);
 void vcpu_kick(struct vcpu *v);
 
 /*
- * Force synchronisation of given VCPU's state. If it is currently descheduled,
- * this call will ensure that all its state is committed to memory and that
- * no CPU is using critical state (e.g., page tables) belonging to the VCPU.
- */
-void sync_vcpu_execstate(struct vcpu *v);
-
-/* As above, for any lazy state being held on the local CPU. */
-void sync_local_execstate(void);
-
-/*
  * Called by the scheduler to switch to another VCPU. This function must
  * call sched_context_switched(@prev, @next) when the local CPU is no longer
  * running in @prev's context, and that context is saved to memory.

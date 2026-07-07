@@ -330,16 +330,6 @@ void continue_running(struct vcpu *same)
     /* Nothing to do */
 }
 
-void sync_local_execstate(void)
-{
-    /* Nothing to do -- no lazy switching */
-}
-
-void sync_vcpu_execstate(struct vcpu *v)
-{
-    /* Nothing to do -- no lazy switching */
-}
-
 #define NEXT_ARG(fmt, args)                                                 \
 ({                                                                          \
     unsigned long __arg;                                                    \
