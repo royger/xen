@@ -409,7 +409,6 @@ static void __init init_idle_domain(void)
 {
     scheduler_init();
     set_current(idle_vcpu[0]);
-    this_cpu(curr_vcpu) = current;
 }
 
 void srat_detect_node(int cpu)

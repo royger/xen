@@ -77,8 +77,6 @@
 #include <compat/vcpu.h>
 #endif
 
-DEFINE_PER_CPU(struct vcpu *, curr_vcpu);
-
 static void cf_check default_idle(void);
 void (*pm_idle) (void) __read_mostly = default_idle;
 void (*dead_idle) (void) __read_mostly = default_dead_idle;
@@ -2086,12 +2084,10 @@ static void load_default_gdt(unsigned int cpu)
     per_cpu(full_gdt_loaded, cpu) = false;
 }
 
-static void __context_switch(void)
+static void __context_switch(struct vcpu *p, struct vcpu *n)
 {
     struct cpu_user_regs *stack_regs = guest_cpu_user_regs();
     unsigned int          cpu = smp_processor_id();
-    struct vcpu          *p = per_cpu(curr_vcpu, cpu);
-    struct vcpu          *n = current;
     struct domain        *pd = p->domain, *nd = n->domain;
 
     ASSERT(p != n);
@@ -2152,8 +2148,6 @@ static void __context_switch(void)
     if ( pd != nd )
         cpumask_clear_cpu(cpu, pd->dirty_cpumask);
     write_atomic(&p->dirty_cpu, VCPU_CPU_CLEAN);
-
-    per_cpu(curr_vcpu, cpu) = n;
 }
 
 void context_switch(struct vcpu *prev, struct vcpu *next)
@@ -2178,7 +2172,7 @@ void context_switch(struct vcpu *prev, struct vcpu *next)
 
     set_current(next);
 
-    __context_switch();
+    __context_switch(prev, next);
 
     /* Re-enable interrupts before restoring state which may fault. */
     local_irq_enable();

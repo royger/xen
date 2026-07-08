@@ -1078,7 +1078,6 @@ static int cpu_smpboot_alloc(unsigned int cpu)
     init_shadow_spec_ctrl_state(info);
 
     info->current_vcpu = idle_vcpu[cpu]; /* set_current() */
-    per_cpu(curr_vcpu, cpu) = idle_vcpu[cpu];
     per_cpu(pgtable_vcpu, cpu) = idle_vcpu[cpu];
 
     gdt = per_cpu(gdt, cpu) ?: alloc_xenheap_pages(0, memflags);

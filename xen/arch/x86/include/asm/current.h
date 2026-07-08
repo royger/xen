@@ -212,11 +212,4 @@ unsigned long get_stack_dump_bottom (unsigned long sp);
         switch_stack_and_jump(fn, "INDIRECT_CALL %", "b");              \
     })
 
-/*
- * Which VCPU's state is currently running on each CPU?
- * This is not necesasrily the same as 'current' as a CPU may be
- * executing a lazy state switch.
- */
-DECLARE_PER_CPU(struct vcpu *, curr_vcpu);
-
 #endif /* __X86_CURRENT_H__ */
