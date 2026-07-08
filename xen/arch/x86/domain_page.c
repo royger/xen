@@ -18,42 +18,6 @@
 #include <asm/hardirq.h>
 #include <asm/setup.h>
 
-static inline struct vcpu *mapcache_current_vcpu(void)
-{
-    struct vcpu *v = this_cpu(pgtable_vcpu);
-    struct vcpu *curr = current;
-
-    /*
-     * During early boot pgtable_vcpu is not set, callers must handle NULL.
-     * Non-PV domains don't have a mapcache, the directmap covers all physical
-     * address space.
-     */
-    if ( !v || !is_pv_vcpu(v) )
-        return NULL;
-
-    /*
-     * If we are in a lazy context-switch state from a PV vCPU do a full switch
-     * to the idle vCPU now, otherwise an incoming FLUSH_VCPU_STATE IPI would
-     * change the page tables under our feet an invalidate any in-use mapcache
-     * entries.
-     */
-    if ( unlikely(this_cpu(curr_vcpu) != curr) )
-    {
-        ASSERT(curr == idle_vcpu[smp_processor_id()]);
-        sync_local_execstate();
-        /* We must now be running on the idle page table. */
-        ASSERT(cr3_pa(read_cr3()) == __pa(idle_pg_table));
-    }
-
-    /*
-     * At this point we can guarantee Xen is not in lazy context switch: either
-     * the code above will have synced the state, or an incoming
-     * FLUSH_VCPU_STATE IPI has done so behind our back.  Use ACCESS_ONCE to
-     * ensure the compiler never returns the locally cached pgtable_vcpu value.
-     */
-    return ACCESS_ONCE(this_cpu(pgtable_vcpu));
-}
-
 #define mapcache_l2_entry(e) ((e) >> PAGETABLE_ORDER)
 #define MAPCACHE_L2_ENTRIES (mapcache_l2_entry(MAPCACHE_ENTRIES - 1) + 1)
 #define MAPCACHE_L1ENT(idx) \
@@ -63,7 +27,7 @@ void *map_domain_page(mfn_t mfn)
 {
     unsigned long flags;
     unsigned int idx, i;
-    struct vcpu *v;
+    struct vcpu *v = this_cpu(pgtable_vcpu);
     struct mapcache_domain *dcache;
     struct mapcache_vcpu *vcache;
     struct vcpu_maphash_entry *hashent;
@@ -73,7 +37,6 @@ void *map_domain_page(mfn_t mfn)
         return mfn_to_virt(mfn_x(mfn));
 #endif
 
-    v = mapcache_current_vcpu();
     if ( !v || !is_pv_vcpu(v) )
         return mfn_to_virt(mfn_x(mfn));
 
@@ -168,7 +131,7 @@ void *map_domain_page(mfn_t mfn)
 void unmap_domain_page(const void *ptr)
 {
     unsigned int idx;
-    struct vcpu *v;
+    struct vcpu *v = this_cpu(pgtable_vcpu);
     struct mapcache_domain *dcache;
     unsigned long va = (unsigned long)ptr, mfn, flags;
     struct vcpu_maphash_entry *hashent;
@@ -178,7 +141,6 @@ void unmap_domain_page(const void *ptr)
 
     ASSERT(va >= MAPCACHE_VIRT_START && va < MAPCACHE_VIRT_END);
 
-    v = mapcache_current_vcpu();
     ASSERT(v && is_pv_vcpu(v));
 
     dcache = &v->domain->arch.pv.mapcache;
