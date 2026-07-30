@@ -373,6 +373,16 @@ static uint32_t vpci_read_hw(pci_sbdf_t sbdf, unsigned int reg,
     if ( !is_hardware_domain(current->domain) )
         return ~(uint32_t)0;
 
+    /*
+     * Force handling of non-aligned accesses to MMCFG, as otherwise using
+     * legacy IO ports will mangle the address.
+     */
+    if ( !IS_ALIGNED(reg, size) )
+    {
+        pci_mmcfg_read(sbdf.seg, sbdf.bus, sbdf.devfn, reg, size, &data);
+        return data;
+    }
+
     switch ( size )
     {
     case 4:
@@ -419,6 +429,16 @@ static void vpci_write_hw(pci_sbdf_t sbdf, unsigned int reg, unsigned int size,
     /* Guest domains are not allowed to write real hardware. */
     if ( !is_hardware_domain(current->domain) )
         return;
+
+    /*
+     * Force handling of non-aligned accesses to MMCFG, as otherwise using
+     * legacy IO ports will mangle the address.
+     */
+    if ( !IS_ALIGNED(reg, size) )
+    {
+        pci_mmcfg_write(sbdf.seg, sbdf.bus, sbdf.devfn, reg, size, data);
+        return;
+    }
 
     switch ( size )
     {
@@ -685,6 +705,8 @@ void vpci_write(pci_sbdf_t sbdf, unsigned int reg, unsigned int size,
 /* Helper function to check an access size and alignment on vpci space. */
 bool vpci_access_allowed(unsigned int reg, unsigned int len)
 {
+    const struct domain *currd = current->domain;
+
     /* Check access size. */
     if ( len != 1 && len != 2 && len != 4 && len != 8 )
         return false;
@@ -696,7 +718,7 @@ bool vpci_access_allowed(unsigned int reg, unsigned int len)
 #endif
 
     /* Check that access is size aligned. */
-    if ( (reg & (len - 1)) )
+    if ( !is_hardware_domain(currd) && !IS_ALIGNED(reg, len) )
         return false;
 
     return true;
