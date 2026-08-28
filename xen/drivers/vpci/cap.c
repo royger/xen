@@ -303,14 +303,25 @@ int vpci_init_capabilities(struct pci_dev *pdev, bool ext_only)
     for ( unsigned int i = 0; i < NUM_VPCI_INIT; i++ )
     {
         const vpci_capability_t *capability = &__start_vpci_array[i];
-        const unsigned int cap = capability->id;
+        const unsigned int cap = capability->id, vendor = capability->vendor;
         const bool is_ext = capability->is_ext;
         unsigned int pos = 0;
 
-        if ( !is_ext )
-            pos = !ext_only ? pci_find_cap_offset(pdev->sbdf, cap) : 0;
-        else if ( is_hardware_domain(pdev->domain) )
-            pos = pci_find_ext_capability(pdev, cap);
+        if ( vendor )
+        {
+            if ( !is_ext )
+                /* TODO: implement non-extended vendor capability support. */
+                ASSERT_UNREACHABLE();
+            else if ( is_hardware_domain(pdev->domain) )
+                pos =  pci_find_vsec_capability(pdev, vendor, cap);
+        }
+        else
+        {
+            if ( !is_ext )
+                pos = !ext_only ? pci_find_cap_offset(pdev->sbdf, cap) : 0;
+            else if ( is_hardware_domain(pdev->domain) )
+                pos = pci_find_ext_capability(pdev, cap);
+        }
 
         if ( !pos )
             continue;

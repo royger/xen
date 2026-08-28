@@ -25,24 +25,29 @@ struct vpci_register {
 
 typedef struct {
     unsigned int id;
+    unsigned int vendor;
     bool is_ext;
     int (* init)(struct pci_dev *pdev);
     int (* cleanup)(const struct pci_dev *pdev, bool hide);
 } vpci_capability_t;
 
-#define REGISTER_VPCI_CAPABILITY(cap, name, finit, fclean, ext) \
+#define REGISTER_VPCI_CAPABILITY(cap, vndr, name, finit, fclean, ext) \
     static const vpci_capability_t name##_entry \
         __used_section(".data.rel.ro.vpci") = { \
         .id = (cap), \
+        .vendor = (vndr), \
         .init = (finit), \
         .cleanup = (fclean), \
         .is_ext = (ext), \
     }
 
 #define REGISTER_VPCI_CAP(name, finit, fclean) \
-    REGISTER_VPCI_CAPABILITY(PCI_CAP_ID_##name, name, finit, fclean, false)
+    REGISTER_VPCI_CAPABILITY(PCI_CAP_ID_##name, 0, name, finit, fclean, false)
 #define REGISTER_VPCI_EXTCAP(name, finit, fclean) \
-    REGISTER_VPCI_CAPABILITY(PCI_EXT_CAP_ID_##name, name, finit, fclean, true)
+    REGISTER_VPCI_CAPABILITY(PCI_EXT_CAP_ID_##name, 0, name, finit, fclean, \
+                             true)
+#define REGISTER_VPCI_EXTCAP_VNDR(id, vndr, finit, fclean) \
+    REGISTER_VPCI_CAPABILITY(id, vndr, vsec_##vndr##_##id, finit, fclean, true)
 
 int __must_check vpci_init_header(struct pci_dev *pdev);
 
