@@ -140,6 +140,37 @@ unsigned int pci_find_next_ext_capability(const struct pci_dev *pdev,
     return 0;
 }
 
+/**
+ * pci_find_vsec_capability - Find a vendor-specific extended capability
+ * @pdev: PCI device to query
+ * @vendor: Vendor ID for which capability is defined
+ * @cap: Vendor-specific capability ID
+ *
+ * If @pdev has Vendor ID @vendor, search for a VSEC capability with
+ * VSEC ID @cap. If found, return the capability offset in
+ * config space; otherwise return 0.
+ */
+unsigned int pci_find_vsec_capability(const struct pci_dev *pdev,
+                                      unsigned int vendor,
+                                      unsigned int cap)
+{
+    uint16_t vsec = 0;
+
+    if ( vendor != pci_conf_read16(pdev->sbdf, PCI_VENDOR_ID) )
+        return 0;
+
+    while ( (vsec = pci_find_next_ext_capability(pdev, vsec,
+                                                 PCI_EXT_CAP_ID_VNDR)) != 0 )
+    {
+        uint32_t header = pci_conf_read32(pdev->sbdf, vsec + PCI_VNDR_HEADER);
+
+        if ( PCI_VNDR_HEADER_ID(header) == cap )
+            break;
+    }
+
+    return vsec;
+}
+
 void pci_intx(const struct pci_dev *pdev, bool enable)
 {
     uint16_t cmd = pci_conf_read16(pdev->sbdf, PCI_COMMAND);
